@@ -11,7 +11,9 @@ const PRIMARY_ITEMS: NavItem[] = [
   { href: "/clients", label: "Clients" },
   { href: "/jobs", label: "Jobs" },
   { href: "/candidates", label: "Candidates" },
+  { href: "/interviews", label: "Interviews" },
   { href: "/lists", label: "Lists" },
+  { href: "/sequences", label: "Sequences" },
   { href: "/knowledge", label: "Knowledge Base" },
   { href: "/templates", label: "Templates" },
 ];
@@ -19,6 +21,7 @@ const PRIMARY_ITEMS: NavItem[] = [
 const ADMIN_ITEMS: NavItem[] = [
   { href: "/tasks", label: "Tasks" },
   { href: "/users", label: "Users" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function SidebarClient({

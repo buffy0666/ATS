@@ -18,11 +18,9 @@ import { extractResumeText } from "@/lib/resume-parser/extract";
 import { saveResume } from "@/lib/uploads";
 import { tagColorForName } from "@/lib/tag-colors";
 import {
-  CandidateSource,
   CandidateStatus,
   EmploymentType,
   RemotePref,
-  Seniority,
   WorkAuth,
 } from "@/generated/prisma";
 
@@ -151,7 +149,9 @@ const candidateSchema = z.object({
   currentTitle: optionalString(160),
   currentCompany: optionalString(160),
   yearsExperience: optionalInt(0, 80),
-  seniority: optionalEnum(Seniority),
+  // source and seniority are now user-editable strings backed by ChoiceOption.
+  // Accepted as free text; the form picks from the registry.
+  seniority: optionalString(80),
 
   // Compensation
   desiredSalaryMin: optionalInt(0, 100_000_000),
@@ -175,7 +175,7 @@ const candidateSchema = z.object({
   specialties: stringList(120),
 
   // Source & ownership
-  source: optionalEnum(CandidateSource),
+  source: optionalString(80),
   sourceDetail: optionalString(200),
   sourcedById: optionalString(50),
   referredByUserId: optionalString(50),

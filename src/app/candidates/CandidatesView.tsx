@@ -4,11 +4,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
-  CandidateSource,
   CandidateStatus,
   EmploymentType,
   RemotePref,
-  Seniority,
   WorkAuth,
 } from "@/generated/prisma";
 import { tagClass } from "@/lib/tag-colors";
@@ -27,6 +25,7 @@ import { ADVANCED_FILTER_KEYS } from "./search-params";
 import { SelectionToolbar } from "./SelectionToolbar";
 
 type Tag = { id: string; name: string; color: string };
+type ChoiceOption = { id: string; name: string };
 
 export type CandidateRow = {
   id: string;
@@ -46,7 +45,7 @@ export type CandidateRow = {
   currentTitle: string | null;
   currentCompany: string | null;
   yearsExperience: number | null;
-  seniority: Seniority | null;
+  seniority: string | null;
   workAuthorization: WorkAuth | null;
   requiresSponsorship: boolean;
   desiredSalaryMin: number | null;
@@ -59,7 +58,7 @@ export type CandidateRow = {
   remotePref: RemotePref[];
   industries: string[];
   specialties: string[];
-  source: CandidateSource | null;
+  source: string | null;
   sourceDetail: string | null;
   lastContactedAt: Date | null;
   nextFollowUpAt: Date | null;
@@ -72,6 +71,7 @@ export type CandidateRow = {
   tags: Tag[];
   applicationCount: number;
   jobs: { applicationId: string; jobId: string; jobTitle: string; stage: string }[];
+  lists: { listId: string; listName: string }[];
 };
 
 export function CandidatesView({
@@ -80,19 +80,25 @@ export function CandidatesView({
   savedSearches = [],
   currentUserId = "",
   listId,
+  sourceOptions = [],
+  seniorityOptions = [],
 }: {
   candidates: CandidateRow[];
   availableTags: Tag[];
   savedSearches?: SavedSearchEntry[];
   currentUserId?: string;
   listId?: string;
+  sourceOptions?: ChoiceOption[];
+  seniorityOptions?: ChoiceOption[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [columns, setColumns] = useState<Set<ColumnKey>>(new Set(DEFAULT_COLUMNS));
+  const [columnOrder, setColumnOrder] = useState<ColumnKey[]>([...DEFAULT_COLUMNS]);
   const [hydrated, setHydrated] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [draggingKey, setDraggingKey] = useState<ColumnKey | null>(null);
+  const [dropTargetKey, setDropTargetKey] = useState<ColumnKey | null>(null);
 
   // Drop selections for candidates no longer in the visible result set
   // (e.g. when a filter narrows the list). Selections survive column
@@ -127,6 +133,8 @@ export function CandidatesView({
   const allSelected = candidates.length > 0 && selectedIds.size === candidates.length;
   const someSelected = selectedIds.size > 0 && !allSelected;
 
+  const knownKeys = useMemo(() => new Set(COLUMN_DEFS.map((c) => c.key)), []);
+
   // Load column choices from localStorage on mount.
   useEffect(() => {
     try {
@@ -134,46 +142,68 @@ export function CandidatesView({
       if (raw) {
         const arr = JSON.parse(raw);
         if (Array.isArray(arr) && arr.every((k) => typeof k === "string")) {
-          setColumns(new Set(arr as ColumnKey[]));
+          // Filter out any column keys that no longer exist (renamed/removed),
+          // and de-dupe while preserving order.
+          const seen = new Set<string>();
+          const cleaned: ColumnKey[] = [];
+          for (const k of arr as ColumnKey[]) {
+            if (knownKeys.has(k) && !seen.has(k)) {
+              seen.add(k);
+              cleaned.push(k);
+            }
+          }
+          setColumnOrder(cleaned);
         }
       }
     } catch {
       // ignore
     }
     setHydrated(true);
-  }, []);
+  }, [knownKeys]);
 
   // Persist column choices.
   useEffect(() => {
     if (!hydrated) return;
     try {
-      localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify([...columns]));
+      localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(columnOrder));
     } catch {
       // ignore
     }
-  }, [columns, hydrated]);
+  }, [columnOrder, hydrated]);
 
   function toggleColumn(key: ColumnKey) {
-    setColumns((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+    setColumnOrder((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  }
+
+  function resetColumns() {
+    setColumnOrder([...DEFAULT_COLUMNS]);
+  }
+
+  function showAllColumns() {
+    setColumnOrder(COLUMN_DEFS.map((c) => c.key));
+  }
+
+  function moveColumn(sourceKey: ColumnKey, targetKey: ColumnKey) {
+    if (sourceKey === targetKey) return;
+    setColumnOrder((prev) => {
+      const next = prev.filter((k) => k !== sourceKey);
+      const insertAt = next.indexOf(targetKey);
+      if (insertAt < 0) return prev;
+      next.splice(insertAt, 0, sourceKey);
       return next;
     });
   }
 
-  function resetColumns() {
-    setColumns(new Set(DEFAULT_COLUMNS));
-  }
+  const visibleSet = useMemo(() => new Set(columnOrder), [columnOrder]);
 
-  function showAllColumns() {
-    setColumns(new Set(COLUMN_DEFS.map((c) => c.key)));
-  }
-
-  const activeColumns = useMemo(
-    () => COLUMN_DEFS.filter((c) => columns.has(c.key)),
-    [columns],
-  );
+  const activeColumns = useMemo(() => {
+    const byKey = new Map(COLUMN_DEFS.map((c) => [c.key, c] as const));
+    return columnOrder
+      .map((k) => byKey.get(k))
+      .filter((c): c is ColumnDef => Boolean(c));
+  }, [columnOrder]);
 
   const groupedColumns = useMemo(() => {
     const groups = new Map<string, ColumnDef[]>();
@@ -247,6 +277,9 @@ export function CandidatesView({
                   </button>
                 </div>
               </div>
+              <p className="mb-2 text-[11px] text-zinc-500">
+                Tip: drag column headers in the table to reorder them.
+              </p>
               <div className="space-y-3">
                 {groupedColumns.map(([category, cols]) => (
                   <div key={category}>
@@ -258,7 +291,7 @@ export function CandidatesView({
                         <label key={col.key} className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
-                            checked={columns.has(col.key)}
+                            checked={visibleSet.has(col.key)}
                             onChange={() => toggleColumn(col.key)}
                             className="rounded border-zinc-300 dark:border-zinc-700"
                           />
@@ -275,7 +308,11 @@ export function CandidatesView({
       </div>
 
       <div className="mb-4">
-        <AdvancedFilters availableTags={availableTags} />
+        <AdvancedFilters
+          availableTags={availableTags}
+          sourceOptions={sourceOptions}
+          seniorityOptions={seniorityOptions}
+        />
       </div>
 
       <div className="text-xs text-zinc-500 mb-2">
@@ -304,14 +341,58 @@ export function CandidatesView({
                   />
                 </th>
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Name</th>
-                {activeColumns.map((c) => (
-                  <th
-                    key={c.key}
-                    className={`px-4 py-2 font-medium whitespace-nowrap ${c.align === "right" ? "text-right" : ""}`}
-                  >
-                    {c.label}
-                  </th>
-                ))}
+                {activeColumns.map((c) => {
+                  const isDragging = draggingKey === c.key;
+                  const isDropTarget = dropTargetKey === c.key && draggingKey !== c.key;
+                  return (
+                    <th
+                      key={c.key}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/plain", c.key);
+                        e.dataTransfer.effectAllowed = "move";
+                        setDraggingKey(c.key);
+                      }}
+                      onDragEnter={() => {
+                        if (draggingKey && draggingKey !== c.key) setDropTargetKey(c.key);
+                      }}
+                      onDragOver={(e) => {
+                        if (draggingKey && draggingKey !== c.key) {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                        }
+                      }}
+                      onDragLeave={() => {
+                        if (dropTargetKey === c.key) setDropTargetKey(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const sourceKey = e.dataTransfer.getData("text/plain") as ColumnKey;
+                        if (sourceKey) moveColumn(sourceKey, c.key);
+                        setDraggingKey(null);
+                        setDropTargetKey(null);
+                      }}
+                      onDragEnd={() => {
+                        setDraggingKey(null);
+                        setDropTargetKey(null);
+                      }}
+                      title="Drag to reorder"
+                      className={`px-4 py-2 font-medium whitespace-nowrap select-none cursor-grab active:cursor-grabbing ${
+                        c.align === "right" ? "text-right" : ""
+                      } ${isDragging ? "opacity-40" : ""} ${
+                        isDropTarget ? "border-l-2 border-zinc-900 dark:border-zinc-100" : ""
+                      }`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="inline-block mr-1 text-zinc-400 group-hover:text-zinc-600"
+                      >
+                        ⋮⋮
+                      </span>
+                      {c.label}
+                    </th>
+                  );
+                })}
                 <th className="px-4 py-2 font-medium text-right w-20"></th>
               </tr>
             </thead>
@@ -414,6 +495,22 @@ function renderCell(c: CandidateRow, key: ColumnKey): React.ReactNode {
       );
     case "applications":
       return c.applicationCount;
+    case "lists":
+      return c.lists.length === 0 ? (
+        "—"
+      ) : (
+        <div className="flex flex-wrap gap-1 max-w-md">
+          {c.lists.map((l) => (
+            <Link
+              key={l.listId}
+              href={`/lists/${l.listId}`}
+              className="inline-flex items-center gap-1 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200 px-2 py-0.5 text-xs hover:bg-indigo-200 dark:hover:bg-indigo-900/60"
+            >
+              {l.listName}
+            </Link>
+          ))}
+        </div>
+      );
     case "jobs":
       return c.jobs.length === 0 ? (
         "—"

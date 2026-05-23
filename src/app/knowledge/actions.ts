@@ -1,11 +1,10 @@
 "use server";
 
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { saveAttachment } from "@/lib/uploads";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const ALLOWED_FILE_TYPES = new Set([
@@ -24,16 +23,10 @@ async function saveKnowledgeFile(file: File): Promise<string> {
   if (file.type && !ALLOWED_FILE_TYPES.has(file.type)) {
     throw new Error("Unsupported file type.");
   }
-
-  const dir = path.join(process.cwd(), "public", "uploads", "knowledge");
-  await fs.mkdir(dir, { recursive: true });
-
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const filename = `${Date.now()}-${safeName}`;
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(path.join(dir, filename), buffer);
-
-  return `/uploads/knowledge/${filename}`;
+  // saveAttachment handles both Vercel Blob (when BLOB_READ_WRITE_TOKEN is set)
+  // and the local filesystem fallback. Knowledge files live under uploads/knowledge.
+  const result = await saveAttachment(file, "knowledge");
+  return result.url;
 }
 
 export async function addKnowledgeItem(formData: FormData) {

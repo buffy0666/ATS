@@ -186,9 +186,53 @@ enum ListScope {
   SHARED
 }
 
+enum SequenceStepType {
+  EMAIL
+  CALL
+  TEXT
+  LINKEDIN
+  TASK
+}
+
+enum SequenceStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELED
+}
+
+enum StepRunStatus {
+  PENDING
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
 enum SavedSearchScope {
   PERSONAL
   SHARED
+}
+
+enum InterviewType {
+  PHONE_SCREEN
+  TECHNICAL
+  ONSITE
+  FINAL
+  CULTURE_FIT
+  OTHER
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELED
+  NO_SHOW
+  RESCHEDULED
 }
 
 model Tag {
@@ -226,6 +270,14 @@ model User {
   lists               CandidateList[]
   listMembersAdded    CandidateListMember[] @relation("ListMemberAdder")
   savedSearches       SavedSearch[]
+  sequencesCreated    Sequence[]            @relation("SequenceCreator")
+  enrollmentsCreated  SequenceEnrollment[]  @relation("SequenceEnroller")
+  stepRunsCompleted   StepRun[]             @relation("StepRunCompleter")
+
+  // Calendar
+  iCalToken             String?              @unique
+  interviewsOrganized   Interview[]          @relation("InterviewOrganizer")
+  interviewAttendances  InterviewAttendee[]  @relation("InterviewAttendeeUser")
 }
 
 model Job {
@@ -337,7 +389,7 @@ model Candidate {
   currentTitle    String?
   currentCompany  String?
   yearsExperience Int?
-  seniority       Seniority?
+  seniority       String?
 
   // Compensation
   desiredSalaryMin Int?
@@ -356,7 +408,11 @@ model Candidate {
   specialties String[] @default([])
 
   // Source & ownership
-  source              CandidateSource?
+  // `source` and `seniority` used to be Prisma enums; they're now free-form
+  // strings backed by the editable ChoiceOption registry (field="candidate.source"
+  // and "candidate.seniority"). The enums remain in schema as TS type exports
+  // so existing imports keep resolving.
+  source              String?
   sourceDetail        String?
   sourcedById         String?
   sourcedBy           User?            @relation("CandidateSourcer", fields: [sourcedById], references: [id])
@@ -397,6 +453,8 @@ model Candidate {
   eeo             CandidateEEO?
   activities      CandidateActivity[]
   listMemberships CandidateListMember[]
+  interviews      Interview[]
+  enrollments     SequenceEnrollment[]
 
   @@index([status])
   @@index([sourcedById])
@@ -414,10 +472,12 @@ model Application {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  job       Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  candidate Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
-  notes     Note[]
-  emails    EmailLog[]
+  job         Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate   Candidate            @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  notes       Note[]
+  emails      EmailLog[]
+  interviews  Interview[]
+  enrollments SequenceEnrollment[]
 
   @@unique([jobId, candidateId])
   @@index([jobId, stage])
@@ -446,14 +506,15 @@ model KnowledgeItem {
 }
 
 model EmailTemplate {
-  id          String   @id @default(cuid())
-  name        String
-  subject     String
-  body        String
-  createdById String?
-  createdBy   User?    @relation("EmailTemplateCreator", fields: [createdById], references: [id])
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String         @id @default(cuid())
+  name          String
+  subject       String
+  body          String
+  createdById   String?
+  createdBy     User?          @relation("EmailTemplateCreator", fields: [createdById], references: [id])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  sequenceSteps SequenceStep[]
 
   @@index([createdById])
 }
@@ -482,6 +543,7 @@ model EmailLog {
   candidate   Candidate?   @relation(fields: [candidateId], references: [id], onDelete: SetNull)
   application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
   fromUser    User         @relation(fields: [fromUserId], references: [id])
+  stepRun     StepRun?
 
   @@index([candidateId, sentAt])
   @@index([applicationId, sentAt])
@@ -641,4 +703,156 @@ model SavedSearch {
 
   @@index([ownerId])
   @@index([scope])
+}
+
+model Interview {
+  id            String          @id @default(cuid())
+  applicationId String?
+  candidateId   String
+  title         String
+  type          InterviewType
+  status        InterviewStatus @default(SCHEDULED)
+  startAt       DateTime
+  endAt         DateTime
+  timezone      String?
+  location      String?
+  videoUrl      String?
+  description   String?
+  organizerId   String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  application Application?        @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  candidate   Candidate           @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  organizer   User                @relation("InterviewOrganizer", fields: [organizerId], references: [id])
+  attendees   InterviewAttendee[]
+
+  @@index([candidateId, startAt])
+  @@index([organizerId, startAt])
+  @@index([startAt])
+  @@index([status])
+}
+
+model InterviewAttendee {
+  id          String  @id @default(cuid())
+  interviewId String
+  userId      String?
+  email       String
+  name        String?
+  role        String?
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  user      User?     @relation("InterviewAttendeeUser", fields: [userId], references: [id])
+
+  @@index([interviewId])
+  @@index([userId])
+}
+
+// User-editable lookup registry for "soft" choice fields (Candidate.source,
+// Candidate.seniority, etc). The candidate column stores the option's `name`
+// directly — rename is an updateMany, delete sets affected records to null.
+model ChoiceOption {
+  id        String   @id @default(cuid())
+  field     String
+  name      String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([field, name])
+  @@index([field, active, sortOrder])
+}
+
+// ----- Sequences (multi-step cadences) -----
+
+model Sequence {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  status      SequenceStatus @default(ACTIVE)
+  createdById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  createdBy   User?                @relation("SequenceCreator", fields: [createdById], references: [id])
+  steps       SequenceStep[]
+  enrollments SequenceEnrollment[]
+
+  @@index([status])
+  @@index([createdById])
+}
+
+model SequenceStep {
+  id        String           @id @default(cuid())
+  sequenceId String
+  order      Int
+  type       SequenceStepType
+  delayDays  Int              @default(0)
+
+  // EMAIL-only
+  emailTemplateId String?
+  subject         String?
+  body            String?
+
+  // Manual-task-only (CALL/TEXT/LINKEDIN/TASK)
+  taskTitle        String?
+  taskInstructions String?
+
+  sequence      Sequence       @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  emailTemplate EmailTemplate? @relation(fields: [emailTemplateId], references: [id], onDelete: SetNull)
+  runs          StepRun[]
+
+  @@unique([sequenceId, order])
+  @@index([sequenceId])
+}
+
+model SequenceEnrollment {
+  id            String           @id @default(cuid())
+  sequenceId    String
+  candidateId   String
+  applicationId String?
+  enrolledById  String?
+  status        EnrollmentStatus @default(ACTIVE)
+  startedAt     DateTime         @default(now())
+  pausedAt      DateTime?
+  completedAt   DateTime?
+
+  sequence    Sequence     @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  candidate   Candidate    @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  enrolledBy  User?        @relation("SequenceEnroller", fields: [enrolledById], references: [id])
+  stepRuns    StepRun[]
+
+  @@unique([sequenceId, candidateId])
+  @@index([candidateId])
+  @@index([status])
+  @@index([enrolledById, status])
+}
+
+model StepRun {
+  id           String        @id @default(cuid())
+  enrollmentId String
+  stepId       String
+  scheduledFor DateTime
+  status       StepRunStatus @default(PENDING)
+
+  // EMAIL only
+  emailLogId        String? @unique
+  resendScheduledId String?
+
+  // Manual task only
+  completedAt   DateTime?
+  completedById String?
+  outcomeNote   String?
+
+  errorMessage String?
+
+  enrollment  SequenceEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  step        SequenceStep       @relation(fields: [stepId], references: [id], onDelete: Cascade)
+  emailLog    EmailLog?          @relation(fields: [emailLogId], references: [id], onDelete: SetNull)
+  completedBy User?              @relation("StepRunCompleter", fields: [completedById], references: [id])
+
+  @@index([scheduledFor, status])
+  @@index([enrollmentId])
 }

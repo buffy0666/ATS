@@ -8,11 +8,9 @@ import {
   type CandidateResumeParseResult,
 } from "../candidate-form-types";
 import {
-  CandidateSource,
   CandidateStatus,
   EmploymentType,
   RemotePref,
-  Seniority,
   WorkAuth,
 } from "@/generated/prisma";
 import { TagInput } from "@/components/TagInput";
@@ -21,6 +19,7 @@ import type { EducationItem, ParsedResume, WorkHistoryItem } from "@/lib/resume-
 type UserOption = { id: string; name: string | null; email: string };
 type ContactOption = { id: string; firstName: string; lastName: string; clientName: string };
 type TagOption = { id: string; name: string; color: string };
+type ChoiceOption = { id: string; name: string };
 
 const initialCandidateResumeParseResult: CandidateResumeParseResult = {
   status: "idle",
@@ -46,22 +45,6 @@ const WORK_AUTH_LABEL: Record<WorkAuth, string> = {
   NOT_AUTHORIZED: "Not authorized to work",
 };
 
-const SENIORITY_LABEL: Record<Seniority, string> = {
-  INTERN: "Intern",
-  ENTRY: "Entry",
-  JUNIOR: "Junior",
-  MID: "Mid",
-  SENIOR: "Senior",
-  STAFF: "Staff",
-  PRINCIPAL: "Principal",
-  LEAD: "Lead",
-  MANAGER: "Manager",
-  SENIOR_MANAGER: "Senior manager",
-  DIRECTOR: "Director",
-  VP: "VP",
-  C_LEVEL: "C-level",
-};
-
 const EMPLOYMENT_TYPE_LABEL: Record<EmploymentType, string> = {
   FULL_TIME: "Full-time",
   PART_TIME: "Part-time",
@@ -76,19 +59,6 @@ const REMOTE_PREF_LABEL: Record<RemotePref, string> = {
   ONSITE: "Onsite",
   HYBRID: "Hybrid",
   REMOTE: "Remote",
-};
-
-const SOURCE_LABEL: Record<CandidateSource, string> = {
-  LINKEDIN: "LinkedIn",
-  REFERRAL: "Referral",
-  JOB_BOARD: "Job board",
-  AGENCY: "Agency",
-  INBOUND: "Inbound",
-  OUTBOUND: "Outbound",
-  CAREER_SITE: "Career site",
-  EVENT: "Event",
-  RECRUITER_NETWORK: "Recruiter network",
-  OTHER: "Other",
 };
 
 const STATUS_LABEL: Record<CandidateStatus, string> = {
@@ -106,11 +76,15 @@ export function CandidateForm({
   contacts,
   allTags,
   currentUserId,
+  sourceOptions,
+  seniorityOptions,
 }: {
   users: UserOption[];
   contacts: ContactOption[];
   allTags: TagOption[];
   currentUserId: string;
+  sourceOptions: ChoiceOption[];
+  seniorityOptions: ChoiceOption[];
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [fields, setFields] = useState<CandidateFieldValues>(emptyCandidateFieldValues);
@@ -324,9 +298,9 @@ export function CandidateForm({
           />
           <StaticSelect label="Seniority" name="seniority">
             <option value="">— Not set —</option>
-            {(Object.keys(SENIORITY_LABEL) as Seniority[]).map((k) => (
-              <option key={k} value={k}>
-                {SENIORITY_LABEL[k]}
+            {seniorityOptions.map((o) => (
+              <option key={o.id} value={o.name}>
+                {o.name}
               </option>
             ))}
           </StaticSelect>
@@ -404,9 +378,9 @@ export function CandidateForm({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <StaticSelect label="Source" name="source">
             <option value="">— Unknown —</option>
-            {(Object.keys(SOURCE_LABEL) as CandidateSource[]).map((k) => (
-              <option key={k} value={k}>
-                {SOURCE_LABEL[k]}
+            {sourceOptions.map((o) => (
+              <option key={o.id} value={o.name}>
+                {o.name}
               </option>
             ))}
           </StaticSelect>

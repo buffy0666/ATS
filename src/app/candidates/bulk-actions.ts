@@ -242,3 +242,13 @@ export async function openJobsForBulk(): Promise<{ id: string; title: string }[]
     take: 200,
   });
 }
+
+export async function activeSequencesForBulk(): Promise<{ id: string; name: string }[]> {
+  await requireSession();
+  return prisma.sequence.findMany({
+    where: { status: "ACTIVE" },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+    take: 200,
+  });
+}

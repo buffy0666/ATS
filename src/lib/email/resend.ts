@@ -34,6 +34,25 @@ export class ResendProvider implements EmailProvider {
       payload.html ? { html: payload.html } : { text: payload.text! }
     ) as { html: string } | { text: string };
 
+    // Pull attachments out of the loosely-typed providerMeta. Resend's SDK
+    // accepts `attachments: [{ filename, content (base64 or Buffer), contentType }]`.
+    const attachments = Array.isArray(payload.providerMeta?.attachments)
+      ? (payload.providerMeta.attachments as Array<{
+          filename: string;
+          content: string;
+          contentType?: string;
+        }>)
+      : undefined;
+
+    // Future-dated sends — Resend's API accepts an ISO timestamp via `scheduledAt`
+    // and holds the message until then. We forward whatever the caller put on
+    // providerMeta.scheduledAt; sequence StepRun dispatch uses this.
+    const scheduledAtRaw = payload.providerMeta?.scheduledAt;
+    const scheduledAt =
+      typeof scheduledAtRaw === "string" && scheduledAtRaw.length > 0
+        ? scheduledAtRaw
+        : undefined;
+
     const { data, error } = await this.client.emails.send({
       from,
       to: payload.to,
@@ -44,6 +63,8 @@ export class ResendProvider implements EmailProvider {
       ...content,
       // Send text alongside html when both are provided (improves deliverability).
       ...(payload.html && payload.text ? { text: payload.text } : {}),
+      ...(attachments ? { attachments } : {}),
+      ...(scheduledAt ? { scheduledAt } : {}),
     });
 
     if (error) {
@@ -54,5 +75,18 @@ export class ResendProvider implements EmailProvider {
     }
 
     return { id: data.id, provider: this.name };
+  }
+
+  async cancelScheduled(messageId: string): Promise<void> {
+    if (!messageId) return;
+    const { error } = await this.client.emails.cancel(messageId);
+    if (error) {
+      // 404 / already-sent both surface as errors but aren't actionable for the
+      // caller — we just want to know "this message id is no longer pending".
+      // Re-throw anything else.
+      const msg = (error.message ?? "").toLowerCase();
+      if (msg.includes("not found") || msg.includes("already")) return;
+      throw new EmailProviderError(this.name, error.message ?? "cancel failed", error);
+    }
   }
 }

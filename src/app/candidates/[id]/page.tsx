@@ -6,12 +6,17 @@ import { EmailComposer } from "./EmailComposer";
 import { EmailHistory } from "./EmailHistory";
 import { NotesSection } from "./NotesSection";
 import {
+  CandidateSequencesSection,
+  type CandidateEnrollment,
+} from "./CandidateSequencesSection";
+import {
   CandidateStatus,
-  CandidateSource,
   EmploymentType,
+  EnrollmentStatus,
   RemotePref,
   Role,
-  Seniority,
+  SequenceStatus,
+  StepRunStatus,
   WorkAuth,
 } from "@/generated/prisma";
 import { tagClass } from "@/lib/tag-colors";
@@ -34,7 +39,7 @@ const WORK_AUTH_LABEL: Record<WorkAuth, string> = {
   NOT_AUTHORIZED: "Not authorized to work",
 };
 
-const SENIORITY_LABEL: Record<Seniority, string> = {
+const SENIORITY_LABEL: Record<string, string> = {
   INTERN: "Intern",
   ENTRY: "Entry",
   JUNIOR: "Junior",
@@ -66,7 +71,7 @@ const REMOTE_PREF_LABEL: Record<RemotePref, string> = {
   REMOTE: "Remote",
 };
 
-const SOURCE_LABEL: Record<CandidateSource, string> = {
+const SOURCE_LABEL: Record<string, string> = {
   LINKEDIN: "LinkedIn",
   REFERRAL: "Referral",
   JOB_BOARD: "Job board",
@@ -106,54 +111,71 @@ export default async function CandidateDetailPage({
 }) {
   const { id } = await params;
 
-  const [candidate, session, notes, templates] = await Promise.all([
-    prisma.candidate.findUnique({
-      where: { id },
-      include: {
-        applications: {
-          include: { job: true },
-          orderBy: { createdAt: "desc" },
-        },
-        emails: {
-          orderBy: { sentAt: "desc" },
-          include: {
-            fromUser: { select: { name: true, email: true } },
-            application: { select: { job: { select: { title: true } } } },
+  const [candidate, session, notes, templates, candidateEnrollments, availableSequences] =
+    await Promise.all([
+      prisma.candidate.findUnique({
+        where: { id },
+        include: {
+          applications: {
+            include: { job: true },
+            orderBy: { createdAt: "desc" },
+          },
+          emails: {
+            orderBy: { sentAt: "desc" },
+            include: {
+              fromUser: { select: { name: true, email: true } },
+              application: { select: { job: { select: { title: true } } } },
+            },
+          },
+          tags: true,
+          sourcedBy: { select: { id: true, name: true, email: true } },
+          referredByUser: { select: { id: true, name: true, email: true } },
+          referredByContact: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              client: { select: { id: true, name: true } },
+            },
           },
         },
-        tags: true,
-        sourcedBy: { select: { id: true, name: true, email: true } },
-        referredByUser: { select: { id: true, name: true, email: true } },
-        referredByContact: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            client: { select: { id: true, name: true } },
+      }),
+      auth(),
+      prisma.note.findMany({
+        where: { application: { candidateId: id } },
+        orderBy: { createdAt: "desc" },
+        include: {
+          author: { select: { name: true, email: true } },
+          application: {
+            select: {
+              id: true,
+              stage: true,
+              job: { select: { id: true, title: true } },
+            },
           },
         },
-      },
-    }),
-    auth(),
-    prisma.note.findMany({
-      where: { application: { candidateId: id } },
-      orderBy: { createdAt: "desc" },
-      include: {
-        author: { select: { name: true, email: true } },
-        application: {
-          select: {
-            id: true,
-            stage: true,
-            job: { select: { id: true, title: true } },
+      }),
+      prisma.emailTemplate.findMany({
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, subject: true, body: true },
+      }),
+      prisma.sequenceEnrollment.findMany({
+        where: { candidateId: id },
+        orderBy: { startedAt: "desc" },
+        include: {
+          sequence: { select: { id: true, name: true } },
+          stepRuns: {
+            select: { id: true, status: true, scheduledFor: true },
+            orderBy: { scheduledFor: "asc" },
           },
         },
-      },
-    }),
-    prisma.emailTemplate.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, subject: true, body: true },
-    }),
-  ]);
+      }),
+      prisma.sequence.findMany({
+        where: { status: SequenceStatus.ACTIVE },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+    ]);
 
   if (!candidate) notFound();
 
@@ -171,8 +193,33 @@ export default async function CandidateDetailPage({
       ? `${formatSalary(candidate.desiredSalaryMin) ?? "?"} – ${formatSalary(candidate.desiredSalaryMax) ?? "?"}`
       : null;
 
+  const enrollmentsForUI: CandidateEnrollment[] = candidateEnrollments.map((e) => {
+    const total = e.stepRuns.length;
+    const completed = e.stepRuns.filter((r) => r.status === StepRunStatus.COMPLETED).length;
+    const next = e.stepRuns.find((r) => r.status === StepRunStatus.PENDING);
+    return {
+      id: e.id,
+      status: e.status,
+      startedAt: e.startedAt,
+      sequence: e.sequence,
+      totalSteps: total,
+      completedSteps: completed,
+      nextScheduledFor: next?.scheduledFor ?? null,
+    };
+  });
+
+  // Hide sequences the candidate is already actively enrolled in from the picker.
+  const activeEnrollmentIds = new Set(
+    candidateEnrollments
+      .filter((e) => e.status === EnrollmentStatus.ACTIVE || e.status === EnrollmentStatus.PAUSED)
+      .map((e) => e.sequence.id),
+  );
+  const enrollableSequences = availableSequences.filter((s) => !activeEnrollmentIds.has(s.id));
+
   return (
-    <main className="flex-1 max-w-4xl mx-auto w-full px-6 py-10">
+    <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6 lg:items-start">
+        <div className="min-w-0">
       <Link href="/candidates" className="text-sm text-zinc-500 hover:underline">
         ← All candidates
       </Link>
@@ -232,9 +279,17 @@ export default async function CandidateDetailPage({
       )}
 
       <section className="mt-6">
-        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          Jobs ({candidate.applications.length})
-        </h2>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Jobs ({candidate.applications.length})
+          </h2>
+          <Link
+            href={`/interviews/new?candidateId=${candidate.id}`}
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800"
+          >
+            Schedule interview
+          </Link>
+        </div>
         {candidate.applications.length === 0 ? (
           <p className="text-sm text-zinc-500">Not associated with any job yet.</p>
         ) : (
@@ -288,7 +343,7 @@ export default async function CandidateDetailPage({
         />
         <Detail
           label="Seniority"
-          value={candidate.seniority ? SENIORITY_LABEL[candidate.seniority] : null}
+          value={candidate.seniority ? (SENIORITY_LABEL[candidate.seniority] ?? candidate.seniority) : null}
         />
       </DetailGrid>
 
@@ -379,7 +434,7 @@ export default async function CandidateDetailPage({
       <DetailGrid title="Source & ownership">
         <Detail
           label="Source"
-          value={candidate.source ? SOURCE_LABEL[candidate.source] : null}
+          value={candidate.source ? (SOURCE_LABEL[candidate.source] ?? candidate.source) : null}
         />
         <Detail label="Source detail" value={candidate.sourceDetail} />
         <Detail
@@ -450,6 +505,16 @@ export default async function CandidateDetailPage({
         </section>
       )}
 
+      <CandidateSequencesSection
+        candidateId={candidate.id}
+        enrollments={enrollmentsForUI}
+        availableSequences={enrollableSequences}
+        applications={candidate.applications.map((a) => ({
+          id: a.id,
+          jobTitle: a.job.title,
+        }))}
+      />
+
       <section className="mt-8">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
@@ -475,18 +540,22 @@ export default async function CandidateDetailPage({
         <EmailHistory emails={candidate.emails} />
       </section>
 
-      <NotesSection
-        candidateId={candidate.id}
-        notes={notes}
-        applications={candidate.applications.map((a) => ({
-          id: a.id,
-          jobTitle: a.job.title,
-          stage: a.stage,
-        }))}
-        currentUserId={session?.user?.id ?? ""}
-        currentUserIsAdmin={session?.user?.role === Role.ADMIN}
-      />
+        </div>
 
+        <aside className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
+          <NotesSection
+            candidateId={candidate.id}
+            notes={notes}
+            applications={candidate.applications.map((a) => ({
+              id: a.id,
+              jobTitle: a.job.title,
+              stage: a.stage,
+            }))}
+            currentUserId={session?.user?.id ?? ""}
+            currentUserIsAdmin={session?.user?.role === Role.ADMIN}
+          />
+        </aside>
+      </div>
     </main>
   );
 }

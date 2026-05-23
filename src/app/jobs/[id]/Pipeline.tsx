@@ -88,6 +88,12 @@ function Card({ app, stages }: { app: App; stages: Stage[] }) {
           </option>
         ))}
       </select>
+      <Link
+        href={`/interviews/new?candidateId=${app.candidate.id}&applicationId=${app.id}`}
+        className="mt-2 block text-center rounded border border-zinc-200 dark:border-zinc-700 px-2 py-1 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+      >
+        Schedule
+      </Link>
     </div>
   );
 }

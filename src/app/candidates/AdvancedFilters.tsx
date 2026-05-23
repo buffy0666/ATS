@@ -3,11 +3,9 @@
 import { useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  CandidateSource,
   CandidateStatus,
   EmploymentType,
   RemotePref,
-  Seniority,
   WorkAuth,
 } from "@/generated/prisma";
 import {
@@ -18,15 +16,22 @@ import {
 } from "./search-params";
 
 type TagOption = { id: string; name: string; color: string };
+type ChoiceOption = { id: string; name: string };
 
 const STATUS_OPTIONS = Object.values(CandidateStatus);
-const SOURCE_OPTIONS = Object.values(CandidateSource);
 const WORK_AUTH_OPTIONS = Object.values(WorkAuth);
-const SENIORITY_OPTIONS = Object.values(Seniority);
 const REMOTE_PREF_OPTIONS = Object.values(RemotePref);
 const EMPLOYMENT_TYPE_OPTIONS = Object.values(EmploymentType);
 
-export function AdvancedFilters({ availableTags }: { availableTags: TagOption[] }) {
+export function AdvancedFilters({
+  availableTags,
+  sourceOptions,
+  seniorityOptions,
+}: {
+  availableTags: TagOption[];
+  sourceOptions: ChoiceOption[];
+  seniorityOptions: ChoiceOption[];
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(() => hasAnyAdvancedFilter(searchParams));
@@ -87,8 +92,9 @@ export function AdvancedFilters({ availableTags }: { availableTags: TagOption[] 
               label="Source"
               paramKey="source"
               params={params}
-              options={SOURCE_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, " ") }))}
+              options={sourceOptions.map((o) => ({ value: o.name, label: o.name }))}
               onToggle={toggleMultiValue}
+              emptyMessage="No sources defined — add some in Settings."
             />
             <MultiSelectGroup
               label="Tags"
@@ -109,8 +115,9 @@ export function AdvancedFilters({ availableTags }: { availableTags: TagOption[] 
               label="Seniority"
               paramKey="seniority"
               params={params}
-              options={SENIORITY_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, " ") }))}
+              options={seniorityOptions.map((o) => ({ value: o.name, label: o.name }))}
               onToggle={toggleMultiValue}
+              emptyMessage="No seniority levels defined — add some in Settings."
             />
             <MultiSelectGroup
               label="Remote preference"

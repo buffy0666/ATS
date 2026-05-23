@@ -19,6 +19,7 @@
     "@auth/prisma-adapter": "^2.11.2",
     "@prisma/client": "^6.19.3",
     "@types/pdf-parse": "^1.1.5",
+    "@vercel/blob": "^2.4.0",
     "bcryptjs": "^3.0.3",
     "mammoth": "^1.12.0",
     "next": "16.2.6",

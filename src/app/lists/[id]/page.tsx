@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
+import { CHOICE_FIELDS, loadChoiceOptions } from "@/lib/choices";
 import { CandidatesView, type CandidateRow } from "@/app/candidates/CandidatesView";
-import { deleteList } from "../actions";
+import { ListHeader } from "./ListHeader";
 
 export default async function ListDetailPage({
   params,
@@ -26,7 +27,7 @@ export default async function ListDetailPage({
     redirect("/lists?error=not-found");
   }
 
-  const [candidates, availableTags] = await Promise.all([
+  const [candidates, availableTags, sourceOptions, seniorityOptions] = await Promise.all([
     prisma.candidate.findMany({
       where: { listMemberships: { some: { listId: id } } },
       orderBy: { createdAt: "desc" },
@@ -40,6 +41,11 @@ export default async function ListDetailPage({
           },
           orderBy: { createdAt: "desc" },
         },
+        listMemberships: {
+          select: {
+            list: { select: { id: true, name: true } },
+          },
+        },
         _count: { select: { applications: true } },
       },
       take: 500,
@@ -48,6 +54,8 @@ export default async function ListDetailPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true, color: true },
     }),
+    loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
+    loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
   ]);
 
   const rows: CandidateRow[] = candidates.map((c) => ({
@@ -99,55 +107,40 @@ export default async function ListDetailPage({
       jobTitle: a.job.title,
       stage: a.stage,
     })),
+    lists: c.listMemberships.map((m) => ({
+      listId: m.list.id,
+      listName: m.list.name,
+    })),
   }));
 
   const isOwner = list.ownerId === session.user.id;
-
-  async function handleDelete() {
-    "use server";
-    await deleteList(id);
-  }
+  const ownerLabel = isOwner ? "you" : list.owner.name ?? list.owner.email;
 
   return (
     <main className="flex-1 max-w-[120rem] mx-auto w-full px-6 py-10">
       <Link href="/lists" className="text-sm text-zinc-500 hover:underline">
         ← All lists
       </Link>
-      <div className="mt-1 flex flex-wrap items-baseline gap-3">
-        <h1 className="text-2xl font-semibold">{list.name}</h1>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs uppercase tracking-wide ${
-            list.scope === "SHARED"
-              ? "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
-              : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-          }`}
-        >
-          {list.scope.toLowerCase()}
-        </span>
-        <span className="text-sm text-zinc-500">
-          {list._count.members} member{list._count.members === 1 ? "" : "s"} · owned by{" "}
-          {isOwner ? "you" : list.owner.name ?? list.owner.email}
-        </span>
-        {isOwner && (
-          <form action={handleDelete} className="ml-auto">
-            <button
-              type="submit"
-              className="rounded-md border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 px-3 py-1.5 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-950/30"
-            >
-              Delete list
-            </button>
-          </form>
-        )}
-      </div>
-
-      {list.description && (
-        <p className="mt-2 max-w-3xl text-sm text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap">
-          {list.description}
-        </p>
-      )}
+      <ListHeader
+        list={{
+          id: list.id,
+          name: list.name,
+          description: list.description,
+          scope: list.scope,
+        }}
+        memberCount={list._count.members}
+        isOwner={isOwner}
+        ownerLabel={ownerLabel}
+      />
 
       <div className="mt-6">
-        <CandidatesView candidates={rows} availableTags={availableTags} listId={list.id} />
+        <CandidatesView
+          candidates={rows}
+          availableTags={availableTags}
+          listId={list.id}
+          sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
+          seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
+        />
       </div>
     </main>
   );

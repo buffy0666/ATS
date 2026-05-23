@@ -1,43 +1,15 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { put, del } from "@vercel/blob";
 
 export const MAX_RESUME_BYTES = 10 * 1024 * 1024;
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 export const ALLOWED_RESUME_TYPES = new Set([
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
-
-/**
- * Persist an uploaded resume to /public/uploads and return its public URL path.
- *
- * Throws on size or MIME-type violations. Callers are responsible for any
- * additional gating (auth, rate-limiting) — this helper trusts what it's given.
- *
- * The destination is on the local filesystem, which is ephemeral on serverless
- * platforms (Vercel). Swap for S3 / R2 / Vercel Blob before deploying to prod.
- */
-export async function saveResume(file: File): Promise<string> {
-  if (file.size > MAX_RESUME_BYTES) {
-    throw new Error("Resume exceeds 10 MB limit.");
-  }
-  if (file.type && !ALLOWED_RESUME_TYPES.has(file.type)) {
-    throw new Error("Unsupported resume type. Use PDF or DOCX.");
-  }
-
-  const dir = path.join(process.cwd(), "public", "uploads");
-  await fs.mkdir(dir, { recursive: true });
-
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const filename = `${Date.now()}-${safeName}`;
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(path.join(dir, filename), buffer);
-
-  return `/uploads/${filename}`;
-}
-
-export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 export type SavedAttachment = {
   url: string;
@@ -47,10 +19,76 @@ export type SavedAttachment = {
 };
 
 /**
- * Persist a generic file attachment under /public/uploads/<subdir>.
+ * Storage backend selection.
  *
- * Accepts any MIME type up to MAX_ATTACHMENT_BYTES. Same caveats as
- * saveResume — the local filesystem is ephemeral on serverless platforms.
+ * - In production (Vercel): set `BLOB_READ_WRITE_TOKEN` and uploads go to
+ *   Vercel Blob. URLs are absolute `https://...blob.vercel-storage.com/...`.
+ * - In dev (no token): uploads fall back to `public/uploads/` on the local
+ *   filesystem. URLs are root-relative `/uploads/<filename>`.
+ *
+ * Vercel's runtime filesystem is ephemeral and read-only, so the local-disk
+ * path will silently lose files in production — never enable that path there.
+ */
+function useBlobStorage(): boolean {
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
+
+function safeFilename(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+async function saveToBlob(
+  file: File,
+  pathname: string,
+  contentType?: string,
+): Promise<string> {
+  const blob = await put(pathname, file, {
+    access: "public",
+    contentType: contentType ?? file.type ?? undefined,
+    addRandomSuffix: false, // We already prepend Date.now() for uniqueness.
+  });
+  return blob.url;
+}
+
+async function saveToDisk(
+  file: File,
+  subdir: string | null,
+  filename: string,
+): Promise<string> {
+  const segments = ["public", "uploads", ...(subdir ? [subdir] : [])];
+  const dir = path.join(process.cwd(), ...segments);
+  await fs.mkdir(dir, { recursive: true });
+  const buffer = Buffer.from(await file.arrayBuffer());
+  await fs.writeFile(path.join(dir, filename), buffer);
+  const urlPath = ["/uploads", ...(subdir ? [subdir] : []), filename].join("/");
+  return urlPath;
+}
+
+/**
+ * Persist a resume upload. Returns a public URL — absolute when using Vercel
+ * Blob, root-relative when using the local-disk dev fallback.
+ *
+ * Throws on size or MIME-type violations. Caller is responsible for any
+ * additional gating (auth, rate-limiting) — this helper trusts what it's given.
+ */
+export async function saveResume(file: File): Promise<string> {
+  if (file.size > MAX_RESUME_BYTES) {
+    throw new Error("Resume exceeds 10 MB limit.");
+  }
+  if (file.type && !ALLOWED_RESUME_TYPES.has(file.type)) {
+    throw new Error("Unsupported resume type. Use PDF or DOCX.");
+  }
+
+  const filename = `${Date.now()}-${safeFilename(file.name)}`;
+  if (useBlobStorage()) {
+    return saveToBlob(file, `uploads/${filename}`);
+  }
+  return saveToDisk(file, null, filename);
+}
+
+/**
+ * Persist a generic file attachment under uploads/<subdir>. Accepts any MIME
+ * type up to MAX_ATTACHMENT_BYTES.
  */
 export async function saveAttachment(file: File, subdir: string): Promise<SavedAttachment> {
   if (file.size === 0) {
@@ -61,26 +99,41 @@ export async function saveAttachment(file: File, subdir: string): Promise<SavedA
   }
 
   const safeSubdir = subdir.replace(/[^a-zA-Z0-9_-]/g, "");
-  const dir = path.join(process.cwd(), "public", "uploads", safeSubdir);
-  await fs.mkdir(dir, { recursive: true });
+  const filename = `${Date.now()}-${safeFilename(file.name)}`;
 
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const filename = `${Date.now()}-${safeName}`;
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(path.join(dir, filename), buffer);
+  const url = useBlobStorage()
+    ? await saveToBlob(file, `uploads/${safeSubdir}/${filename}`)
+    : await saveToDisk(file, safeSubdir, filename);
 
   return {
-    url: `/uploads/${safeSubdir}/${filename}`,
+    url,
     name: file.name,
     size: file.size,
     mimeType: file.type || null,
   };
 }
 
-/** Best-effort removal of an attachment file. Silently ignores missing files. */
+/**
+ * Best-effort removal of an attachment. Silently ignores missing files.
+ * Handles both Vercel Blob URLs (absolute https) and local-disk URLs (/uploads/...).
+ */
 export async function removeAttachmentFile(publicUrl: string): Promise<void> {
-  if (!publicUrl.startsWith("/uploads/")) return;
-  const relative = publicUrl.replace(/^\/+/, "");
-  const target = path.join(process.cwd(), "public", relative);
-  await fs.rm(target, { force: true });
+  if (!publicUrl) return;
+
+  // Vercel Blob URL — absolute https URL pointing at the configured store.
+  if (publicUrl.startsWith("https://") && publicUrl.includes(".blob.vercel-storage.com")) {
+    try {
+      await del(publicUrl);
+    } catch {
+      // Already deleted or never existed — fine.
+    }
+    return;
+  }
+
+  // Local-disk dev URL.
+  if (publicUrl.startsWith("/uploads/")) {
+    const relative = publicUrl.replace(/^\/+/, "");
+    const target = path.join(process.cwd(), "public", relative);
+    await fs.rm(target, { force: true });
+  }
 }

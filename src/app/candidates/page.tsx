@@ -1,15 +1,14 @@
 import { auth } from "@/auth";
 import {
-  CandidateSource,
   CandidateStatus,
   EmploymentType,
   Prisma,
   RemotePref,
   SavedSearchScope,
-  Seniority,
   WorkAuth,
 } from "@/generated/prisma";
 import { hasSearchInput, searchCandidates } from "@/lib/candidate-search";
+import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 import { prisma } from "@/lib/prisma";
 import { CandidatesView, type CandidateRow } from "./CandidatesView";
 import type { SavedSearchEntry } from "./SavedSearchesMenu";
@@ -41,6 +40,16 @@ export default async function CandidatesPage({
   const session = await auth();
   const sp = await searchParams;
 
+  // Seed default options on first load so the filter dropdowns always have
+  // something selectable — this is cheap and idempotent.
+  await Promise.all([
+    ensureChoiceDefaults(CHOICE_FIELDS.candidateSource.key, CHOICE_FIELDS.candidateSource.defaults),
+    ensureChoiceDefaults(
+      CHOICE_FIELDS.candidateSeniority.key,
+      CHOICE_FIELDS.candidateSeniority.defaults,
+    ),
+  ]);
+
   const where = buildCandidateWhere(sp);
 
   // Run FTS first so we can intersect candidate IDs with the structured filters.
@@ -49,16 +58,22 @@ export default async function CandidatesPage({
     ftsIds = await searchCandidates(sp.q);
     if (ftsIds && ftsIds.length === 0) {
       // Tsquery ran cleanly but matched nothing — short-circuit.
-      const availableTags = await prisma.tag.findMany({
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, color: true },
-      });
+      const [availableTags, sourceOptions, seniorityOptions] = await Promise.all([
+        prisma.tag.findMany({
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, color: true },
+        }),
+        loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
+        loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
+      ]);
       return (
         <CandidatesView
           candidates={[]}
           availableTags={availableTags}
           savedSearches={await loadSavedSearches(session?.user?.id)}
           currentUserId={session?.user?.id ?? ""}
+          sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
+          seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
         />
       );
     }
@@ -70,30 +85,38 @@ export default async function CandidatesPage({
     }
   }
 
-  const [candidates, availableTags, savedSearches] = await Promise.all([
-    prisma.candidate.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      include: {
-        tags: { select: { id: true, name: true, color: true } },
-        applications: {
-          select: {
-            id: true,
-            stage: true,
-            job: { select: { id: true, title: true } },
+  const [candidates, availableTags, savedSearches, sourceOptions, seniorityOptions] =
+    await Promise.all([
+      prisma.candidate.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: {
+          tags: { select: { id: true, name: true, color: true } },
+          applications: {
+            select: {
+              id: true,
+              stage: true,
+              job: { select: { id: true, title: true } },
+            },
+            orderBy: { createdAt: "desc" },
           },
-          orderBy: { createdAt: "desc" },
+          listMemberships: {
+            select: {
+              list: { select: { id: true, name: true } },
+            },
+          },
+          _count: { select: { applications: true } },
         },
-        _count: { select: { applications: true } },
-      },
-      take: 500,
-    }),
-    prisma.tag.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, color: true },
-    }),
-    loadSavedSearches(session?.user?.id),
-  ]);
+        take: 500,
+      }),
+      prisma.tag.findMany({
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, color: true },
+      }),
+      loadSavedSearches(session?.user?.id),
+      loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
+      loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
+    ]);
 
   // If we ran FTS, re-sort by relevance order (the IDs come back ranked from
   // ts_rank); otherwise leave the createdAt-desc order from findMany.
@@ -152,6 +175,10 @@ export default async function CandidatesPage({
       jobTitle: a.job.title,
       stage: a.stage,
     })),
+    lists: c.listMemberships.map((m) => ({
+      listId: m.list.id,
+      listName: m.list.name,
+    })),
   }));
 
   return (
@@ -160,6 +187,8 @@ export default async function CandidatesPage({
       availableTags={availableTags}
       savedSearches={savedSearches}
       currentUserId={session?.user?.id ?? ""}
+      sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
+      seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
     />
   );
 }
@@ -191,7 +220,7 @@ function buildCandidateWhere(sp: SearchParamsShape): Prisma.CandidateWhereInput 
   const statuses = filterEnumValues(parseMultiValue(sp.status), CandidateStatus);
   if (statuses.length > 0) where.status = { in: statuses };
 
-  const sources = filterEnumValues(parseMultiValue(sp.source), CandidateSource);
+  const sources = parseMultiValue(sp.source);
   if (sources.length > 0) where.source = { in: sources };
 
   const tags = parseMultiValue(sp.tag);
@@ -200,7 +229,7 @@ function buildCandidateWhere(sp: SearchParamsShape): Prisma.CandidateWhereInput 
   const workAuths = filterEnumValues(parseMultiValue(sp.workAuth), WorkAuth);
   if (workAuths.length > 0) where.workAuthorization = { in: workAuths };
 
-  const seniorities = filterEnumValues(parseMultiValue(sp.seniority), Seniority);
+  const seniorities = parseMultiValue(sp.seniority);
   if (seniorities.length > 0) where.seniority = { in: seniorities };
 
   const remotes = filterEnumValues(parseMultiValue(sp.remotePref), RemotePref);

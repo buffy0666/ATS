@@ -36,6 +36,12 @@ export interface EmailProvider {
   /** Human-readable name, used in logs and EmailLog rows. */
   readonly name: string;
   send(payload: EmailPayload): Promise<EmailSendResult>;
+  /**
+   * Cancel a previously-scheduled (future-dated) send. No-ops or throws if the
+   * provider doesn't support cancellation. Sequence pause/cancel uses this to
+   * stop pending outbound emails.
+   */
+  cancelScheduled(messageId: string): Promise<void>;
 }
 
 export class EmailProviderError extends Error {

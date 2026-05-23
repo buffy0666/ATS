@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 import { CandidateForm } from "./CandidateForm";
 
 export default async function NewCandidatePage() {
@@ -8,7 +9,17 @@ export default async function NewCandidatePage() {
     return null;
   }
 
-  const [users, contacts, allTags] = await Promise.all([
+  // Lazy-seed default options so the form's dropdowns always have something
+  // selectable, even on a fresh database.
+  await Promise.all([
+    ensureChoiceDefaults(CHOICE_FIELDS.candidateSource.key, CHOICE_FIELDS.candidateSource.defaults),
+    ensureChoiceDefaults(
+      CHOICE_FIELDS.candidateSeniority.key,
+      CHOICE_FIELDS.candidateSeniority.defaults,
+    ),
+  ]);
+
+  const [users, contacts, allTags, sourceOptions, seniorityOptions] = await Promise.all([
     prisma.user.findMany({
       orderBy: { name: "asc" },
       select: { id: true, name: true, email: true },
@@ -27,6 +38,8 @@ export default async function NewCandidatePage() {
       orderBy: { name: "asc" },
       select: { id: true, name: true, color: true },
     }),
+    loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
+    loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
   ]);
 
   const contactOptions = contacts.map((c) => ({
@@ -44,6 +57,8 @@ export default async function NewCandidatePage() {
         contacts={contactOptions}
         allTags={allTags}
         currentUserId={session.user.id ?? ""}
+        sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
+        seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
       />
     </main>
   );

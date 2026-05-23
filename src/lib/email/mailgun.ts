@@ -25,4 +25,10 @@ export class MailgunProvider implements EmailProvider {
       "Mailgun provider is not implemented yet. Switch EMAIL_PROVIDER to 'resend' or finish wiring this file.",
     );
   }
+
+  async cancelScheduled(_messageId: string): Promise<void> {
+    // Mailgun doesn't expose a cancel endpoint for the older "deliverytime"
+    // header; if/when this provider gets wired, decide whether to no-op or
+    // throw. For now, no-op so sequence pause doesn't blow up under mailgun.
+  }
 }

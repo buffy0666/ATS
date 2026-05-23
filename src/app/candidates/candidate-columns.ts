@@ -6,6 +6,7 @@ export type ColumnKey =
   | "status"
   | "rating"
   | "tags"
+  | "lists"
   | "jobs"
   | "applications"
   | "city"
@@ -51,6 +52,7 @@ export const COLUMN_DEFS: ColumnDef[] = [
   { key: "status", label: "Status", category: "Core" },
   { key: "tags", label: "Tags", category: "Core" },
   { key: "rating", label: "Rating", category: "Core", align: "right" },
+  { key: "lists", label: "Lists", category: "Core" },
   { key: "jobs", label: "Jobs", category: "Core" },
   { key: "applications", label: "Applications", category: "Core", align: "right" },
 
@@ -110,6 +112,7 @@ export const DEFAULT_COLUMNS: ColumnKey[] = [
   "phone",
   "status",
   "tags",
+  "lists",
   "jobs",
   "applications",
 ];

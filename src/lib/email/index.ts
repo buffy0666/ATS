@@ -60,6 +60,15 @@ export async function sendEmail(input: EmailPayload): Promise<EmailSendResult> {
   return getProvider().send({ ...payload, from });
 }
 
+/**
+ * Cancel a previously-scheduled message by provider message id. Used by
+ * sequence pause/cancel to stop pending outbound emails before they go out.
+ */
+export async function cancelScheduledEmail(messageId: string): Promise<void> {
+  if (!messageId) return;
+  await getProvider().cancelScheduled(messageId);
+}
+
 /** Reset the cached provider — useful in tests after changing env vars. */
 export function _resetEmailProviderForTests() {
   cached = null;

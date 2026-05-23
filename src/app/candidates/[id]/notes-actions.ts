@@ -48,6 +48,42 @@ export async function addNote(
   return { ok: true };
 }
 
+export async function updateNote(
+  noteId: string,
+  candidateId: string,
+  body: string,
+): Promise<NoteActionResult> {
+  const session = await requireSession();
+
+  const parsed = z.string().min(1).max(10000).safeParse(body);
+  if (!parsed.success) {
+    return { ok: false, error: "Note body must be 1–10000 characters." };
+  }
+
+  const note = await prisma.note.findUnique({
+    where: { id: noteId },
+    select: {
+      authorId: true,
+      application: { select: { candidateId: true } },
+    },
+  });
+  if (!note) return { ok: false, error: "Note not found." };
+  if (note.application.candidateId !== candidateId) {
+    return { ok: false, error: "Note does not belong to this candidate." };
+  }
+  if (note.authorId !== session.user.id && session.user.role !== "ADMIN") {
+    return { ok: false, error: "Only the note's author or an admin can edit it." };
+  }
+
+  await prisma.note.update({
+    where: { id: noteId },
+    data: { body: parsed.data },
+  });
+
+  revalidatePath(`/candidates/${candidateId}`);
+  return { ok: true };
+}
+
 export async function deleteNote(noteId: string, candidateId: string) {
   const session = await requireSession();
 

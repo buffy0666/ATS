@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  activeSequencesForBulk,
   addCandidatesToJob,
   addCandidatesToList,
   addTagsToCandidates,
@@ -12,13 +13,15 @@ import {
   removeCandidatesFromList,
   type BulkActionResult,
 } from "./bulk-actions";
+import { enrollCandidatesInSequence } from "../sequences/actions";
 import { TagInput } from "@/components/TagInput";
 
 type ListOption = { id: string; name: string; scope: "PERSONAL" | "SHARED"; ownerId: string };
 type JobOption = { id: string; title: string };
+type SequenceOption = { id: string; name: string };
 type TagOption = { id: string; name: string; color: string };
 
-type ModalKind = "list" | "job" | "tag" | null;
+type ModalKind = "list" | "job" | "tag" | "sequence" | null;
 
 export function SelectionToolbar({
   selectedIds,
@@ -74,7 +77,7 @@ export function SelectionToolbar({
   return (
     <>
       <div
-        className="fixed bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg px-4 py-2 flex items-center gap-2 text-sm"
+        className="selection-shimmer selection-shimmer-border fixed bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full border-2 px-4 py-2 flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-100"
         role="region"
         aria-label="Bulk actions"
       >
@@ -90,6 +93,9 @@ export function SelectionToolbar({
         </ToolbarButton>
         <ToolbarButton onClick={() => setModal("tag")} disabled={pending}>
           Add tag…
+        </ToolbarButton>
+        <ToolbarButton onClick={() => setModal("sequence")} disabled={pending}>
+          Enroll in sequence…
         </ToolbarButton>
         {listId && (
           <ToolbarButton tone="danger" onClick={removeFromList} disabled={pending}>
@@ -150,7 +156,104 @@ export function SelectionToolbar({
           availableTags={availableTags}
         />
       )}
+      {modal === "sequence" && (
+        <EnrollInSequenceModal
+          onClose={() => setModal(null)}
+          onResult={(r) => {
+            handleResult(r, true);
+            setModal(null);
+          }}
+          selectedCount={selectedIds.length}
+          selectedIds={selectedIds}
+        />
+      )}
     </>
+  );
+}
+
+function EnrollInSequenceModal({
+  onClose,
+  onResult,
+  selectedCount,
+  selectedIds,
+}: {
+  onClose: () => void;
+  onResult: (r: BulkActionResult) => void;
+  selectedCount: number;
+  selectedIds: string[];
+}) {
+  const [sequences, setSequences] = useState<SequenceOption[] | null>(null);
+  const [selectedSequenceId, setSelectedSequenceId] = useState("");
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    activeSequencesForBulk().then((s) => {
+      setSequences(s);
+      if (s.length > 0) setSelectedSequenceId(s[0].id);
+    });
+  }, []);
+
+  function submit() {
+    setError(null);
+    if (!selectedSequenceId) {
+      setError("Pick a sequence.");
+      return;
+    }
+    startTransition(async () => {
+      const r = await enrollCandidatesInSequence(selectedIds, selectedSequenceId);
+      onResult({
+        ok: r.ok,
+        message: r.message,
+        affected: r.enrolled,
+        alreadyPresent: r.alreadyEnrolled,
+      });
+    });
+  }
+
+  return (
+    <ModalShell
+      title={`Enroll ${selectedCount} candidate${selectedCount === 1 ? "" : "s"} in a sequence`}
+      onClose={onClose}
+    >
+      {sequences === null ? (
+        <p className="text-sm text-zinc-500">Loading sequences…</p>
+      ) : sequences.length === 0 ? (
+        <p className="text-sm text-zinc-500">
+          No active sequences. Create one at /sequences first.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <label className="block text-sm">
+            <span className="block text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1">
+              Sequence
+            </span>
+            <select
+              value={selectedSequenceId}
+              onChange={(e) => setSelectedSequenceId(e.target.value)}
+              className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
+            >
+              {sequences.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-xs text-zinc-500">
+            Each candidate&apos;s step runs are scheduled from now. Candidates already enrolled
+            in this sequence are skipped.
+          </p>
+          {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+          <ModalFooter
+            onClose={onClose}
+            onSubmit={submit}
+            pending={pending}
+            submitLabel="Enroll"
+          />
+        </div>
+      )}
+    </ModalShell>
   );
 }
 

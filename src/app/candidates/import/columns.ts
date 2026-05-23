@@ -1,9 +1,7 @@
 import {
-  CandidateSource,
   CandidateStatus,
   EmploymentType,
   RemotePref,
-  Seniority,
   WorkAuth,
 } from "@/generated/prisma";
 
@@ -213,7 +211,7 @@ export type ParsedCandidateRow = {
     currentTitle: string | null;
     currentCompany: string | null;
     yearsExperience: number | null;
-    seniority: Seniority | null;
+    seniority: string | null;
     desiredSalaryMin: number | null;
     desiredSalaryMax: number | null;
     currentSalary: number | null;
@@ -225,7 +223,7 @@ export type ParsedCandidateRow = {
     industries: string[];
     specialties: string[];
     skills: string[];
-    source: CandidateSource | null;
+    source: string | null;
     sourceDetail: string | null;
     referredByName: string | null;
     status: CandidateStatus;
@@ -277,7 +275,7 @@ export function parseCandidateRow(row: CandidateRow): ParsedCandidateRow {
       currentTitle: parseOptionalString(cell("currentTitle"), "currentTitle", 160),
       currentCompany: parseOptionalString(cell("currentCompany"), "currentCompany", 160),
       yearsExperience: parseOptionalInt(cell("yearsExperience"), "yearsExperience", 0, 80),
-      seniority: parseOptionalEnum(cell("seniority"), "seniority", Seniority),
+      seniority: parseOptionalString(cell("seniority"), "seniority", 80),
       desiredSalaryMin: parseOptionalInt(cell("desiredSalaryMin"), "desiredSalaryMin", 0, 100_000_000),
       desiredSalaryMax: parseOptionalInt(cell("desiredSalaryMax"), "desiredSalaryMax", 0, 100_000_000),
       currentSalary: parseOptionalInt(cell("currentSalary"), "currentSalary", 0, 100_000_000),
@@ -289,7 +287,7 @@ export function parseCandidateRow(row: CandidateRow): ParsedCandidateRow {
       industries: parseStringList(cell("industries"), 120),
       specialties: parseStringList(cell("specialties"), 120),
       skills: parseStringList(cell("skills"), 80),
-      source: parseOptionalEnum(cell("source"), "source", CandidateSource),
+      source: parseOptionalString(cell("source"), "source", 80),
       sourceDetail: parseOptionalString(cell("sourceDetail"), "sourceDetail", 200),
       referredByName: parseOptionalString(cell("referredByName"), "referredByName", 160),
       status:
