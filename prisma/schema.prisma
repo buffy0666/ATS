@@ -211,18 +211,18 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  jobsCreated         Job[]                @relation("JobCreator")
+  jobsCreated         Job[]                 @relation("JobCreator")
   notes               Note[]
-  clientsOwned        Client[]             @relation("ClientOwner")
+  clientsOwned        Client[]              @relation("ClientOwner")
   emailsSent          EmailLog[]
-  emailTemplates      EmailTemplate[]      @relation("EmailTemplateCreator")
-  candidatesSourced   Candidate[]          @relation("CandidateSourcer")
-  candidatesReferred  Candidate[]          @relation("CandidateReferrerUser")
+  emailTemplates      EmailTemplate[]       @relation("EmailTemplateCreator")
+  candidatesSourced   Candidate[]           @relation("CandidateSourcer")
+  candidatesReferred  Candidate[]           @relation("CandidateReferrerUser")
   referencesContacted CandidateReference[]
   documentsUploaded   CandidateDocument[]
   activities          CandidateActivity[]
-  tasksCreated        Task[]               @relation("TaskCreator")
-  taskAttachments     TaskAttachment[]     @relation("TaskAttachmentUploader")
+  tasksCreated        Task[]                @relation("TaskCreator")
+  taskAttachments     TaskAttachment[]      @relation("TaskAttachmentUploader")
   lists               CandidateList[]
   listMembersAdded    CandidateListMember[] @relation("ListMemberAdder")
   savedSearches       SavedSearch[]
@@ -623,4 +623,22 @@ model CandidateListMember {
 
   @@unique([listId, candidateId])
   @@index([candidateId])
+}
+
+// A named, reusable filter set on /candidates. paramsString stores the raw
+// URL query (e.g. "q=react&status=ACTIVE,PASSIVE&tag=Senior") so loading a
+// saved search is a navigation to ?<paramsString>.
+model SavedSearch {
+  id           String           @id @default(cuid())
+  name         String
+  ownerId      String
+  scope        SavedSearchScope @default(PERSONAL)
+  paramsString String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId])
+  @@index([scope])
 }

@@ -12,7 +12,10 @@ import {
   WorkAuth,
 } from "@/generated/prisma";
 import { tagClass } from "@/lib/tag-colors";
+import { AdvancedFilters } from "./AdvancedFilters";
 import { DeleteCandidateButton } from "./DeleteCandidateButton";
+import { KeywordSearchBar } from "./KeywordSearchBar";
+import { SavedSearchesMenu, type SavedSearchEntry } from "./SavedSearchesMenu";
 import {
   COLUMN_DEFS,
   COLUMN_STORAGE_KEY,
@@ -20,6 +23,8 @@ import {
   type ColumnDef,
   type ColumnKey,
 } from "./candidate-columns";
+import { ADVANCED_FILTER_KEYS } from "./search-params";
+import { SelectionToolbar } from "./SelectionToolbar";
 
 type Tag = { id: string; name: string; color: string };
 
@@ -72,16 +77,55 @@ export type CandidateRow = {
 export function CandidatesView({
   candidates,
   availableTags,
+  savedSearches = [],
+  currentUserId = "",
+  listId,
 }: {
   candidates: CandidateRow[];
   availableTags: Tag[];
+  savedSearches?: SavedSearchEntry[];
+  currentUserId?: string;
+  listId?: string;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [columns, setColumns] = useState<Set<ColumnKey>>(new Set(DEFAULT_COLUMNS));
   const [hydrated, setHydrated] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
-  const [searchInput, setSearchInput] = useState(searchParams.get("q") ?? "");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Drop selections for candidates no longer in the visible result set
+  // (e.g. when a filter narrows the list). Selections survive column
+  // changes since the candidate ID set doesn't change.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const visible = new Set(candidates.map((c) => c.id));
+      const next = new Set<string>();
+      for (const id of prev) if (visible.has(id)) next.add(id);
+      if (next.size === prev.size) return prev;
+      return next;
+    });
+  }, [candidates]);
+
+  function toggleRow(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelectedIds((prev) => {
+      if (prev.size === candidates.length && candidates.length > 0) return new Set();
+      return new Set(candidates.map((c) => c.id));
+    });
+  }
+
+  const allSelected = candidates.length > 0 && selectedIds.size === candidates.length;
+  const someSelected = selectedIds.size > 0 && !allSelected;
 
   // Load column choices from localStorage on mount.
   useEffect(() => {
@@ -126,22 +170,6 @@ export function CandidatesView({
     setColumns(new Set(COLUMN_DEFS.map((c) => c.key)));
   }
 
-  // URL filter updates. We push immediately for instant feedback.
-  function pushParam(key: string, value: string | null) {
-    const params = new URLSearchParams(searchParams.toString());
-    if (value && value.length > 0) params.set(key, value);
-    else params.delete(key);
-    router.push(`/candidates${params.toString() ? `?${params.toString()}` : ""}`, { scroll: false });
-  }
-
-  // Debounce the search input so we don't navigate on every keystroke.
-  useEffect(() => {
-    if (searchInput === (searchParams.get("q") ?? "")) return;
-    const t = setTimeout(() => pushParam("q", searchInput.trim() || null), 250);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchInput]);
-
   const activeColumns = useMemo(
     () => COLUMN_DEFS.filter((c) => columns.has(c.key)),
     [columns],
@@ -156,15 +184,13 @@ export function CandidatesView({
     return [...groups.entries()];
   }, []);
 
-  const selectedStatus = searchParams.get("status") ?? "";
-  const selectedSource = searchParams.get("source") ?? "";
-  const selectedTag = searchParams.get("tag") ?? "";
-
   const anyFilterActive =
-    selectedStatus.length > 0 ||
-    selectedSource.length > 0 ||
-    selectedTag.length > 0 ||
-    (searchParams.get("q") ?? "").length > 0;
+    (searchParams.get("q") ?? "").length > 0 ||
+    ADVANCED_FILTER_KEYS.some((k) => (searchParams.get(k) ?? "").length > 0);
+
+  function clearAllFilters() {
+    router.push("/candidates", { scroll: false });
+  }
 
   return (
     <main className="flex-1 max-w-[120rem] mx-auto w-full px-6 py-10">
@@ -186,60 +212,17 @@ export function CandidatesView({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <input
-          type="search"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search name, email, title, company…"
-          className="flex-1 min-w-60 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
-        />
-        <select
-          value={selectedStatus}
-          onChange={(e) => pushParam("status", e.target.value || null)}
-          className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
-        >
-          <option value="">All statuses</option>
-          {Object.values(CandidateStatus).map((s) => (
-            <option key={s} value={s}>
-              {s.replace(/_/g, " ")}
-            </option>
-          ))}
-        </select>
-        <select
-          value={selectedSource}
-          onChange={(e) => pushParam("source", e.target.value || null)}
-          className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
-        >
-          <option value="">All sources</option>
-          {Object.values(CandidateSource).map((s) => (
-            <option key={s} value={s}>
-              {s.replace(/_/g, " ")}
-            </option>
-          ))}
-        </select>
-        <select
-          value={selectedTag}
-          onChange={(e) => pushParam("tag", e.target.value || null)}
-          className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
-        >
-          <option value="">All tags</option>
-          {availableTags.map((t) => (
-            <option key={t.id} value={t.name}>
-              {t.name}
-            </option>
-          ))}
-        </select>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <KeywordSearchBar />
+        <SavedSearchesMenu entries={savedSearches} currentUserId={currentUserId} />
+
         {anyFilterActive && (
           <button
             type="button"
-            onClick={() => {
-              setSearchInput("");
-              router.push("/candidates", { scroll: false });
-            }}
+            onClick={clearAllFilters}
             className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline"
           >
-            Clear filters
+            Clear all filters
           </button>
         )}
 
@@ -291,6 +274,10 @@ export function CandidatesView({
         </div>
       </div>
 
+      <div className="mb-4">
+        <AdvancedFilters availableTags={availableTags} />
+      </div>
+
       <div className="text-xs text-zinc-500 mb-2">
         {candidates.length} candidate{candidates.length === 1 ? "" : "s"}
       </div>
@@ -300,10 +287,22 @@ export function CandidatesView({
           {anyFilterActive ? "No candidates match these filters." : "No candidates yet."}
         </p>
       ) : (
-        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-x-auto">
+        <div className={`rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-x-auto ${selectedIds.size > 0 ? "pb-20" : ""}`}>
           <table className="w-full text-sm">
             <thead className="bg-zinc-50 dark:bg-zinc-950 text-left text-xs uppercase text-zinc-500">
               <tr>
+                <th className="px-3 py-2 w-9">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all candidates on this page"
+                    checked={allSelected}
+                    ref={(el) => {
+                      if (el) el.indeterminate = someSelected;
+                    }}
+                    onChange={toggleAll}
+                    className="rounded border-zinc-300 dark:border-zinc-700"
+                  />
+                </th>
                 <th className="px-4 py-2 font-medium whitespace-nowrap">Name</th>
                 {activeColumns.map((c) => (
                   <th
@@ -320,8 +319,20 @@ export function CandidatesView({
               {candidates.map((c) => (
                 <tr
                   key={c.id}
-                  className="border-t border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-950"
+                  className={`border-t border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-950 ${
+                    selectedIds.has(c.id) ? "bg-zinc-50 dark:bg-zinc-950" : ""
+                  }`}
                 >
+                  <td className="px-3 py-3 w-9">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${c.firstName} ${c.lastName}`}
+                      checked={selectedIds.has(c.id)}
+                      onChange={() => toggleRow(c.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="rounded border-zinc-300 dark:border-zinc-700"
+                    />
+                  </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <Link href={`/candidates/${c.id}`} className="font-medium hover:underline">
                       {c.firstName} {c.lastName}
@@ -348,6 +359,14 @@ export function CandidatesView({
           </table>
         </div>
       )}
+
+      <SelectionToolbar
+        selectedIds={[...selectedIds]}
+        onClear={() => setSelectedIds(new Set())}
+        onAfterAction={() => setSelectedIds(new Set())}
+        listId={listId}
+        availableTags={availableTags}
+      />
     </main>
   );
 }

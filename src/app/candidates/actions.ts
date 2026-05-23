@@ -14,6 +14,7 @@ import {
   type ParsedResume,
   WorkHistoryItemSchema,
 } from "@/lib/resume-parser";
+import { extractResumeText } from "@/lib/resume-parser/extract";
 import { saveResume } from "@/lib/uploads";
 import { tagColorForName } from "@/lib/tag-colors";
 import {
@@ -308,8 +309,10 @@ export async function createCandidate(formData: FormData) {
 
   const resume = formData.get("resume");
   let resumeUrl: string | null = null;
+  let resumeText: string | null = null;
   if (resume instanceof File && resume.size > 0) {
     resumeUrl = await saveResume(resume);
+    resumeText = await extractResumeTextSafely(resume);
   }
 
   const sourcedById = data.sourcedById ?? session.user.id ?? null;
@@ -319,6 +322,7 @@ export async function createCandidate(formData: FormData) {
       ...data,
       sourcedById,
       resumeUrl,
+      resumeText,
       skills: structuredData.skills,
       workHistory: structuredData.workHistory ?? undefined,
       education: structuredData.education ?? undefined,
@@ -392,6 +396,15 @@ function getCandidateFieldValues(formData: FormData): CandidateFieldValues {
 
 function stringValue(value: FormDataEntryValue | null): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+async function extractResumeTextSafely(file: File): Promise<string | null> {
+  try {
+    return await extractResumeText(file);
+  } catch (error) {
+    console.warn("Resume text extraction failed; storing candidate without resumeText.", error);
+    return null;
+  }
 }
 
 function friendlyParseError(error: unknown): string {

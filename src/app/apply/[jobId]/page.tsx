@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { extractResumeText } from "@/lib/resume-parser/extract";
 import { saveResume } from "@/lib/uploads";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -37,8 +38,14 @@ async function submitApplication(formData: FormData) {
 
   if (!candidate) {
     let resumeUrl: string | null = null;
+    let resumeText: string | null = null;
     if (resume && resume.size > 0) {
       resumeUrl = await saveResume(resume);
+      try {
+        resumeText = await extractResumeText(resume);
+      } catch (error) {
+        console.warn("Resume text extraction failed during apply submission.", error);
+      }
     }
 
     candidate = await prisma.candidate.create({
@@ -49,6 +56,7 @@ async function submitApplication(formData: FormData) {
         phone,
         linkedinUrl,
         resumeUrl,
+        resumeText,
       },
     });
   }
