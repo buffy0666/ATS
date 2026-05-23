@@ -36,6 +36,20 @@ export function NewUserForm() {
           <option value="ADMIN">Admin — full access, including user management</option>
         </select>
       </div>
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          name="sendWelcomeEmail"
+          defaultChecked
+          className="mt-1 rounded border-zinc-300 dark:border-zinc-700"
+        />
+        <span>
+          <span className="font-medium">Send welcome email</span>
+          <span className="block text-xs text-zinc-500">
+            Emails the user their login URL and the temporary password. Logged on their record.
+          </span>
+        </span>
+      </label>
       {state && !state.ok && <p className="text-sm text-red-600">{state.error}</p>}
       <button
         type="submit"

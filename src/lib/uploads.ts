@@ -36,3 +36,51 @@ export async function saveResume(file: File): Promise<string> {
 
   return `/uploads/${filename}`;
 }
+
+export const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+export type SavedAttachment = {
+  url: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+};
+
+/**
+ * Persist a generic file attachment under /public/uploads/<subdir>.
+ *
+ * Accepts any MIME type up to MAX_ATTACHMENT_BYTES. Same caveats as
+ * saveResume — the local filesystem is ephemeral on serverless platforms.
+ */
+export async function saveAttachment(file: File, subdir: string): Promise<SavedAttachment> {
+  if (file.size === 0) {
+    throw new Error("Attachment is empty.");
+  }
+  if (file.size > MAX_ATTACHMENT_BYTES) {
+    throw new Error(`Attachment exceeds ${MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB limit.`);
+  }
+
+  const safeSubdir = subdir.replace(/[^a-zA-Z0-9_-]/g, "");
+  const dir = path.join(process.cwd(), "public", "uploads", safeSubdir);
+  await fs.mkdir(dir, { recursive: true });
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const filename = `${Date.now()}-${safeName}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+  await fs.writeFile(path.join(dir, filename), buffer);
+
+  return {
+    url: `/uploads/${safeSubdir}/${filename}`,
+    name: file.name,
+    size: file.size,
+    mimeType: file.type || null,
+  };
+}
+
+/** Best-effort removal of an attachment file. Silently ignores missing files. */
+export async function removeAttachmentFile(publicUrl: string): Promise<void> {
+  if (!publicUrl.startsWith("/uploads/")) return;
+  const relative = publicUrl.replace(/^\/+/, "");
+  const target = path.join(process.cwd(), "public", relative);
+  await fs.rm(target, { force: true });
+}

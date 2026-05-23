@@ -21,10 +21,27 @@ async function requireUser() {
 }
 
 const optionalString = (max: number) =>
-  z.string().max(max).optional().or(z.literal("")).transform((v) => v || null);
+  z.preprocess(
+    (v) => {
+      if (typeof v !== "string") return null;
+      const trimmed = v.trim();
+      return trimmed || null;
+    },
+    z.string().max(max).nullable(),
+  );
 
 const optionalUrl = (max: number) =>
-  z.string().url().max(max).optional().or(z.literal("")).transform((v) => v || null);
+  z.preprocess(
+    (v) => {
+      if (typeof v !== "string") return null;
+      const trimmed = v.trim();
+      if (!trimmed) return null;
+      // Recruiters often type "bbagc.com" without a scheme; normalize before validating.
+      if (!/^https?:\/\//i.test(trimmed)) return `https://${trimmed}`;
+      return trimmed;
+    },
+    z.string().url().max(max).nullable(),
+  );
 
 const optionalEnum = <T extends Record<string, string>>(e: T) =>
   z.preprocess(

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { Stage } from "@/generated/prisma";
 import { Pipeline } from "./Pipeline";
 import { AddCandidateForm } from "./AddCandidateForm";
+import { JobActions } from "./JobActions";
 
 const STAGES: Stage[] = [
   Stage.APPLIED,
@@ -61,7 +62,14 @@ export default async function JobDetailPage({
               <span className="uppercase tracking-wide">{job.status}</span>
             </p>
           </div>
-          <AddCandidateForm jobId={job.id} candidates={available} />
+          <div className="flex flex-col items-end gap-2">
+            <JobActions
+              jobId={job.id}
+              jobTitle={job.title}
+              applicantCount={job.applications.length}
+            />
+            <AddCandidateForm jobId={job.id} candidates={available} />
+          </div>
         </div>
 
         <section className="mb-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">

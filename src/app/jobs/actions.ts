@@ -52,6 +52,47 @@ export async function addCandidateToJob(jobId: string, candidateId: string) {
   revalidatePath(`/jobs/${jobId}`);
 }
 
+export async function updateJob(jobId: string, formData: FormData) {
+  const session = await auth();
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const data = jobSchema.parse({
+    title: formData.get("title"),
+    department: formData.get("department"),
+    location: formData.get("location"),
+    description: formData.get("description"),
+    status: formData.get("status"),
+    clientId: formData.get("clientId"),
+  });
+
+  const job = await prisma.job.update({
+    where: { id: jobId },
+    data,
+  });
+
+  revalidatePath("/jobs");
+  revalidatePath(`/jobs/${jobId}`);
+  if (job.clientId) revalidatePath(`/clients/${job.clientId}`);
+  redirect(`/jobs/${jobId}`);
+}
+
+export async function deleteJob(jobId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error("Unauthorized");
+
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: { clientId: true },
+  });
+
+  // Application has onDelete: Cascade so all applications + their notes/emails get cleaned up.
+  await prisma.job.delete({ where: { id: jobId } });
+
+  revalidatePath("/jobs");
+  if (job?.clientId) revalidatePath(`/clients/${job.clientId}`);
+  redirect("/jobs");
+}
+
 export async function updateApplicationStage(applicationId: string, stage: Stage) {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");

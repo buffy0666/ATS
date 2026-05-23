@@ -64,14 +64,142 @@ enum RevenueBand {
   OVER_1B
 }
 
+enum EmailStatus {
+  SENT
+  FAILED
+}
+
+enum WorkAuth {
+  US_CITIZEN
+  GREEN_CARD
+  H1B
+  H1B_TRANSFER
+  OPT
+  STEM_OPT
+  CPT
+  TN
+  L1
+  L2
+  E3
+  O1
+  OTHER_VISA
+  NEEDS_SPONSORSHIP
+  NOT_AUTHORIZED
+}
+
+enum Seniority {
+  INTERN
+  ENTRY
+  JUNIOR
+  MID
+  SENIOR
+  STAFF
+  PRINCIPAL
+  LEAD
+  MANAGER
+  SENIOR_MANAGER
+  DIRECTOR
+  VP
+  C_LEVEL
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  CONTRACT_TO_HIRE
+  TEMPORARY
+  INTERNSHIP
+  FREELANCE
+}
+
+enum RemotePref {
+  ONSITE
+  HYBRID
+  REMOTE
+}
+
+enum CandidateSource {
+  LINKEDIN
+  REFERRAL
+  JOB_BOARD
+  AGENCY
+  INBOUND
+  OUTBOUND
+  CAREER_SITE
+  EVENT
+  RECRUITER_NETWORK
+  OTHER
+}
+
+enum CandidateStatus {
+  ACTIVE
+  PASSIVE
+  PLACED
+  ON_HOLD
+  DO_NOT_CONTACT
+  ALUMNI
+  BLACKLISTED
+}
+
+enum DocumentType {
+  RESUME
+  COVER_LETTER
+  PORTFOLIO
+  OFFER_LETTER
+  REFERENCE_LETTER
+  CERTIFICATION
+  TRANSCRIPT
+  WORK_SAMPLE
+  OTHER
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  NON_BINARY
+  PREFER_NOT_TO_SAY
+  OTHER
+}
+
+enum VeteranStatus {
+  VETERAN
+  NOT_VETERAN
+  PROTECTED_VETERAN
+  PREFER_NOT_TO_SAY
+}
+
+enum DisabilityStatus {
+  YES
+  NO
+  PREFER_NOT_TO_SAY
+}
+
+enum TaskStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETE
+}
+
+enum ListScope {
+  PERSONAL
+  SHARED
+}
+
+enum SavedSearchScope {
+  PERSONAL
+  SHARED
+}
+
 model Tag {
   id        String   @id @default(cuid())
   name      String   @unique
   color     String   @default("zinc")
   createdAt DateTime @default(now())
 
-  clients  Client[]
-  contacts ClientContact[]
+  clients    Client[]
+  contacts   ClientContact[]
+  candidates Candidate[]
 }
 
 model User {
@@ -83,47 +211,59 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  jobsCreated  Job[]    @relation("JobCreator")
-  notes        Note[]
-  clientsOwned Client[] @relation("ClientOwner")
+  jobsCreated         Job[]                @relation("JobCreator")
+  notes               Note[]
+  clientsOwned        Client[]             @relation("ClientOwner")
+  emailsSent          EmailLog[]
+  emailTemplates      EmailTemplate[]      @relation("EmailTemplateCreator")
+  candidatesSourced   Candidate[]          @relation("CandidateSourcer")
+  candidatesReferred  Candidate[]          @relation("CandidateReferrerUser")
+  referencesContacted CandidateReference[]
+  documentsUploaded   CandidateDocument[]
+  activities          CandidateActivity[]
+  tasksCreated        Task[]               @relation("TaskCreator")
+  taskAttachments     TaskAttachment[]     @relation("TaskAttachmentUploader")
+  lists               CandidateList[]
+  listMembersAdded    CandidateListMember[] @relation("ListMemberAdder")
+  savedSearches       SavedSearch[]
 }
 
 model Job {
-  id           String    @id @default(cuid())
-  title        String
-  department   String?
-  location     String?
-  description  String
-  status       JobStatus @default(OPEN)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  title       String
+  department  String?
+  location    String?
+  description String
+  status      JobStatus @default(OPEN)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   createdById  String?
-  createdBy    User?     @relation("JobCreator", fields: [createdById], references: [id])
+  createdBy    User?         @relation("JobCreator", fields: [createdById], references: [id])
   applications Application[]
 
-  clientId     String?
-  client       Client?   @relation(fields: [clientId], references: [id])
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id])
 
   @@index([status])
   @@index([clientId])
 }
 
 model Client {
-  id           String        @id @default(cuid())
-  name         String
-  linkedinUrl  String?
-  website      String?
-  industry     String?
-  location     String?
-  address      String?
-  phone        String?
-  companySize  CompanySize?
-  revenueBand  RevenueBand?
-  status       ClientStatus  @default(ACTIVE)
-  notes        String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id          String       @id @default(cuid())
+  name        String
+  linkedinUrl String?
+  website     String?
+  industry    String?
+  location    String?
+  address     String?
+  phone       String?
+  companySize CompanySize?
+  revenueBand RevenueBand?
+  status      ClientStatus @default(ACTIVE)
+  notes       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   ownerId String?
   owner   User?   @relation("ClientOwner", fields: [ownerId], references: [id])
@@ -154,26 +294,115 @@ model ClientContact {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  tags   Tag[]
+  client             Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tags               Tag[]
+  candidatesReferred Candidate[] @relation("CandidateReferrerContact")
 
   @@index([clientId])
   @@index([status])
 }
 
 model Candidate {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  firstName    String
-  lastName     String
-  phone        String?
+  id            String  @id @default(cuid())
+  email         String  @unique
+  firstName     String
+  lastName      String
+  preferredName String?
+  pronouns      String?
+
+  // Contact
+  phone          String?
+  alternateEmail String?
+  alternatePhone String?
+
+  // Location
+  locationCity      String?
+  locationState     String?
+  locationCountry   String?
+  timezone          String?
+  willingToRelocate Boolean @default(false)
+
+  // Work authorization
+  workAuthorization   WorkAuth?
+  requiresSponsorship Boolean   @default(false)
+
+  // Links
   resumeUrl    String?
   linkedinUrl  String?
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  githubUrl    String?
+  portfolioUrl String?
+  otherUrls    String[] @default([])
 
-  applications Application[]
+  // Career snapshot
+  currentTitle    String?
+  currentCompany  String?
+  yearsExperience Int?
+  seniority       Seniority?
+
+  // Compensation
+  desiredSalaryMin Int?
+  desiredSalaryMax Int?
+  currentSalary    Int?
+  salaryCurrency   String @default("USD")
+
+  // Availability
+  availableFrom      DateTime?
+  noticePeriodDays   Int?
+  employmentTypePref EmploymentType[] @default([])
+  remotePref         RemotePref[]     @default([])
+
+  // Focus
+  industries  String[] @default([])
+  specialties String[] @default([])
+
+  // Source & ownership
+  source              CandidateSource?
+  sourceDetail        String?
+  sourcedById         String?
+  sourcedBy           User?            @relation("CandidateSourcer", fields: [sourcedById], references: [id])
+  referredByUserId    String?
+  referredByUser      User?            @relation("CandidateReferrerUser", fields: [referredByUserId], references: [id])
+  referredByContactId String?
+  referredByContact   ClientContact?   @relation("CandidateReferrerContact", fields: [referredByContactId], references: [id])
+  referredByName      String?
+
+  // Engagement
+  status          CandidateStatus @default(ACTIVE)
+  rating          Int?
+  lastContactedAt DateTime?
+  nextFollowUpAt  DateTime?
+  unsubscribedAt  DateTime?
+
+  // Resume content
+  summary       String?
+  skills        String[]  @default([])
+  workHistory   Json?
+  education     Json?
+  parsedAt      DateTime?
+  parserVersion String?
+
+  // Plain text extracted from the resume; backs the FTS searchVector column
+  // (added via raw SQL migration — Prisma cannot describe generated tsvector).
+  resumeText String?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  applications    Application[]
+  emails          EmailLog[]
+  tags            Tag[]
+  references      CandidateReference[]
+  documents       CandidateDocument[]
+  eeo             CandidateEEO?
+  activities      CandidateActivity[]
+  listMemberships CandidateListMember[]
+
+  @@index([status])
+  @@index([sourcedById])
+  @@index([locationCity, locationState])
+  @@index([currentCompany])
+  @@index([seniority])
 }
 
 model Application {
@@ -185,9 +414,10 @@ model Application {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  job       Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  job       Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate Candidate  @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   notes     Note[]
+  emails    EmailLog[]
 
   @@unique([jobId, candidateId])
   @@index([jobId, stage])
@@ -209,8 +439,188 @@ model Note {
 model KnowledgeItem {
   id        String   @id @default(cuid())
   name      String
-  type      String   // "document" | "link"
+  type      String // "document" | "link"
   url       String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  subject     String
+  body        String
+  createdById String?
+  createdBy   User?    @relation("EmailTemplateCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([createdById])
+}
+
+model EmailLog {
+  id            String  @id @default(cuid())
+  candidateId   String?
+  applicationId String?
+  fromUserId    String
+
+  to       String
+  cc       String[] @default([])
+  bcc      String[] @default([])
+  replyTo  String?
+  subject  String
+  bodyText String?
+  bodyHtml String?
+
+  provider          String
+  providerMessageId String?
+  status            EmailStatus @default(SENT)
+  errorMessage      String?
+
+  sentAt DateTime @default(now())
+
+  candidate   Candidate?   @relation(fields: [candidateId], references: [id], onDelete: SetNull)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  fromUser    User         @relation(fields: [fromUserId], references: [id])
+
+  @@index([candidateId, sentAt])
+  @@index([applicationId, sentAt])
+  @@index([fromUserId])
+}
+
+model CandidateReference {
+  id            String    @id @default(cuid())
+  candidateId   String
+  firstName     String
+  lastName      String
+  relationship  String?
+  company       String?
+  title         String?
+  email         String?
+  phone         String?
+  notes         String?
+  contactedAt   DateTime?
+  contactedById String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  candidate   Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  contactedBy User?     @relation(fields: [contactedById], references: [id])
+
+  @@index([candidateId])
+}
+
+model CandidateDocument {
+  id           String       @id @default(cuid())
+  candidateId  String
+  type         DocumentType
+  name         String
+  url          String
+  notes        String?
+  uploadedById String?
+  uploadedAt   DateTime     @default(now())
+
+  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  uploadedBy User?     @relation(fields: [uploadedById], references: [id])
+
+  @@index([candidateId])
+  @@index([candidateId, type])
+}
+
+// EEO data is legally sensitive; gate access at the application layer
+// and never join into search/match logic.
+model CandidateEEO {
+  id               String            @id @default(cuid())
+  candidateId      String            @unique
+  gender           Gender?
+  race             String?
+  veteranStatus    VeteranStatus?
+  disabilityStatus DisabilityStatus?
+  providedAt       DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+}
+
+model CandidateActivity {
+  id          String   @id @default(cuid())
+  candidateId String
+  type        String
+  description String?
+  metadata    Json?
+  userId      String?
+  createdAt   DateTime @default(now())
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id])
+
+  @@index([candidateId, createdAt])
+}
+
+// Shared admin task list. Description stores raw HTML — writers and readers
+// are both admins (gated in the route), so the trust boundary makes this safe.
+model Task {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  status      TaskStatus @default(NOT_STARTED)
+  createdById String?
+  createdBy   User?      @relation("TaskCreator", fields: [createdById], references: [id])
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  attachments TaskAttachment[]
+
+  @@index([status])
+  @@index([updatedAt])
+  @@index([createdAt])
+}
+
+model TaskAttachment {
+  id           String   @id @default(cuid())
+  taskId       String
+  name         String
+  url          String
+  size         Int
+  mimeType     String?
+  uploadedById String?
+  uploadedAt   DateTime @default(now())
+
+  task       Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User? @relation("TaskAttachmentUploader", fields: [uploadedById], references: [id])
+
+  @@index([taskId])
+}
+
+// Recruiter-curated candidate lists ("Active Engineering", "Cold pipeline 2026", etc).
+// Personal lists are visible to their owner only; SHARED lists are visible to all users.
+model CandidateList {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  ownerId     String
+  scope       ListScope @default(PERSONAL)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  owner   User                  @relation(fields: [ownerId], references: [id])
+  members CandidateListMember[]
+
+  @@index([ownerId])
+  @@index([scope])
+}
+
+model CandidateListMember {
+  id          String   @id @default(cuid())
+  listId      String
+  candidateId String
+  addedById   String?
+  addedAt     DateTime @default(now())
+
+  list      CandidateList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  candidate Candidate     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  addedBy   User?         @relation("ListMemberAdder", fields: [addedById], references: [id])
+
+  @@unique([listId, candidateId])
+  @@index([candidateId])
 }

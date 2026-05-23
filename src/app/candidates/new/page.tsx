@@ -1,79 +1,50 @@
-import { createCandidate } from "../actions";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { CandidateForm } from "./CandidateForm";
 
-export default function NewCandidatePage() {
-  return (
-    <main className="flex-1 max-w-2xl mx-auto w-full px-6 py-10">
-        <h1 className="text-2xl font-semibold mb-6">New candidate</h1>
-        <form
-          action={createCandidate}
-          className="space-y-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6"
-        >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="First name" name="firstName" required />
-            <Field label="Last name" name="lastName" required />
-          </div>
-          <Field label="Email" name="email" type="email" required />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Phone" name="phone" />
-            <Field label="LinkedIn URL" name="linkedinUrl" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1" htmlFor="resume">
-              Resume (PDF or DOCX, max 10 MB)
-            </label>
-            <input
-              id="resume"
-              name="resume"
-              type="file"
-              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              className="block w-full text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1" htmlFor="notes">
-              Notes
-            </label>
-            <textarea
-              id="notes"
-              name="notes"
-              rows={4}
-              className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
-            />
-          </div>
-          <button
-            type="submit"
-            className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-4 py-2 text-sm font-medium"
-          >
-            Create candidate
-          </button>
-        </form>
-    </main>
-  );
-}
+export default async function NewCandidatePage() {
+  const session = await auth();
+  if (!session?.user) {
+    return null;
+  }
 
-function Field({
-  label,
-  name,
-  type = "text",
-  required,
-}: {
-  label: string;
-  name: string;
-  type?: string;
-  required?: boolean;
-}) {
+  const [users, contacts, allTags] = await Promise.all([
+    prisma.user.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, email: true },
+    }),
+    prisma.clientContact.findMany({
+      where: { status: "ACTIVE" },
+      orderBy: [{ client: { name: "asc" } }, { lastName: "asc" }],
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        client: { select: { name: true } },
+      },
+    }),
+    prisma.tag.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, color: true },
+    }),
+  ]);
+
+  const contactOptions = contacts.map((c) => ({
+    id: c.id,
+    firstName: c.firstName,
+    lastName: c.lastName,
+    clientName: c.client.name,
+  }));
+
   return (
-    <div>
-      <label className="block text-sm font-medium mb-1" htmlFor={name}>
-        {label}
-      </label>
-      <input
-        id={name}
-        name={name}
-        type={type}
-        required={required}
-        className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
+    <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-10">
+      <h1 className="text-2xl font-semibold mb-6">New candidate</h1>
+      <CandidateForm
+        users={users}
+        contacts={contactOptions}
+        allTags={allTags}
+        currentUserId={session.user.id ?? ""}
       />
-    </div>
+    </main>
   );
 }
