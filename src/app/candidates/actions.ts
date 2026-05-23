@@ -1,19 +1,11 @@
 "use server";
 
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-
-const MAX_RESUME_BYTES = 10 * 1024 * 1024;
-const ALLOWED_RESUME_TYPES = new Set([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
+import { saveResume } from "@/lib/uploads";
 
 const candidateSchema = z.object({
   firstName: z.string().min(1).max(80),
@@ -29,22 +21,6 @@ const candidateSchema = z.object({
     .transform((v) => v || null),
   notes: z.string().optional().or(z.literal("")).transform((v) => v || null),
 });
-
-async function saveResume(file: File): Promise<string> {
-  if (file.size > MAX_RESUME_BYTES) {
-    throw new Error("Resume exceeds 10 MB limit.");
-  }
-  if (file.type && !ALLOWED_RESUME_TYPES.has(file.type)) {
-    throw new Error("Unsupported resume type. Use PDF or DOCX.");
-  }
-  const dir = path.join(process.cwd(), "public", "uploads");
-  await fs.mkdir(dir, { recursive: true });
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const filename = `${Date.now()}-${safeName}`;
-  const buffer = Buffer.from(await file.arrayBuffer());
-  await fs.writeFile(path.join(dir, filename), buffer);
-  return `/uploads/${filename}`;
-}
 
 export async function createCandidate(formData: FormData) {
   const session = await auth();

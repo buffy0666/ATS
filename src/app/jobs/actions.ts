@@ -13,6 +13,7 @@ const jobSchema = z.object({
   location: z.string().max(100).optional().or(z.literal("")).transform((v) => v || null),
   description: z.string().min(1),
   status: z.nativeEnum(JobStatus).default(JobStatus.OPEN),
+  clientId: z.string().optional().or(z.literal("")).transform((v) => v || null),
 });
 
 export async function createJob(formData: FormData) {
@@ -25,6 +26,7 @@ export async function createJob(formData: FormData) {
     location: formData.get("location"),
     description: formData.get("description"),
     status: formData.get("status"),
+    clientId: formData.get("clientId"),
   });
 
   const job = await prisma.job.create({
@@ -32,6 +34,8 @@ export async function createJob(formData: FormData) {
   });
 
   revalidatePath("/jobs");
+  revalidatePath("/clients");
+  if (job.clientId) revalidatePath(`/clients/${job.clientId}`);
   redirect(`/jobs/${job.id}`);
 }
 

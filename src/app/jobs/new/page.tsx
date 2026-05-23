@@ -1,54 +1,90 @@
-import { Nav } from "@/components/Nav";
+import Link from "next/link";
+import { prisma } from "@/lib/prisma";
 import { createJob } from "../actions";
 
-export default function NewJobPage() {
+export default async function NewJobPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ clientId?: string }>;
+}) {
+  const { clientId: preselectedClientId } = await searchParams;
+  const clients = await prisma.client.findMany({
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
   return (
-    <>
-      <Nav />
-      <main className="flex-1 max-w-2xl mx-auto w-full px-6 py-10">
-        <h1 className="text-2xl font-semibold mb-6">New job</h1>
-        <form action={createJob} className="space-y-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-          <Field label="Title" name="title" required />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Department" name="department" />
-            <Field label="Location" name="location" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1" htmlFor="description">
-              Description
-            </label>
-            <textarea
-              id="description"
-              name="description"
-              required
-              rows={6}
-              className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1" htmlFor="status">
-              Status
-            </label>
+    <main className="flex-1 max-w-2xl mx-auto w-full px-6 py-10">
+      <h1 className="text-2xl font-semibold mb-6">New job</h1>
+      <form action={createJob} className="space-y-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+        <Field label="Title" name="title" required />
+        <div>
+          <label className="block text-sm font-medium mb-1" htmlFor="clientId">
+            Client
+          </label>
+          {clients.length === 0 ? (
+            <p className="text-sm text-zinc-500">
+              No clients yet —{" "}
+              <Link href="/clients/new" className="underline">
+                create one
+              </Link>{" "}
+              first if this job belongs to a company.
+            </p>
+          ) : (
             <select
-              id="status"
-              name="status"
-              defaultValue="OPEN"
+              id="clientId"
+              name="clientId"
+              defaultValue={preselectedClientId ?? ""}
               className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
             >
-              <option value="OPEN">Open</option>
-              <option value="DRAFT">Draft</option>
-              <option value="CLOSED">Closed</option>
+              <option value="">— No client —</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
             </select>
-          </div>
-          <button
-            type="submit"
-            className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-4 py-2 text-sm font-medium"
+          )}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Department" name="department" />
+          <Field label="Location" name="location" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1" htmlFor="description">
+            Description
+          </label>
+          <textarea
+            id="description"
+            name="description"
+            required
+            rows={6}
+            className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900 dark:focus:ring-zinc-100"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1" htmlFor="status">
+            Status
+          </label>
+          <select
+            id="status"
+            name="status"
+            defaultValue="OPEN"
+            className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
           >
-            Create job
-          </button>
-        </form>
-      </main>
-    </>
+            <option value="OPEN">Open</option>
+            <option value="DRAFT">Draft</option>
+            <option value="CLOSED">Closed</option>
+          </select>
+        </div>
+        <button
+          type="submit"
+          className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-4 py-2 text-sm font-medium"
+        >
+          Create job
+        </button>
+      </form>
+    </main>
   );
 }
 

@@ -7,7 +7,8 @@ export const authConfig = {
       const isLoggedIn = !!auth?.user;
       const isOnLogin = nextUrl.pathname.startsWith("/login");
       const isPublicApi = nextUrl.pathname.startsWith("/api/auth");
-      if (isPublicApi) return true;
+      const isPublicApply = nextUrl.pathname.startsWith("/apply");
+      if (isPublicApi || isPublicApply) return true;
       if (isOnLogin) {
         if (isLoggedIn) return Response.redirect(new URL("/", nextUrl));
         return true;

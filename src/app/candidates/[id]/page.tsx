@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Nav } from "@/components/Nav";
 import { prisma } from "@/lib/prisma";
 
 export default async function CandidateDetailPage({
@@ -23,9 +22,7 @@ export default async function CandidateDetailPage({
   if (!candidate) notFound();
 
   return (
-    <>
-      <Nav />
-      <main className="flex-1 max-w-4xl mx-auto w-full px-6 py-10">
+    <main className="flex-1 max-w-4xl mx-auto w-full px-6 py-10">
         <Link href="/candidates" className="text-sm text-zinc-500 hover:underline">
           ← All candidates
         </Link>
@@ -85,8 +82,7 @@ export default async function CandidateDetailPage({
             </ul>
           )}
         </section>
-      </main>
-    </>
+    </main>
   );
 }
 

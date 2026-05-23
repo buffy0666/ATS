@@ -1,15 +1,11 @@
-import { Nav } from "@/components/Nav";
 import { createCandidate } from "../actions";
 
 export default function NewCandidatePage() {
   return (
-    <>
-      <Nav />
-      <main className="flex-1 max-w-2xl mx-auto w-full px-6 py-10">
+    <main className="flex-1 max-w-2xl mx-auto w-full px-6 py-10">
         <h1 className="text-2xl font-semibold mb-6">New candidate</h1>
         <form
           action={createCandidate}
-          encType="multipart/form-data"
           className="space-y-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6"
         >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -51,8 +47,7 @@ export default function NewCandidatePage() {
             Create candidate
           </button>
         </form>
-      </main>
-    </>
+    </main>
   );
 }
 

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Nav } from "@/components/Nav";
 import { prisma } from "@/lib/prisma";
 
 export default async function CandidatesPage() {
@@ -9,9 +8,7 @@ export default async function CandidatesPage() {
   });
 
   return (
-    <>
-      <Nav />
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
+    <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Candidates</h1>
           <Link
@@ -65,7 +62,6 @@ export default async function CandidatesPage() {
             </table>
           </div>
         )}
-      </main>
-    </>
+    </main>
   );
 }

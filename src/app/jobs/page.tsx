@@ -1,17 +1,17 @@
 import Link from "next/link";
-import { Nav } from "@/components/Nav";
 import { prisma } from "@/lib/prisma";
 
 export default async function JobsPage() {
   const jobs = await prisma.job.findMany({
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { applications: true } } },
+    include: {
+      _count: { select: { applications: true } },
+      client: { select: { id: true, name: true } },
+    },
   });
 
   return (
-    <>
-      <Nav />
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
+    <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Jobs</h1>
           <Link
@@ -30,7 +30,7 @@ export default async function JobsPage() {
               <thead className="bg-zinc-50 dark:bg-zinc-950 text-left text-xs uppercase text-zinc-500">
                 <tr>
                   <th className="px-4 py-2 font-medium">Title</th>
-                  <th className="px-4 py-2 font-medium">Department</th>
+                  <th className="px-4 py-2 font-medium">Client</th>
                   <th className="px-4 py-2 font-medium">Location</th>
                   <th className="px-4 py-2 font-medium">Status</th>
                   <th className="px-4 py-2 font-medium text-right">Applicants</th>
@@ -47,7 +47,15 @@ export default async function JobsPage() {
                         {j.title}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{j.department ?? "—"}</td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                      {j.client ? (
+                        <Link href={`/clients/${j.client.id}`} className="hover:underline">
+                          {j.client.name}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{j.location ?? "—"}</td>
                     <td className="px-4 py-3">
                       <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-xs uppercase tracking-wide">
@@ -61,7 +69,6 @@ export default async function JobsPage() {
             </table>
           </div>
         )}
-      </main>
-    </>
+    </main>
   );
 }

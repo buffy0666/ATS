@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { auth, signOut } from "@/auth";
+import { Role } from "@/generated/prisma";
 
 export async function Nav() {
   const session = await auth();
   if (!session?.user) return null;
+
+  const isAdmin = session.user.role === Role.ADMIN;
 
   return (
     <nav className="border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
@@ -12,12 +15,23 @@ export async function Nav() {
           <Link href="/" className="font-semibold tracking-tight">
             ATS
           </Link>
+          <Link href="/clients" className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white">
+            Clients
+          </Link>
           <Link href="/jobs" className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white">
             Jobs
           </Link>
           <Link href="/candidates" className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white">
             Candidates
           </Link>
+          <Link href="/knowledge" className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white">
+            Knowledge Base
+          </Link>
+          {isAdmin && (
+            <Link href="/users" className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white">
+              Users
+            </Link>
+          )}
         </div>
         <div className="flex items-center gap-3 text-sm">
           <span className="text-zinc-500">

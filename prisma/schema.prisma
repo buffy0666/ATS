@@ -28,6 +28,52 @@ enum Stage {
   REJECTED
 }
 
+enum ContactRole {
+  DECISION_MAKER
+  INFLUENCER
+}
+
+enum ClientStatus {
+  PROSPECT
+  ACTIVE
+  INACTIVE
+  FORMER
+}
+
+enum ContactStatus {
+  ACTIVE
+  LEFT_COMPANY
+  DO_NOT_CONTACT
+}
+
+enum CompanySize {
+  ONE_TO_TEN
+  ELEVEN_TO_FIFTY
+  FIFTY_ONE_TO_TWO_HUNDRED
+  TWO_HUNDRED_ONE_TO_FIVE_HUNDRED
+  FIVE_HUNDRED_ONE_TO_ONE_THOUSAND
+  ONE_THOUSAND_PLUS
+}
+
+enum RevenueBand {
+  UNDER_1M
+  ONE_TO_10M
+  TEN_TO_50M
+  FIFTY_TO_250M
+  TWO_FIFTY_M_TO_1B
+  OVER_1B
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String   @default("zinc")
+  createdAt DateTime @default(now())
+
+  clients  Client[]
+  contacts ClientContact[]
+}
+
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
@@ -39,6 +85,7 @@ model User {
 
   jobsCreated  Job[]    @relation("JobCreator")
   notes        Note[]
+  clientsOwned Client[] @relation("ClientOwner")
 }
 
 model Job {
@@ -55,6 +102,62 @@ model Job {
   createdBy    User?     @relation("JobCreator", fields: [createdById], references: [id])
   applications Application[]
 
+  clientId     String?
+  client       Client?   @relation(fields: [clientId], references: [id])
+
+  @@index([status])
+  @@index([clientId])
+}
+
+model Client {
+  id           String        @id @default(cuid())
+  name         String
+  linkedinUrl  String?
+  website      String?
+  industry     String?
+  location     String?
+  address      String?
+  phone        String?
+  companySize  CompanySize?
+  revenueBand  RevenueBand?
+  status       ClientStatus  @default(ACTIVE)
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  ownerId String?
+  owner   User?   @relation("ClientOwner", fields: [ownerId], references: [id])
+
+  contacts ClientContact[]
+  jobs     Job[]
+  tags     Tag[]
+
+  @@index([status])
+  @@index([ownerId])
+}
+
+model ClientContact {
+  id              String        @id @default(cuid())
+  clientId        String
+  firstName       String
+  lastName        String
+  email           String?
+  phone           String?
+  title           String?
+  department      String?
+  role            ContactRole?
+  linkedinUrl     String?
+  status          ContactStatus @default(ACTIVE)
+  lastContactedAt DateTime?
+  birthday        DateTime?     @db.Date
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tags   Tag[]
+
+  @@index([clientId])
   @@index([status])
 }
 
@@ -101,4 +204,13 @@ model Note {
   author      User        @relation(fields: [authorId], references: [id])
 
   @@index([applicationId])
+}
+
+model KnowledgeItem {
+  id        String   @id @default(cuid())
+  name      String
+  type      String   // "document" | "link"
+  url       String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

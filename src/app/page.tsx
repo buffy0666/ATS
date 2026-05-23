@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Nav } from "@/components/Nav";
 import { prisma } from "@/lib/prisma";
 
 export default async function Dashboard() {
@@ -12,17 +11,14 @@ export default async function Dashboard() {
   ]);
 
   return (
-    <>
-      <Nav />
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
+    <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
         <h1 className="text-2xl font-semibold mb-6">Dashboard</h1>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Stat label="Open jobs" value={openJobs} href="/jobs" />
           <Stat label="Candidates" value={totalCandidates} href="/candidates" />
           <Stat label="Active applications" value={activeApplications} href="/jobs" />
         </div>
-      </main>
-    </>
+    </main>
   );
 }
 

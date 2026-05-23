@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Nav } from "@/components/Nav";
 import { prisma } from "@/lib/prisma";
 import { Stage } from "@/generated/prisma";
 import { Pipeline } from "./Pipeline";
@@ -29,6 +28,7 @@ export default async function JobDetailPage({
         include: { candidate: true },
         orderBy: { createdAt: "desc" },
       },
+      client: { select: { id: true, name: true } },
     },
   });
 
@@ -42,15 +42,20 @@ export default async function JobDetailPage({
   const available = candidates.filter((c) => !linkedIds.has(c.id));
 
   return (
-    <>
-      <Nav />
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
+    <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
         <div className="flex items-start justify-between mb-6">
           <div>
             <Link href="/jobs" className="text-sm text-zinc-500 hover:underline">
               ← All jobs
             </Link>
             <h1 className="text-2xl font-semibold mt-1">{job.title}</h1>
+            {job.client && (
+              <p className="text-sm text-zinc-500 mt-1">
+                <Link href={`/clients/${job.client.id}`} className="hover:underline">
+                  {job.client.name}
+                </Link>
+              </p>
+            )}
             <p className="text-sm text-zinc-500 mt-1">
               {[job.department, job.location].filter(Boolean).join(" · ") || "—"} ·{" "}
               <span className="uppercase tracking-wide">{job.status}</span>
@@ -67,7 +72,6 @@ export default async function JobDetailPage({
         </section>
 
         <Pipeline stages={STAGES} applications={job.applications} />
-      </main>
-    </>
+    </main>
   );
 }
