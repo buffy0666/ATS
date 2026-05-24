@@ -298,42 +298,24 @@ export default async function CandidateDetailPage({
         </div>
       </header>
 
-      {/* Top workspace: resume + notes side by side. The resume pane sets its
-          own height via the 8.5×11 aspect of the page; the notes column
-          stretches to match via the row's implicit height. */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 mb-4">
-        <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
-          <ResumeViewer url={candidate.resumeUrl} />
-        </section>
+      {/* Page-wide grid: left column carries the long stuff (resume,
+          metadata, sequences, communication); right column is a sticky
+          Notes sidebar that follows the user as they scroll through
+          everything else. Notes uses `align-self: start` so it doesn't
+          stretch to the height of the left column — sticky positioning
+          works inside its grid cell up to the bottom of the row. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4 mb-4 items-start">
+        {/* Left column: resume + everything else, stacked. */}
+        <div className="space-y-4 min-w-0">
+          <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+            <ResumeViewer url={candidate.resumeUrl} />
+          </section>
 
-        <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col overflow-hidden">
-          <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            Notes
-          </div>
-          <div className="flex-1 min-h-0 p-5">
-            <NotesSection
-              candidateId={candidate.id}
-              notes={notes}
-              applications={candidate.applications.map((a) => ({
-                id: a.id,
-                jobTitle: a.job.title,
-                stage: a.stage,
-              }))}
-              currentUserId={session?.user?.id ?? ""}
-              currentUserIsAdmin={session?.user?.role === Role.ADMIN}
-            />
-          </div>
-        </section>
-      </div>
-
-      {/* Metadata: full-width 2-column flow below the resume + notes row.
-          Heavy / interactive sections (sequences, communication) get their
-          own full-width rows further down so they have room to breathe. */}
-      <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 mb-4">
-        <div className="border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          Profile
-        </div>
-        <div className="p-5">
+          <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+            <div className="border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Profile
+            </div>
+            <div className="p-5">
           {candidate.summary && (
             <p className="mb-5 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
               {candidate.summary}
@@ -579,44 +561,73 @@ export default async function CandidateDetailPage({
         </div>
       </section>
 
-      {/* Sequences — full width, has its own internal UI affordances */}
-      <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 mb-4 p-5">
-        <CandidateSequencesSection
-          candidateId={candidate.id}
-          enrollments={enrollmentsForUI}
-          availableSequences={enrollableSequences}
-          applications={candidate.applications.map((a) => ({
-            id: a.id,
-            jobTitle: a.job.title,
-          }))}
-        />
-      </section>
-
-      {/* Email composer + history — full width because both pieces are wide */}
-      <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 mb-4">
-        <div className="border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          Communication ({candidate.emails.length})
-        </div>
-        <div className="p-5">
-          <div className="mb-4">
-            <EmailComposer
+          {/* Sequences — full width inside left column */}
+          <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+            <CandidateSequencesSection
               candidateId={candidate.id}
-              candidateEmail={candidate.email}
-              candidateFirstName={candidate.firstName}
-              candidateLastName={candidate.lastName}
-              candidatePhone={candidate.phone}
-              senderName={senderName}
-              senderEmail={session?.user?.email ?? ""}
+              enrollments={enrollmentsForUI}
+              availableSequences={enrollableSequences}
               applications={candidate.applications.map((a) => ({
                 id: a.id,
                 jobTitle: a.job.title,
               }))}
-              templates={templates}
+            />
+          </section>
+
+          {/* Email composer + history — wide piece, lives in the left column */}
+          <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+            <div className="border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Communication ({candidate.emails.length})
+            </div>
+            <div className="p-5">
+              <div className="mb-4">
+                <EmailComposer
+                  candidateId={candidate.id}
+                  candidateEmail={candidate.email}
+                  candidateFirstName={candidate.firstName}
+                  candidateLastName={candidate.lastName}
+                  candidatePhone={candidate.phone}
+                  senderName={senderName}
+                  senderEmail={session?.user?.email ?? ""}
+                  applications={candidate.applications.map((a) => ({
+                    id: a.id,
+                    jobTitle: a.job.title,
+                  }))}
+                  templates={templates}
+                />
+              </div>
+              <EmailHistory emails={candidate.emails} />
+            </div>
+          </section>
+        </div>
+
+        {/* Right column: sticky Notes sidebar. `sticky top-4` keeps the
+            compose box pinned to the viewport as the user scrolls through
+            the left column. `self-start` lets the sidebar stay at its
+            natural height instead of stretching to match the (much taller)
+            left column. */}
+        <aside
+          className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col overflow-hidden sticky top-4 self-start"
+          style={{ maxHeight: "calc(100vh - 2rem)" }}
+        >
+          <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Notes
+          </div>
+          <div className="flex-1 min-h-0 p-5">
+            <NotesSection
+              candidateId={candidate.id}
+              notes={notes}
+              applications={candidate.applications.map((a) => ({
+                id: a.id,
+                jobTitle: a.job.title,
+                stage: a.stage,
+              }))}
+              currentUserId={session?.user?.id ?? ""}
+              currentUserIsAdmin={session?.user?.role === Role.ADMIN}
             />
           </div>
-          <EmailHistory emails={candidate.emails} />
-        </div>
-      </section>
+        </aside>
+      </div>
     </main>
   );
 }

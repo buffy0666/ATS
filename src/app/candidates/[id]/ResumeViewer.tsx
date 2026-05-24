@@ -3,29 +3,26 @@ import path from "node:path";
 import Link from "next/link";
 
 /**
- * Renders the candidate's resume inline.
+ * Renders the candidate's resume inline at letter (8.5 × 11) aspect.
  *
- * Server-side reachability check: before rendering the iframe, we verify
- * that the URL actually serves a PDF. This is necessary because of two
- * scenarios where a raw <iframe> would silently embed the ATS app inside
- * the resume pane:
+ * The viewer is *not* given a parent-height-flex hack — instead the inner
+ * box uses CSS aspect-ratio so its height is derived from its rendered
+ * width. That way the iframe naturally fills exactly one letter page, the
+ * surrounding pane has no black void below short resumes, and the
+ * containing page just flows around it. Multi-page PDFs can be scrolled
+ * internally via the PDF.js toolbar.
  *
- *   (1) Local-disk URLs (/uploads/foo.pdf) where the file is gone — Next
- *       returns the global 404 page rendered inside the root layout (which
- *       includes the sidebar).
- *   (2) Vercel deployments without Blob storage: the file was written to
- *       ephemeral disk and lost, same 404-renders-as-app outcome.
- *
- * For Vercel Blob URLs we trust the URL (it's an absolute cross-origin link
- * to a real CDN, not a same-origin path that could resolve to the app
- * itself).
+ * Reachability: a /uploads/* file is fs.access-checked before letting the
+ * iframe load — otherwise a missing file would 404 and Next would serve
+ * its layout-wrapped error page, embedding the ATS sidebar inside the
+ * resume pane. Vercel Blob URLs are trusted (cross-origin CDN).
  */
 export async function ResumeViewer({ url }: { url: string | null }) {
   const reachable = await checkResume(url);
 
   if (!reachable.ok) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="flex flex-col items-center justify-center gap-3 p-10 text-center min-h-[280px]">
         <div className="text-sm text-zinc-500">
           {reachable.reason === "missing"
             ? "No resume uploaded yet."
@@ -35,8 +32,8 @@ export async function ResumeViewer({ url }: { url: string | null }) {
         </div>
         <div className="text-xs text-zinc-400 max-w-sm">
           {reachable.reason === "lost"
-            ? "It looks like uploads weren't persisted (likely Vercel ephemeral disk). Upload again — once BLOB_READ_WRITE_TOKEN is set on Vercel, future uploads will stick."
-            : "Use the “Upload resume” button above."}
+            ? "Earlier uploads weren't persisted (Vercel ephemeral disk). Upload again — Blob storage is now configured so the new file will stick."
+            : "Use the “Add/Replace resume” button above."}
         </div>
       </div>
     );
@@ -46,7 +43,7 @@ export async function ResumeViewer({ url }: { url: string | null }) {
 
   if (!reachable.isPdf) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="flex flex-col items-center justify-center gap-3 p-10 text-center min-h-[280px]">
         <p className="text-sm text-zinc-500 max-w-xs">
           Resume isn&apos;t a PDF, so it can&apos;t be previewed inline. Download it to view.
         </p>
@@ -63,7 +60,7 @@ export async function ResumeViewer({ url }: { url: string | null }) {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div>
       <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 px-3 py-1.5 text-xs">
         <span className="text-zinc-500">Resume preview</span>
         <Link
@@ -75,20 +72,15 @@ export async function ResumeViewer({ url }: { url: string | null }) {
           Open in new tab ↗
         </Link>
       </div>
-      {/* Outer pane fills the column. Inner wrapper holds the iframe at
-          letter aspect (8.5 × 11 ≈ 17/22) so it never extends past the
-          page bottom — no more black void below short resumes. The page
-          itself is scrollable for multi-page PDFs via the iframe's own
-          chrome. */}
-      <div className="flex-1 min-h-0 overflow-auto p-2 bg-zinc-100 dark:bg-zinc-950">
+      <div className="bg-zinc-100 dark:bg-zinc-950 p-3">
         <div
-          className="mx-auto bg-white shadow-sm"
-          style={{ aspectRatio: "8.5 / 11", maxWidth: "min(100%, 850px)" }}
+          className="mx-auto bg-white shadow-sm overflow-hidden rounded-sm"
+          style={{ aspectRatio: "8.5 / 11", maxWidth: "100%" }}
         >
           <iframe
             src={`${safeUrl}#toolbar=1&navpanes=0&view=FitH`}
             title="Resume"
-            className="w-full h-full border-0"
+            className="block w-full h-full border-0"
           />
         </div>
       </div>
@@ -106,9 +98,6 @@ async function checkResume(raw: string | null): Promise<Reachability> {
   const trimmed = raw.trim();
   if (!trimmed) return { ok: false, reason: "missing" };
 
-  // Absolute URL — typically a Vercel Blob URL. We trust those: they're
-  // cross-origin to a real CDN, so even if the blob is deleted the iframe
-  // would just show a CDN-side error page, not the ATS app.
   if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
     return {
       ok: true,
@@ -117,12 +106,9 @@ async function checkResume(raw: string | null): Promise<Reachability> {
     };
   }
 
-  // Local-disk URL: must point under /public/uploads. Reject anything else,
-  // and confirm the file actually exists before letting the iframe load it.
   if (trimmed.startsWith("/uploads/")) {
     const relative = trimmed.replace(/^\/+/, "");
     const target = path.join(process.cwd(), "public", relative);
-    // Guard against path traversal — never let `..` escape the uploads dir.
     const uploadsRoot = path.join(process.cwd(), "public", "uploads") + path.sep;
     if (!target.startsWith(uploadsRoot)) {
       return { ok: false, reason: "invalid" };
