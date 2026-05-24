@@ -1,32 +1,50 @@
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import Link from "next/link";
 
 /**
- * Renders the candidate's resume inline. Uses <object> rather than <iframe>
- * with an explicit `type="application/pdf"` — the browser only renders the
- * embed if the response's content-type is actually a PDF. If the response is
- * anything else (404 HTML page, redirect to login, missing file), the
- * browser uses the fallback content instead. This prevents the previous bug
- * where a missing file URL was 404'd by Next and the iframe ended up
- * rendering the ATS sidebar inside the resume pane.
+ * Renders the candidate's resume inline.
+ *
+ * Server-side reachability check: before rendering the iframe, we verify
+ * that the URL actually serves a PDF. This is necessary because of two
+ * scenarios where a raw <iframe> would silently embed the ATS app inside
+ * the resume pane:
+ *
+ *   (1) Local-disk URLs (/uploads/foo.pdf) where the file is gone — Next
+ *       returns the global 404 page rendered inside the root layout (which
+ *       includes the sidebar).
+ *   (2) Vercel deployments without Blob storage: the file was written to
+ *       ephemeral disk and lost, same 404-renders-as-app outcome.
+ *
+ * For Vercel Blob URLs we trust the URL (it's an absolute cross-origin link
+ * to a real CDN, not a same-origin path that could resolve to the app
+ * itself).
  */
-export function ResumeViewer({ url }: { url: string | null }) {
-  const safeUrl = normalizeResumeUrl(url);
+export async function ResumeViewer({ url }: { url: string | null }) {
+  const reachable = await checkResume(url);
 
-  if (!safeUrl) {
+  if (!reachable.ok) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
-        <div className="text-sm text-zinc-500">No resume uploaded yet.</div>
-        <div className="text-xs text-zinc-400">
-          Use the &ldquo;Upload resume&rdquo; button above.
+      <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
+        <div className="text-sm text-zinc-500">
+          {reachable.reason === "missing"
+            ? "No resume uploaded yet."
+            : reachable.reason === "lost"
+              ? "The resume file is no longer available."
+              : "Resume URL is invalid."}
+        </div>
+        <div className="text-xs text-zinc-400 max-w-sm">
+          {reachable.reason === "lost"
+            ? "It looks like uploads weren't persisted (likely Vercel ephemeral disk). Upload again — once BLOB_READ_WRITE_TOKEN is set on Vercel, future uploads will stick."
+            : "Use the “Upload resume” button above."}
         </div>
       </div>
     );
   }
 
-  const lower = safeUrl.toLowerCase().split("?")[0].split("#")[0];
-  const isPdf = lower.endsWith(".pdf");
+  const safeUrl = reachable.url;
 
-  if (!isPdf) {
+  if (!reachable.isPdf) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
         <p className="text-sm text-zinc-500 max-w-xs">
@@ -57,54 +75,57 @@ export function ResumeViewer({ url }: { url: string | null }) {
           Open in new tab ↗
         </Link>
       </div>
-      <object
-        data={`${safeUrl}#toolbar=1&navpanes=0&view=FitH`}
-        type="application/pdf"
-        className="w-full flex-1 min-h-0 bg-zinc-50 dark:bg-zinc-950"
-        aria-label="Resume PDF"
-      >
-        {/* Fallback shown when the response isn't actually a PDF — e.g. the
-            file was lost (Vercel filesystem is ephemeral without Blob
-            storage) or the URL redirects to the app. */}
-        <div className="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="text-sm text-zinc-700 dark:text-zinc-300 max-w-sm">
-            Couldn&apos;t load the resume preview.
-          </p>
-          <p className="text-xs text-zinc-500 max-w-sm">
-            The file may have been deleted, or production uploads aren&apos;t persisted
-            (set <code className="font-mono">BLOB_READ_WRITE_TOKEN</code> in Vercel).
-            Try re-uploading.
-          </p>
-          <Link
-            href={safeUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-sm font-medium hover:opacity-90"
-          >
-            Open file directly
-          </Link>
-        </div>
-      </object>
+      <iframe
+        src={`${safeUrl}#toolbar=1&navpanes=0&view=FitH`}
+        title="Resume"
+        className="w-full flex-1 min-h-0 border-0 bg-zinc-50 dark:bg-zinc-950"
+      />
     </div>
   );
 }
 
-/**
- * Only accept URLs that point at a real fetchable resource. Anything else
- * (empty string, hash fragment, stray query string, relative path without a
- * leading slash) would otherwise resolve to the current page URL and embed
- * the ATS app inside the resume pane.
- */
-function normalizeResumeUrl(raw: string | null): string | null {
-  if (!raw) return null;
+type Reachability =
+  | { ok: true; url: string; isPdf: boolean }
+  | { ok: false; reason: "missing" | "lost" | "invalid" };
+
+async function checkResume(raw: string | null): Promise<Reachability> {
+  if (!raw) return { ok: false, reason: "missing" };
+
   const trimmed = raw.trim();
-  if (!trimmed) return null;
-  if (
-    trimmed.startsWith("http://") ||
-    trimmed.startsWith("https://") ||
-    trimmed.startsWith("/")
-  ) {
-    return trimmed;
+  if (!trimmed) return { ok: false, reason: "missing" };
+
+  // Absolute URL — typically a Vercel Blob URL. We trust those: they're
+  // cross-origin to a real CDN, so even if the blob is deleted the iframe
+  // would just show a CDN-side error page, not the ATS app.
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return {
+      ok: true,
+      url: trimmed,
+      isPdf: pdfExtension(trimmed),
+    };
   }
-  return null;
+
+  // Local-disk URL: must point under /public/uploads. Reject anything else,
+  // and confirm the file actually exists before letting the iframe load it.
+  if (trimmed.startsWith("/uploads/")) {
+    const relative = trimmed.replace(/^\/+/, "");
+    const target = path.join(process.cwd(), "public", relative);
+    // Guard against path traversal — never let `..` escape the uploads dir.
+    const uploadsRoot = path.join(process.cwd(), "public", "uploads") + path.sep;
+    if (!target.startsWith(uploadsRoot)) {
+      return { ok: false, reason: "invalid" };
+    }
+    try {
+      await fs.access(target);
+    } catch {
+      return { ok: false, reason: "lost" };
+    }
+    return { ok: true, url: trimmed, isPdf: pdfExtension(trimmed) };
+  }
+
+  return { ok: false, reason: "invalid" };
+}
+
+function pdfExtension(url: string): boolean {
+  return url.toLowerCase().split("?")[0].split("#")[0].endsWith(".pdf");
 }
