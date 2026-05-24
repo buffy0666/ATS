@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { EmailComposer } from "./EmailComposer";
 import { EmailHistory } from "./EmailHistory";
 import { NotesSection } from "./NotesSection";
+import { CandidateNavigator } from "./CandidateNavigator";
+import { ResumeUploadButton } from "./ResumeUploadButton";
 import { ResumeViewer } from "./ResumeViewer";
 import {
   CandidateSequencesSection,
@@ -233,9 +235,12 @@ export default async function CandidateDetailPage({
     <main className="flex-1 flex flex-col max-w-[120rem] mx-auto w-full px-6 py-4 h-screen">
       {/* Header — name, status, summary stay above the workspace */}
       <header className="shrink-0 mb-3">
-        <Link href="/candidates" className="text-xs text-zinc-500 hover:underline">
-          ← All candidates
-        </Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/candidates" className="text-xs text-zinc-500 hover:underline">
+            ← All candidates
+          </Link>
+          <CandidateNavigator currentId={candidate.id} />
+        </div>
         <div className="mt-1 flex flex-wrap items-baseline gap-3">
           <h1 className="text-2xl font-semibold">
             {candidate.firstName} {candidate.lastName}
@@ -279,6 +284,12 @@ export default async function CandidateDetailPage({
               ))}
             </div>
           )}
+          <div className="ml-auto">
+            <ResumeUploadButton
+              candidateId={candidate.id}
+              hasExistingResume={Boolean(candidate.resumeUrl)}
+            />
+          </div>
         </div>
       </header>
 

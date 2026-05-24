@@ -36,6 +36,17 @@ function formatAbsolute(date: Date) {
   });
 }
 
+/**
+ * Layout: persistent compose box at the top, history list below.
+ *
+ * The compose form is always visible (not gated behind a button). When the
+ * candidate has no job applications yet, the form shows a disabled state
+ * with a clear hint about why — since notes are still per-application in the
+ * schema, the user needs at least one job to attach to.
+ *
+ * The parent (`page.tsx`) wraps this in an `overflow-y-auto` container, so
+ * the history list naturally scrolls when it exceeds the available height.
+ */
 export function NotesSection({
   candidateId,
   notes,
@@ -49,49 +60,16 @@ export function NotesSection({
   currentUserId: string;
   currentUserIsAdmin: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-
-  if (applications.length === 0) {
-    return (
-      <section>
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 mb-3">
-          Notes &amp; feedback
-        </h2>
-        <p className="text-sm text-zinc-500">
-          Add this candidate to a job first — notes live on the application (so the same person can have different notes per role).
-        </p>
-      </section>
-    );
-  }
-
   return (
-    <section>
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-          Notes &amp; feedback ({notes.length})
-        </h2>
-        {!open && (
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-sm font-medium"
-          >
-            Add note
-          </button>
-        )}
+    <div className="flex flex-col gap-3">
+      <AddNoteForm candidateId={candidateId} applications={applications} />
+
+      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500 pt-1">
+        History {notes.length > 0 && <span className="text-zinc-400">({notes.length})</span>}
       </div>
 
-      {open && (
-        <AddNoteForm
-          candidateId={candidateId}
-          applications={applications}
-          onCancel={() => setOpen(false)}
-          onSaved={() => setOpen(false)}
-        />
-      )}
-
-      {notes.length === 0 && !open ? (
-        <p className="text-sm text-zinc-500">No notes yet.</p>
+      {notes.length === 0 ? (
+        <p className="text-sm text-zinc-500">No notes yet. Add the first one above.</p>
       ) : (
         <ul className="space-y-2">
           {notes.map((n) => {
@@ -108,7 +86,7 @@ export function NotesSection({
           })}
         </ul>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -246,13 +224,9 @@ function NoteRow({
 function AddNoteForm({
   candidateId,
   applications,
-  onCancel,
-  onSaved,
 }: {
   candidateId: string;
   applications: ApplicationOption[];
-  onCancel: () => void;
-  onSaved: () => void;
 }) {
   const bound = addNote.bind(null, candidateId);
   const [state, action, pending] = useActionState<NoteActionResult | undefined, FormData>(
@@ -260,71 +234,84 @@ function AddNoteForm({
     undefined,
   );
   const formRef = useRef<HTMLFormElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const hasApplications = applications.length > 0;
 
+  // Reset the textarea on a successful save so the user can immediately type
+  // another note. We keep the job picker on its previously chosen value —
+  // recruiters typically batch multiple notes against the same role.
   useEffect(() => {
     if (state?.ok) {
-      formRef.current?.reset();
-      onSaved();
+      if (textareaRef.current) textareaRef.current.value = "";
     }
-  }, [state, onSaved]);
+  }, [state]);
 
   return (
     <form
       ref={formRef}
       action={action}
-      className="space-y-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 mb-3"
+      className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3"
     >
-      <div>
-        <label className="block text-sm font-medium mb-1" htmlFor="applicationId">
-          For which job?
-        </label>
-        <select
-          id="applicationId"
-          name="applicationId"
-          required
-          defaultValue={applications[0]?.id ?? ""}
-          className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
-        >
-          {applications.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.jobTitle} ({a.stage})
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label className="block text-sm font-medium mb-1" htmlFor="body">
-          Note
-        </label>
-        <textarea
-          id="body"
-          name="body"
-          required
-          rows={4}
-          placeholder="Phone screen at 2pm — strong fit, concerns about comp band."
-          className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
-        />
-      </div>
-      {state?.ok === false && (
-        <p className="text-sm text-red-600">{state.error}</p>
-      )}
-      <div className="flex gap-2">
+      <label htmlFor="note-body" className="sr-only">
+        Add a note
+      </label>
+      <textarea
+        ref={textareaRef}
+        id="note-body"
+        name="body"
+        required
+        rows={3}
+        disabled={!hasApplications || pending}
+        placeholder={
+          hasApplications
+            ? "Phone screen at 2pm — strong fit, concerns about comp band."
+            : "Associate this candidate with a job to enable notes."
+        }
+        onKeyDown={(e) => {
+          // Cmd/Ctrl+Enter submits — keep typing-flow fast.
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+            e.preventDefault();
+            formRef.current?.requestSubmit();
+          }
+        }}
+        className="w-full resize-y rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+      />
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {hasApplications && (
+          <select
+            name="applicationId"
+            required
+            defaultValue={applications[0]?.id ?? ""}
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5 text-xs"
+            aria-label="Job this note is for"
+          >
+            {applications.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.jobTitle} ({a.stage})
+              </option>
+            ))}
+          </select>
+        )}
+
         <button
           type="submit"
-          disabled={pending}
-          className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+          disabled={!hasApplications || pending}
+          className="ml-auto rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-sm font-medium disabled:opacity-50"
         >
-          {pending ? "Saving…" : "Save note"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={pending}
-          className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-1.5 text-sm"
-        >
-          Cancel
+          {pending ? "Saving…" : "Add note"}
         </button>
       </div>
+
+      {!hasApplications && (
+        <p className="mt-2 text-xs text-zinc-500">
+          Notes live on a specific job application so the same candidate can have different notes
+          per role. Associate this candidate with a job first.
+        </p>
+      )}
+      {state?.ok === false && (
+        <p className="mt-2 text-xs text-red-600">{state.error}</p>
+      )}
     </form>
   );
 }

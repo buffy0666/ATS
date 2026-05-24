@@ -140,6 +140,10 @@ export default async function ListDetailPage({
           listId={list.id}
           sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
           seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
+          originOverride={{
+            href: `/lists/${list.id}`,
+            label: `List: ${list.name}`,
+          }}
         />
       </div>
     </main>

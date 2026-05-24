@@ -340,6 +340,64 @@ export async function createCandidate(formData: FormData) {
   redirect(`/candidates/${candidate.id}`);
 }
 
+export type UpdateResumeResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+/**
+ * Upload (or replace) a candidate's resume from the candidate detail page.
+ * Saves the file, runs the same text extraction we do at create time, and
+ * stamps parsedAt to null so it's clear the new file hasn't been AI-parsed
+ * yet — the user can click "Parse resume" separately if they want structured
+ * data lifted.
+ */
+export async function updateCandidateResume(
+  candidateId: string,
+  formData: FormData,
+): Promise<UpdateResumeResult> {
+  const session = await auth();
+  if (!session?.user) return { ok: false, error: "Unauthorized." };
+
+  const file = formData.get("resume");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Choose a PDF or DOCX file before uploading." };
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    return { ok: false, error: "Resume must be 15 MB or smaller." };
+  }
+
+  const name = file.name.toLowerCase();
+  if (!name.endsWith(".pdf") && !name.endsWith(".docx") && !name.endsWith(".doc")) {
+    return { ok: false, error: "Only PDF, DOC, and DOCX files are supported." };
+  }
+
+  try {
+    const resumeUrl = await saveResume(file);
+    const resumeText = await extractResumeTextSafely(file);
+
+    await prisma.candidate.update({
+      where: { id: candidateId },
+      data: {
+        resumeUrl,
+        resumeText,
+        // The previous parsed data is now stale relative to this new file.
+        // Clear the stamp so the UI doesn't claim it's up to date.
+        parsedAt: null,
+        parserVersion: null,
+      },
+    });
+
+    revalidatePath(`/candidates/${candidateId}`);
+    revalidatePath("/candidates");
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Could not save resume.",
+    };
+  }
+}
+
 async function syncTagNamesToIds(rawNames: string[]): Promise<string[]> {
   const names = Array.from(
     new Set(rawNames.map((n) => n.trim()).filter((n) => n.length > 0 && n.length <= 60)),

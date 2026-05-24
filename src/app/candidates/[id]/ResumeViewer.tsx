@@ -2,11 +2,13 @@ import Link from "next/link";
 
 /**
  * Renders the candidate's resume inline. Browsers natively preview PDFs via
- * the <object>/<iframe> path; for DOCX or anything else we surface a download
- * link instead since there's no portable in-browser DOCX renderer.
+ * the <iframe> path; for DOCX or anything else we surface a download link
+ * instead since there's no portable in-browser DOCX renderer.
  */
 export function ResumeViewer({ url }: { url: string | null }) {
-  if (!url) {
+  const safeUrl = normalizeResumeUrl(url);
+
+  if (!safeUrl) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
         <div className="text-sm text-zinc-500">No resume uploaded yet.</div>
@@ -17,8 +19,7 @@ export function ResumeViewer({ url }: { url: string | null }) {
     );
   }
 
-  const lower = url.toLowerCase();
-  const isPdf = lower.endsWith(".pdf");
+  const isPdf = safeUrl.toLowerCase().split("?")[0].split("#")[0].endsWith(".pdf");
 
   if (!isPdf) {
     return (
@@ -27,7 +28,7 @@ export function ResumeViewer({ url }: { url: string | null }) {
           Resume isn&apos;t a PDF, so it can&apos;t be previewed inline. Download it to view.
         </p>
         <Link
-          href={url}
+          href={safeUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-sm font-medium hover:opacity-90"
@@ -43,7 +44,7 @@ export function ResumeViewer({ url }: { url: string | null }) {
       <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 px-3 py-1.5 text-xs">
         <span className="text-zinc-500">Resume preview</span>
         <Link
-          href={url}
+          href={safeUrl}
           target="_blank"
           rel="noopener noreferrer"
           className="text-zinc-600 dark:text-zinc-300 hover:underline"
@@ -52,10 +53,30 @@ export function ResumeViewer({ url }: { url: string | null }) {
         </Link>
       </div>
       <iframe
-        src={`${url}#toolbar=1&navpanes=0&view=FitH`}
+        src={`${safeUrl}#toolbar=1&navpanes=0&view=FitH`}
         title="Resume"
         className="w-full flex-1 min-h-0 border-0 bg-zinc-50 dark:bg-zinc-950"
       />
     </div>
   );
+}
+
+/**
+ * Whitelist what we'll feed to an iframe `src`. A bogus value like `""`,
+ * `"#"`, `"?foo"`, or anything else relative would otherwise resolve to the
+ * current page URL and embed the ATS UI inside the resume pane — which is
+ * what was happening before this guard.
+ */
+function normalizeResumeUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (
+    trimmed.startsWith("http://") ||
+    trimmed.startsWith("https://") ||
+    trimmed.startsWith("/")
+  ) {
+    return trimmed;
+  }
+  return null;
 }

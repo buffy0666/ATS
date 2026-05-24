@@ -10,6 +10,7 @@ import {
   WorkAuth,
 } from "@/generated/prisma";
 import { tagClass } from "@/lib/tag-colors";
+import { CandidateCursorTracker } from "@/components/CandidateCursorTracker";
 import { AdvancedFilters } from "./AdvancedFilters";
 import { DeleteCandidateButton } from "./DeleteCandidateButton";
 import { KeywordSearchBar } from "./KeywordSearchBar";
@@ -82,6 +83,7 @@ export function CandidatesView({
   listId,
   sourceOptions = [],
   seniorityOptions = [],
+  originOverride,
 }: {
   candidates: CandidateRow[];
   availableTags: Tag[];
@@ -90,6 +92,13 @@ export function CandidatesView({
   listId?: string;
   sourceOptions?: ChoiceOption[];
   seniorityOptions?: ChoiceOption[];
+  /**
+   * Override the "back to" target for the candidate-detail Prev/Next cursor.
+   * Pass this from views that embed CandidatesView in a non-default context
+   * — e.g., /lists/[id] wants the cursor's "Back" link to point to the list,
+   * not the global /candidates page.
+   */
+  originOverride?: { href: string; label: string };
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -222,8 +231,21 @@ export function CandidatesView({
     router.push("/candidates", { scroll: false });
   }
 
+  // Build the navigation cursor reflecting whatever the user currently sees.
+  // Includes any active filter (?status=… etc.) in the "back to" link so the
+  // user lands back on the same filtered view, not a wide-open table.
+  const cursorIds = useMemo(() => candidates.map((c) => c.id), [candidates]);
+  const searchString = searchParams?.toString() ?? "";
+  const defaultHref = searchString ? `/candidates?${searchString}` : "/candidates";
+  const defaultLabel = anyFilterActive
+    ? `Candidates (${cursorIds.length} filtered)`
+    : "All candidates";
+  const cursorHref = originOverride?.href ?? defaultHref;
+  const cursorLabel = originOverride?.label ?? defaultLabel;
+
   return (
     <main className="flex-1 max-w-[120rem] mx-auto w-full px-6 py-10">
+      <CandidateCursorTracker ids={cursorIds} originHref={cursorHref} originLabel={cursorLabel} />
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Candidates</h1>
         <div className="flex items-center gap-2">
