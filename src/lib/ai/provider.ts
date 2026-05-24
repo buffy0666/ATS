@@ -27,9 +27,55 @@ export const aiCompletionResponseSchema = z.object({
 export type AICompletionRequest = z.input<typeof aiCompletionRequestSchema>;
 export type AICompletionResponse = z.infer<typeof aiCompletionResponseSchema>;
 
+// ---------- Chat (streaming + tool calling) ----------
+//
+// A unified shape across providers so the orchestrator doesn't care whether
+// the underlying API is OpenAI's `chat.completions`, Anthropic's `messages`,
+// or Ollama's OpenAI-compatible endpoint.
+
+export type ToolCall = {
+  /** Provider-assigned id used to correlate tool_result messages later. */
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+};
+
+export type ChatMessage =
+  | { role: "system"; content: string }
+  | { role: "user"; content: string }
+  | { role: "assistant"; content: string; toolCalls?: ToolCall[] }
+  | { role: "tool"; content: string; toolCallId: string };
+
+export type ToolDefinition = {
+  name: string;
+  description: string;
+  /** JSON Schema object describing the tool's arguments. */
+  parameters: object;
+};
+
+export type ChatFinishReason = "stop" | "tool_calls" | "length" | "error";
+
+export type ChatChunk =
+  | { type: "text"; delta: string }
+  | { type: "tool_call"; toolCall: ToolCall }
+  | { type: "done"; finishReason: ChatFinishReason };
+
+export type ChatInput = {
+  messages: ChatMessage[];
+  tools?: ToolDefinition[];
+  maxTokens?: number;
+  temperature?: number;
+};
+
 export interface AIProvider {
   readonly name: string;
   complete(input: AICompletionRequest): Promise<AICompletionResponse>;
+  /**
+   * Stream a chat turn. Yields text deltas as they arrive and any tool calls
+   * the model decides to make. Always ends with a single `{ type: "done" }`
+   * chunk carrying the finish reason.
+   */
+  chat(input: ChatInput): AsyncIterable<ChatChunk>;
 }
 
 export class AIProviderError extends Error {

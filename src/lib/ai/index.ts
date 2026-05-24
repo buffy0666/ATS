@@ -9,6 +9,8 @@ import {
   type AICompletionRequest,
   type AICompletionResponse,
   type AIProvider,
+  type ChatChunk,
+  type ChatInput,
   AIProviderError,
 } from "./provider";
 
@@ -65,6 +67,15 @@ function getProvider(): AIProvider {
 export async function complete(input: AICompletionRequest): Promise<AICompletionResponse> {
   const payload = aiCompletionRequestSchema.parse(input);
   return getProvider().complete(payload);
+}
+
+/**
+ * Streaming chat — yields text deltas + tool calls one chunk at a time.
+ * The orchestrator handles multi-turn tool loops; this is the bare provider
+ * call for a single round.
+ */
+export function chat(input: ChatInput): AsyncIterable<ChatChunk> {
+  return getProvider().chat(input);
 }
 
 export async function completeJson<TSchema extends z.ZodType>(
@@ -199,5 +210,14 @@ function getRequiredModel(provider: string): string {
   return model;
 }
 
-export type { AICompletionRequest, AICompletionResponse } from "./provider";
+export type {
+  AICompletionRequest,
+  AICompletionResponse,
+  ChatChunk,
+  ChatFinishReason,
+  ChatInput,
+  ChatMessage,
+  ToolCall,
+  ToolDefinition,
+} from "./provider";
 export { AIProviderError } from "./provider";

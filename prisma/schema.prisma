@@ -247,13 +247,17 @@ model Tag {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String?
-  passwordHash String
-  role         Role     @default(RECRUITER)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String
+  role          Role      @default(RECRUITER)
+  // Soft-delete / disable flag — preserves audit trail on existing rows
+  // while preventing sign-in. Set by the assistant's deactivate_user tool.
+  active        Boolean   @default(true)
+  deactivatedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   jobsCreated         Job[]                 @relation("JobCreator")
   notes               Note[]
@@ -273,6 +277,8 @@ model User {
   sequencesCreated    Sequence[]            @relation("SequenceCreator")
   enrollmentsCreated  SequenceEnrollment[]  @relation("SequenceEnroller")
   stepRunsCompleted   StepRun[]             @relation("StepRunCompleter")
+  assistantConversations AssistantConversation[] @relation("AssistantUser")
+  assistantToolCalls     AssistantToolCall[]     @relation("AssistantToolCaller")
 
   // Calendar
   iCalToken             String?              @unique
@@ -855,4 +861,67 @@ model StepRun {
 
   @@index([scheduledFor, status])
   @@index([enrollmentId])
+}
+
+// ----- AI assistant -----
+//
+// Conversation = one chat thread between a user and the assistant.
+// Message = one turn in that thread (user / assistant / tool / system).
+// ToolCall = an audit row for every tool the assistant invoked, including
+// args + result + any error, so we can replay and review what the AI did.
+
+enum AssistantRole {
+  USER
+  ASSISTANT
+  TOOL
+  SYSTEM
+}
+
+model AssistantConversation {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User               @relation("AssistantUser", fields: [userId], references: [id])
+  messages AssistantMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+model AssistantMessage {
+  id             String        @id @default(cuid())
+  conversationId String
+  role           AssistantRole
+  content        String
+  // For assistant turns that requested tool calls. Shape:
+  //   [{ id: string, name: string, arguments: object }]
+  toolCalls      Json?
+  // For TOOL messages: which assistant tool_call id this is a response to.
+  toolCallId     String?
+  createdAt      DateTime      @default(now())
+
+  conversation  AssistantConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  toolAuditLogs AssistantToolCall[]
+
+  @@index([conversationId, createdAt])
+}
+
+model AssistantToolCall {
+  id           String   @id @default(cuid())
+  messageId    String
+  userId       String
+  toolName     String
+  arguments    Json
+  result       Json?
+  isError      Boolean  @default(false)
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  message AssistantMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User             @relation("AssistantToolCaller", fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([toolName])
 }

@@ -21,6 +21,7 @@
     "@types/pdf-parse": "^1.1.5",
     "@vercel/blob": "^2.4.0",
     "bcryptjs": "^3.0.3",
+    "lightningcss": "^1.32.0",
     "mammoth": "^1.12.0",
     "next": "16.2.6",
     "next-auth": "^5.0.0-beta.31",
@@ -28,6 +29,8 @@
     "prisma": "^6.19.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "resend": "^6.12.3",
     "zod": "^4.4.3"
   },
