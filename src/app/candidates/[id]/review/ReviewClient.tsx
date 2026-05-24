@@ -66,7 +66,8 @@ type Note = {
   body: string;
   createdAt: Date;
   author: { name: string | null; email: string };
-  application: { id: string; job: { title: string }; stage: Stage };
+  // null when this is a candidate-level note rather than per-application.
+  application: { id: string; job: { title: string }; stage: Stage } | null;
 };
 
 export type Candidate = {
@@ -254,7 +255,9 @@ export function ReviewClient({
                   >
                     <div className="text-zinc-500 mb-1">
                       {n.author.name ?? n.author.email} ·{" "}
-                      <span className="font-mono text-zinc-400">{n.application.job.title}</span>
+                      <span className="font-mono text-zinc-400">
+                        {n.application ? n.application.job.title : "General"}
+                      </span>
                     </div>
                     <p className="whitespace-pre-wrap text-zinc-700 dark:text-zinc-300">{n.body}</p>
                   </li>

@@ -43,12 +43,15 @@ export async function loadActivityFeed(): Promise<ActivityFeedData> {
         createdAt: true,
         body: true,
         author: { select: { name: true, email: true } },
+        // application is now optional — notes can attach directly to a
+        // candidate too. We fall through to `candidate` when it's null.
         application: {
           select: {
             candidate: { select: { id: true, firstName: true, lastName: true } },
             job: { select: { title: true } },
           },
         },
+        candidate: { select: { id: true, firstName: true, lastName: true } },
       },
     }),
     prisma.application.findMany({
@@ -102,13 +105,17 @@ export async function loadActivityFeed(): Promise<ActivityFeedData> {
   }
 
   for (const n of notes) {
-    const cand = n.application.candidate;
+    const cand = n.application?.candidate ?? n.candidate;
+    if (!cand) continue; // orphan note — skip in the feed
     const who = n.author?.name ?? n.author?.email ?? "Someone";
+    const target = n.application
+      ? `${cand.firstName} ${cand.lastName}'s ${n.application.job.title} application`
+      : `${cand.firstName} ${cand.lastName}`;
     items.push({
       key: `note-${n.id}`,
       type: "note",
       at: n.createdAt,
-      text: `${who} added a note on ${cand.firstName} ${cand.lastName}'s ${n.application.job.title} application`,
+      text: `${who} added a note on ${target}`,
       detail: n.body.slice(0, 120),
       href: `/candidates/${cand.id}`,
     });

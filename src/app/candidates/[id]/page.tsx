@@ -156,7 +156,12 @@ export default async function CandidateDetailPage({
     }),
     auth(),
     prisma.note.findMany({
-      where: { application: { candidateId: id } },
+      where: {
+        OR: [
+          { candidateId: id },
+          { application: { candidateId: id } },
+        ],
+      },
       orderBy: { createdAt: "desc" },
       include: {
         author: { select: { name: true, email: true } },
@@ -232,7 +237,7 @@ export default async function CandidateDetailPage({
   const enrollableSequences = availableSequences.filter((s) => !activeEnrollmentIds.has(s.id));
 
   return (
-    <main className="flex-1 flex flex-col max-w-[120rem] mx-auto w-full px-6 py-4 h-screen">
+    <main className="flex-1 max-w-[120rem] mx-auto w-full px-6 py-4">
       {/* Header — name, status, summary stay above the workspace */}
       <header className="shrink-0 mb-3">
         <div className="flex items-center justify-between gap-3">
@@ -293,51 +298,51 @@ export default async function CandidateDetailPage({
         </div>
       </header>
 
-      {/* Workspace: resume left, notes + metadata stacked on the right */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 flex-1 min-h-0">
-        {/* Left: resume viewer */}
-        <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden min-h-0">
+      {/* Top workspace: resume + notes side by side. The resume pane sets its
+          own height via the 8.5×11 aspect of the page; the notes column
+          stretches to match via the row's implicit height. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 mb-4">
+        <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
           <ResumeViewer url={candidate.resumeUrl} />
         </section>
 
-        {/* Right column: notes on top, metadata below, both internally scrollable */}
-        <div className="flex flex-col gap-4 min-h-0">
-          <section
-            className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col min-h-0 overflow-hidden"
-            style={{ flex: "1 1 50%" }}
-          >
-            <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Notes
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto p-5">
-              <NotesSection
-                candidateId={candidate.id}
-                notes={notes}
-                applications={candidate.applications.map((a) => ({
-                  id: a.id,
-                  jobTitle: a.job.title,
-                  stage: a.stage,
-                }))}
-                currentUserId={session?.user?.id ?? ""}
-                currentUserIsAdmin={session?.user?.role === Role.ADMIN}
-              />
-            </div>
-          </section>
+        <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col overflow-hidden">
+          <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+            Notes
+          </div>
+          <div className="flex-1 min-h-0 p-5">
+            <NotesSection
+              candidateId={candidate.id}
+              notes={notes}
+              applications={candidate.applications.map((a) => ({
+                id: a.id,
+                jobTitle: a.job.title,
+                stage: a.stage,
+              }))}
+              currentUserId={session?.user?.id ?? ""}
+              currentUserIsAdmin={session?.user?.role === Role.ADMIN}
+            />
+          </div>
+        </section>
+      </div>
 
-          <section
-            className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col min-h-0 overflow-hidden"
-            style={{ flex: "1 1 50%" }}
-          >
-            <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Profile & activity
-            </div>
-            <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-6">
-              {candidate.summary && (
-                <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-                  {candidate.summary}
-                </p>
-              )}
+      {/* Metadata: full-width 2-column flow below the resume + notes row.
+          Heavy / interactive sections (sequences, communication) get their
+          own full-width rows further down so they have room to breathe. */}
+      <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 mb-4">
+        <div className="border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          Profile
+        </div>
+        <div className="p-5">
+          {candidate.summary && (
+            <p className="mb-5 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+              {candidate.summary}
+            </p>
+          )}
 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-6">
+            {/* Left column */}
+            <div className="space-y-6 min-w-0">
               <section>
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -435,7 +440,10 @@ export default async function CandidateDetailPage({
                   }
                 />
               </DetailGrid>
+            </div>
 
+            {/* Right column */}
+            <div className="space-y-6 min-w-0">
               {(candidate.industries.length > 0 || candidate.specialties.length > 0) && (
                 <DetailGrid title="Focus">
                   <Detail
@@ -566,43 +574,49 @@ export default async function CandidateDetailPage({
               )}
 
               <CustomFieldsView fields={customFields} values={customFieldValues} />
-
-              <CandidateSequencesSection
-                candidateId={candidate.id}
-                enrollments={enrollmentsForUI}
-                availableSequences={enrollableSequences}
-                applications={candidate.applications.map((a) => ({
-                  id: a.id,
-                  jobTitle: a.job.title,
-                }))}
-              />
-
-              <section>
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Communication ({candidate.emails.length})
-                </h2>
-                <div className="mb-4">
-                  <EmailComposer
-                    candidateId={candidate.id}
-                    candidateEmail={candidate.email}
-                    candidateFirstName={candidate.firstName}
-                    candidateLastName={candidate.lastName}
-                    candidatePhone={candidate.phone}
-                    senderName={senderName}
-                    senderEmail={session?.user?.email ?? ""}
-                    applications={candidate.applications.map((a) => ({
-                      id: a.id,
-                      jobTitle: a.job.title,
-                    }))}
-                    templates={templates}
-                  />
-                </div>
-                <EmailHistory emails={candidate.emails} />
-              </section>
             </div>
-          </section>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* Sequences — full width, has its own internal UI affordances */}
+      <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 mb-4 p-5">
+        <CandidateSequencesSection
+          candidateId={candidate.id}
+          enrollments={enrollmentsForUI}
+          availableSequences={enrollableSequences}
+          applications={candidate.applications.map((a) => ({
+            id: a.id,
+            jobTitle: a.job.title,
+          }))}
+        />
+      </section>
+
+      {/* Email composer + history — full width because both pieces are wide */}
+      <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 mb-4">
+        <div className="border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          Communication ({candidate.emails.length})
+        </div>
+        <div className="p-5">
+          <div className="mb-4">
+            <EmailComposer
+              candidateId={candidate.id}
+              candidateEmail={candidate.email}
+              candidateFirstName={candidate.firstName}
+              candidateLastName={candidate.lastName}
+              candidatePhone={candidate.phone}
+              senderName={senderName}
+              senderEmail={session?.user?.email ?? ""}
+              applications={candidate.applications.map((a) => ({
+                id: a.id,
+                jobTitle: a.job.title,
+              }))}
+              templates={templates}
+            />
+          </div>
+          <EmailHistory emails={candidate.emails} />
+        </div>
+      </section>
     </main>
   );
 }

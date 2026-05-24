@@ -33,9 +33,15 @@ export default async function CandidateReviewPage({
 
   if (!candidate) notFound();
 
-  // Recent notes across all of this candidate's applications.
+  // Recent notes — picks up both application-scoped notes and candidate-level
+  // notes (those have no application attached).
   const recentNotes = await prisma.note.findMany({
-    where: { application: { candidateId: id } },
+    where: {
+      OR: [
+        { candidateId: id },
+        { application: { candidateId: id } },
+      ],
+    },
     orderBy: { createdAt: "desc" },
     take: 5,
     include: {

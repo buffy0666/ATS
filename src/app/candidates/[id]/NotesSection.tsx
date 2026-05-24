@@ -9,10 +9,13 @@ type Note = {
   createdAt: Date;
   authorId: string;
   author: { name: string | null; email: string };
-  application: { id: string; job: { id: string; title: string }; stage: string };
+  /** null when this is a candidate-level note (no specific job). */
+  application: { id: string; job: { id: string; title: string }; stage: string } | null;
 };
 
 type ApplicationOption = { id: string; jobTitle: string; stage: string };
+
+const GENERAL_OPTION_VALUE = "general";
 
 function formatRelative(date: Date) {
   const ms = Date.now() - new Date(date).getTime();
@@ -37,15 +40,13 @@ function formatAbsolute(date: Date) {
 }
 
 /**
- * Layout: persistent compose box at the top, history list below.
+ * Layout: persistent compose box at the top, history list below, full-screen
+ * pop-out for reviewing long histories.
  *
- * The compose form is always visible (not gated behind a button). When the
- * candidate has no job applications yet, the form shows a disabled state
- * with a clear hint about why — since notes are still per-application in the
- * schema, the user needs at least one job to attach to.
- *
- * The parent (`page.tsx`) wraps this in an `overflow-y-auto` container, so
- * the history list naturally scrolls when it exceeds the available height.
+ * Notes can target a specific job application (per-role feedback) or the
+ * candidate directly (general note). The job selector includes a "General
+ * note" option for the latter — works even when the candidate isn't on any
+ * job yet.
  */
 export function NotesSection({
   candidateId,
@@ -60,33 +61,81 @@ export function NotesSection({
   currentUserId: string;
   currentUserIsAdmin: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const list = (
+    <NoteList
+      notes={notes}
+      candidateId={candidateId}
+      currentUserId={currentUserId}
+      currentUserIsAdmin={currentUserIsAdmin}
+    />
+  );
+
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 h-full min-h-0">
       <AddNoteForm candidateId={candidateId} applications={applications} />
 
-      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500 pt-1">
-        History {notes.length > 0 && <span className="text-zinc-400">({notes.length})</span>}
+      <div className="flex items-center justify-between pt-1">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          History {notes.length > 0 && <span className="text-zinc-400">({notes.length})</span>}
+        </h2>
+        {notes.length > 2 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:underline"
+            aria-label="Open notes in full view"
+            title="Open notes in full view"
+          >
+            ⤢ Pop out
+          </button>
+        )}
       </div>
 
-      {notes.length === 0 ? (
-        <p className="text-sm text-zinc-500">No notes yet. Add the first one above.</p>
-      ) : (
-        <ul className="space-y-2">
-          {notes.map((n) => {
-            const canModify = n.authorId === currentUserId || currentUserIsAdmin;
-            return (
-              <NoteRow
-                key={n.id}
-                note={n}
-                candidateId={candidateId}
-                canEdit={canModify}
-                canDelete={canModify}
-              />
-            );
-          })}
-        </ul>
+      <div className="flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+        {notes.length === 0 ? (
+          <p className="text-sm text-zinc-500">No notes yet. Add the first one above.</p>
+        ) : (
+          list
+        )}
+      </div>
+
+      {expanded && (
+        <NotesPopout title="Notes history" onClose={() => setExpanded(false)}>
+          {list}
+        </NotesPopout>
       )}
     </div>
+  );
+}
+
+function NoteList({
+  notes,
+  candidateId,
+  currentUserId,
+  currentUserIsAdmin,
+}: {
+  notes: Note[];
+  candidateId: string;
+  currentUserId: string;
+  currentUserIsAdmin: boolean;
+}) {
+  return (
+    <ul className="space-y-2">
+      {notes.map((n) => {
+        const canModify = n.authorId === currentUserId || currentUserIsAdmin;
+        return (
+          <NoteRow
+            key={n.id}
+            note={n}
+            candidateId={candidateId}
+            canEdit={canModify}
+            canDelete={canModify}
+          />
+        );
+      })}
+    </ul>
   );
 }
 
@@ -145,8 +194,14 @@ function NoteRow({
             {formatRelative(note.createdAt)}
           </span>
           <div className="text-[11px] text-zinc-400 mt-0.5 truncate">
-            {note.application.job.title} ·{" "}
-            <span className="uppercase tracking-wide">{note.application.stage}</span>
+            {note.application ? (
+              <>
+                {note.application.job.title} ·{" "}
+                <span className="uppercase tracking-wide">{note.application.stage}</span>
+              </>
+            ) : (
+              <span className="italic">General note</span>
+            )}
           </div>
         </div>
         {!editing && (
@@ -235,7 +290,6 @@ function AddNoteForm({
   );
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const hasApplications = applications.length > 0;
 
   // Reset the textarea on a successful save so the user can immediately type
   // another note. We keep the job picker on its previously chosen value —
@@ -250,7 +304,7 @@ function AddNoteForm({
     <form
       ref={formRef}
       action={action}
-      className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3"
+      className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 shrink-0"
     >
       <label htmlFor="note-body" className="sr-only">
         Add a note
@@ -261,11 +315,11 @@ function AddNoteForm({
         name="body"
         required
         rows={3}
-        disabled={!hasApplications || pending}
+        disabled={pending}
         placeholder={
-          hasApplications
-            ? "Phone screen at 2pm — strong fit, concerns about comp band."
-            : "Associate this candidate with a job to enable notes."
+          applications.length === 0
+            ? "General note about this candidate (e.g. impressions, follow-ups, sourcing context)…"
+            : "Phone screen at 2pm — strong fit, concerns about comp band."
         }
         onKeyDown={(e) => {
           // Cmd/Ctrl+Enter submits — keep typing-flow fast.
@@ -274,44 +328,93 @@ function AddNoteForm({
             formRef.current?.requestSubmit();
           }
         }}
-        className="w-full resize-y rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+        className="w-full resize-y rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm disabled:opacity-60"
       />
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        {hasApplications && (
-          <select
-            name="applicationId"
-            required
-            defaultValue={applications[0]?.id ?? ""}
-            className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5 text-xs"
-            aria-label="Job this note is for"
-          >
-            {applications.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.jobTitle} ({a.stage})
-              </option>
-            ))}
-          </select>
-        )}
+        <select
+          name="applicationId"
+          defaultValue={applications[0]?.id ?? GENERAL_OPTION_VALUE}
+          className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5 text-xs"
+          aria-label="Job this note is for"
+        >
+          {applications.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.jobTitle} ({a.stage})
+            </option>
+          ))}
+          <option value={GENERAL_OPTION_VALUE}>General (no specific job)</option>
+        </select>
 
         <button
           type="submit"
-          disabled={!hasApplications || pending}
+          disabled={pending}
           className="ml-auto rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-sm font-medium disabled:opacity-50"
         >
           {pending ? "Saving…" : "Add note"}
         </button>
       </div>
 
-      {!hasApplications && (
-        <p className="mt-2 text-xs text-zinc-500">
-          Notes live on a specific job application so the same candidate can have different notes
-          per role. Associate this candidate with a job first.
-        </p>
-      )}
       {state?.ok === false && (
         <p className="mt-2 text-xs text-red-600">{state.error}</p>
       )}
     </form>
+  );
+}
+
+/**
+ * Full-screen overlay for reading a long notes history without the cramped
+ * sidebar panel. Closes on backdrop click or Escape.
+ */
+function NotesPopout({
+  title,
+  children,
+  onClose,
+}: {
+  title: string;
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    // Prevent body scroll while open.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div
+        className="relative w-full max-w-3xl max-h-[90vh] flex flex-col rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 px-5 py-3">
+          <h2 className="text-sm font-semibold">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-xl leading-none"
+            aria-label="Close"
+            title="Close (Esc)"
+          >
+            ×
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-y-auto p-5">{children}</div>
+      </div>
+    </div>
   );
 }

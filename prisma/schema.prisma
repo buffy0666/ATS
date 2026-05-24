@@ -505,6 +505,9 @@ model Candidate {
   listMemberships CandidateListMember[]
   interviews      Interview[]
   enrollments     SequenceEnrollment[]
+  // Threaded notes (per-application or candidate-level). Named differently
+  // from the legacy `notes String?` free-form field above.
+  noteThreads     Note[]                @relation("CandidateNoteThreads")
 
   @@index([status])
   @@index([sourcedById])
@@ -533,17 +536,25 @@ model Application {
   @@index([jobId, stage])
 }
 
+/// A note can attach to a specific job application (per-role feedback) or
+/// directly to the candidate (general notes for someone not yet on any job).
+/// Exactly one of `applicationId` / `candidateId` should be set; we don't
+/// enforce that with a DB constraint to keep migrations cheap, the
+/// application-layer code (notes-actions.ts) is the source of truth.
 model Note {
   id            String   @id @default(cuid())
-  applicationId String
+  applicationId String?
+  candidateId   String?
   authorId      String
   body          String
   createdAt     DateTime @default(now())
 
-  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  author      User        @relation(fields: [authorId], references: [id])
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  candidate   Candidate?   @relation("CandidateNoteThreads", fields: [candidateId], references: [id], onDelete: Cascade)
+  author      User         @relation(fields: [authorId], references: [id])
 
   @@index([applicationId])
+  @@index([candidateId])
 }
 
 model KnowledgeItem {

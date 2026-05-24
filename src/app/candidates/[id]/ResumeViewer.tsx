@@ -75,11 +75,23 @@ export async function ResumeViewer({ url }: { url: string | null }) {
           Open in new tab ↗
         </Link>
       </div>
-      <iframe
-        src={`${safeUrl}#toolbar=1&navpanes=0&view=FitH`}
-        title="Resume"
-        className="w-full flex-1 min-h-0 border-0 bg-zinc-50 dark:bg-zinc-950"
-      />
+      {/* Outer pane fills the column. Inner wrapper holds the iframe at
+          letter aspect (8.5 × 11 ≈ 17/22) so it never extends past the
+          page bottom — no more black void below short resumes. The page
+          itself is scrollable for multi-page PDFs via the iframe's own
+          chrome. */}
+      <div className="flex-1 min-h-0 overflow-auto p-2 bg-zinc-100 dark:bg-zinc-950">
+        <div
+          className="mx-auto bg-white shadow-sm"
+          style={{ aspectRatio: "8.5 / 11", maxWidth: "min(100%, 850px)" }}
+        >
+          <iframe
+            src={`${safeUrl}#toolbar=1&navpanes=0&view=FitH`}
+            title="Resume"
+            className="w-full h-full border-0"
+          />
+        </div>
+      </div>
     </div>
   );
 }
