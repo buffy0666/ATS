@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { EmailComposer } from "./EmailComposer";
 import { EmailHistory } from "./EmailHistory";
 import { NotesSection } from "./NotesSection";
+import { CandidateJobsSection } from "./CandidateJobsSection";
 import { CandidateNavigator } from "./CandidateNavigator";
 import { ResumeUploadButton } from "./ResumeUploadButton";
 import { ResumeViewer } from "./ResumeViewer";
@@ -17,6 +18,7 @@ import {
   CustomFieldEntity,
   EmploymentType,
   EnrollmentStatus,
+  JobStatus,
   RemotePref,
   Role,
   SequenceStatus,
@@ -126,6 +128,7 @@ export default async function CandidateDetailPage({
     availableSequences,
     customFields,
     customFieldValues,
+    openJobs,
   ] = await Promise.all([
     prisma.candidate.findUnique({
       where: { id },
@@ -196,6 +199,14 @@ export default async function CandidateDetailPage({
     }),
     loadCustomFields(CustomFieldEntity.CANDIDATE),
     loadCustomFieldValues(CustomFieldEntity.CANDIDATE, id),
+    // For the "add to another job" picker — only OPEN jobs the recruiter
+    // can realistically place candidates on. Already-assigned jobs are
+    // filtered out client-side after the candidate's applications load.
+    prisma.job.findMany({
+      where: { status: JobStatus.OPEN },
+      orderBy: { title: "asc" },
+      select: { id: true, title: true },
+    }),
   ]);
 
   if (!candidate) notFound();
@@ -325,37 +336,18 @@ export default async function CandidateDetailPage({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-6">
             {/* Left column */}
             <div className="space-y-6 min-w-0">
-              <section>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Jobs ({candidate.applications.length})
-                  </h2>
-                  <Link
-                    href={`/interviews/new?candidateId=${candidate.id}`}
-                    className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800"
-                  >
-                    Schedule interview
-                  </Link>
-                </div>
-                {candidate.applications.length === 0 ? (
-                  <p className="text-sm text-zinc-500">Not associated with any job yet.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {candidate.applications.map((a) => (
-                      <Link
-                        key={a.id}
-                        href={`/jobs/${a.job.id}`}
-                        className="inline-flex items-center gap-2 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3 py-1.5 text-sm hover:border-zinc-400 dark:hover:border-zinc-600"
-                      >
-                        <span className="font-medium">{a.job.title}</span>
-                        <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-[10px] uppercase tracking-wide">
-                          {a.stage.replace(/_/g, " ")}
-                        </span>
-                      </Link>
-                    ))}
-                  </div>
+              <CandidateJobsSection
+                candidateId={candidate.id}
+                applications={candidate.applications.map((a) => ({
+                  id: a.id,
+                  jobId: a.job.id,
+                  jobTitle: a.job.title,
+                  stage: a.stage,
+                }))}
+                availableJobs={openJobs.filter(
+                  (j) => !candidate.applications.some((a) => a.job.id === j.id),
                 )}
-              </section>
+              />
 
               <DetailGrid title="Contact">
                 <Detail label="Email" value={candidate.email} />
