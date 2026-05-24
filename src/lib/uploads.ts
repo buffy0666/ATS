@@ -27,10 +27,24 @@ export type SavedAttachment = {
  *   filesystem. URLs are root-relative `/uploads/<filename>`.
  *
  * Vercel's runtime filesystem is ephemeral and read-only, so the local-disk
- * path will silently lose files in production — never enable that path there.
+ * path will silently lose files in production. `assertWritableStorage()`
+ * below refuses to attempt a disk write on Vercel — fail loudly so the
+ * recruiter sees a helpful error message instead of a phantom upload that
+ * disappears seconds later.
  */
 function useBlobStorage(): boolean {
   return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+}
+
+function assertWritableStorage() {
+  if (useBlobStorage()) return;
+  if (process.env.VERCEL) {
+    throw new Error(
+      "File uploads aren't configured on this deployment. " +
+        "Set BLOB_READ_WRITE_TOKEN in Vercel → Project Settings → Environment Variables. " +
+        "(Without it, files would be written to Vercel's ephemeral filesystem and lost on the next request.)",
+    );
+  }
 }
 
 function safeFilename(name: string): string {
@@ -83,6 +97,7 @@ export async function saveResume(file: File): Promise<string> {
   if (useBlobStorage()) {
     return saveToBlob(file, `uploads/${filename}`);
   }
+  assertWritableStorage();
   return saveToDisk(file, null, filename);
 }
 
@@ -101,9 +116,13 @@ export async function saveAttachment(file: File, subdir: string): Promise<SavedA
   const safeSubdir = subdir.replace(/[^a-zA-Z0-9_-]/g, "");
   const filename = `${Date.now()}-${safeFilename(file.name)}`;
 
-  const url = useBlobStorage()
-    ? await saveToBlob(file, `uploads/${safeSubdir}/${filename}`)
-    : await saveToDisk(file, safeSubdir, filename);
+  let url: string;
+  if (useBlobStorage()) {
+    url = await saveToBlob(file, `uploads/${safeSubdir}/${filename}`);
+  } else {
+    assertWritableStorage();
+    url = await saveToDisk(file, safeSubdir, filename);
+  }
 
   return {
     url,
