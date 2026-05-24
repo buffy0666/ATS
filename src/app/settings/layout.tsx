@@ -5,6 +5,7 @@ const TABS = [
   { href: "/settings/tags", label: "Tags" },
   { href: "/settings/choices", label: "Choices" },
   { href: "/settings/api-tokens", label: "API tokens" },
+  { href: "/settings/ai", label: "AI provider" },
 ];
 
 export default async function SettingsLayout({

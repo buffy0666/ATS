@@ -309,6 +309,21 @@ model ApiToken {
   @@index([tokenHash])
 }
 
+/// Singleton AI-provider configuration. There is always exactly one row with
+/// id="default". The API key is AES-256-GCM encrypted using a key derived
+/// from AUTH_SECRET — the DB never holds plaintext keys, which matters when
+/// this database is handed off to external clients who set their own keys.
+model AIConfig {
+  id              String   @id @default("default")
+  provider        String   // "ollama" | "openai" | "anthropic" | "grok"
+  model           String
+  baseUrl         String?
+  apiKeyEncrypted String?
+  timeoutMs       Int?
+  updatedAt       DateTime @updatedAt
+  updatedById     String?
+}
+
 model Job {
   id          String    @id @default(cuid())
   title       String
@@ -953,4 +968,70 @@ model AssistantToolCall {
 
   @@index([userId, createdAt])
   @@index([toolName])
+}
+
+// Admin-managed custom fields. Definitions live in CustomField (one row per
+// (entity, key)), and the actual values per record live in CustomFieldValue.
+// CustomFieldValue.entityId is intentionally untyped (polymorphic) — the
+// record-deletion paths in each entity's actions.ts are responsible for
+// cleaning up orphaned values.
+enum CustomFieldEntity {
+  CLIENT
+  CLIENT_CONTACT
+  CANDIDATE
+  INTERVIEW
+  TASK
+  JOB
+  USER
+}
+
+enum CustomFieldType {
+  TEXT
+  LONG_TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+  MULTI_SELECT
+  URL
+  EMAIL
+}
+
+model CustomField {
+  id        String            @id @default(cuid())
+  entity    CustomFieldEntity
+  key       String
+  label     String
+  type      CustomFieldType
+  helpText  String?
+  required  Boolean           @default(false)
+  // Used only when type is SELECT or MULTI_SELECT.
+  options   String[]          @default([])
+  sortOrder Int               @default(0)
+  active    Boolean           @default(true)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  values CustomFieldValue[]
+
+  @@unique([entity, key])
+  @@index([entity, active, sortOrder])
+}
+
+model CustomFieldValue {
+  id           String    @id @default(cuid())
+  fieldId      String
+  entityId     String
+  valueText    String?
+  valueNumber  Float?
+  valueDate    DateTime?
+  valueBoolean Boolean?
+  valueStrings String[]  @default([])
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  field CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([fieldId, entityId])
+  @@index([entityId])
 }

@@ -24,7 +24,14 @@ export async function parseResume(file: File | { url: string }): Promise<ParsedR
   return result.data;
 }
 
-export function getResumeParserVersion() {
+/**
+ * Cosmetic stamp written to Candidate.parserVersion. Reads from env vars only;
+ * the actual provider used at parse time is resolved from the DB-backed
+ * AIConfig via getResolvedAIConfig(). The mismatch is acceptable because this
+ * stamp is just for audit logs; the real provider/model are visible in
+ * Settings → AI provider.
+ */
+export function getResumeParserVersion(): string {
   const provider = (process.env.AI_PROVIDER ?? "ollama").toLowerCase();
   const model = process.env.AI_MODEL ?? (provider === "ollama" ? "gemma3:27b" : "unknown-model");
   return `${PARSER_VERSION}:${provider}:${model}`;

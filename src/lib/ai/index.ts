@@ -1,9 +1,12 @@
 import "server-only";
 
 import { z } from "zod";
+import { prisma } from "@/lib/prisma";
+import { decryptSecret } from "@/lib/crypto";
 import { AnthropicProvider } from "./anthropic";
 import { OllamaProvider } from "./ollama";
-import { OpenAIProvider } from "./openai";
+import { OpenAICompatibleProvider, OpenAIProvider } from "./openai";
+import { isProviderId, PROVIDERS, type ProviderId } from "./catalog";
 import {
   aiCompletionRequestSchema,
   type AICompletionRequest,
@@ -14,7 +17,24 @@ import {
   AIProviderError,
 } from "./provider";
 
+/**
+ * AI provider resolution.
+ *
+ * Order of precedence:
+ *  1. DB-backed AIConfig row (set via /settings/ai by an admin).
+ *  2. Env vars (legacy path — still works for self-hosted dev where editing
+ *     .env is faster than clicking through the UI).
+ *
+ * The resolved provider is cached for the lifetime of the process. Admins
+ * invalidate the cache by calling `invalidateAIProviderCache()` after they
+ * save new settings.
+ */
+
 let cached: AIProvider | null = null;
+
+export function invalidateAIProviderCache() {
+  cached = null;
+}
 
 type CompleteJsonInput<TSchema extends z.ZodType> = AICompletionRequest & {
   schema: TSchema;
@@ -25,48 +45,105 @@ export type AIJsonCompletionResult<T> = AICompletionResponse & {
   raw: string;
 };
 
-function buildProvider(): AIProvider {
-  const name = (process.env.AI_PROVIDER ?? "ollama").toLowerCase();
-  const timeoutMs = parsePositiveInt(process.env.AI_TIMEOUT_MS, 60000);
-  const apiKey = process.env.AI_API_KEY;
+export type ResolvedAIConfig = {
+  source: "db" | "env";
+  provider: ProviderId;
+  model: string;
+  baseUrl: string;
+  apiKey?: string;
+  timeoutMs: number;
+};
 
-  switch (name) {
+async function loadConfig(): Promise<ResolvedAIConfig> {
+  const fromDb = await prisma.aIConfig.findUnique({ where: { id: "default" } }).catch(() => null);
+  const envProvider = (process.env.AI_PROVIDER ?? "").toLowerCase();
+  const envTimeout = parsePositiveInt(process.env.AI_TIMEOUT_MS, 60000);
+
+  if (fromDb && isProviderId(fromDb.provider)) {
+    const meta = PROVIDERS[fromDb.provider];
+    let apiKey: string | undefined;
+    if (fromDb.apiKeyEncrypted) {
+      try {
+        apiKey = decryptSecret(fromDb.apiKeyEncrypted);
+      } catch {
+        // Failed decrypt typically means AUTH_SECRET rotated. We log nothing
+        // here (server-only file); the test endpoint will surface the issue.
+        apiKey = undefined;
+      }
+    }
+    return {
+      source: "db",
+      provider: fromDb.provider,
+      model: fromDb.model,
+      baseUrl: fromDb.baseUrl ?? meta.defaultBaseUrl,
+      apiKey,
+      timeoutMs: fromDb.timeoutMs ?? envTimeout,
+    };
+  }
+
+  // Fall back to env vars.
+  const provider = isProviderId(envProvider) ? envProvider : ("ollama" as ProviderId);
+  const meta = PROVIDERS[provider];
+  return {
+    source: "env",
+    provider,
+    model: process.env.AI_MODEL ?? (provider === "ollama" ? "gemma3:27b" : ""),
+    baseUrl: process.env.AI_BASE_URL ?? meta.defaultBaseUrl,
+    apiKey: process.env.AI_API_KEY,
+    timeoutMs: envTimeout,
+  };
+}
+
+export async function getResolvedAIConfig(): Promise<ResolvedAIConfig> {
+  return loadConfig();
+}
+
+function buildProvider(config: ResolvedAIConfig): AIProvider {
+  switch (config.provider) {
     case "ollama":
-      return new OllamaProvider(
-        process.env.AI_BASE_URL ?? "http://gx10.local:11434/v1",
-        process.env.AI_MODEL ?? "gemma3:27b",
-        timeoutMs,
-        apiKey,
-      );
+      return new OllamaProvider(config.baseUrl, config.model, config.timeoutMs, config.apiKey);
     case "openai":
-      return new OpenAIProvider(
-        apiKey ?? "",
-        process.env.AI_BASE_URL ?? "https://api.openai.com/v1",
-        getRequiredModel(name),
-        timeoutMs,
-      );
+      return new OpenAIProvider(config.apiKey ?? "", config.baseUrl, requireModel(config), config.timeoutMs);
     case "anthropic":
       return new AnthropicProvider(
-        apiKey ?? "",
-        getRequiredModel(name),
-        timeoutMs,
-        process.env.AI_BASE_URL,
+        config.apiKey ?? "",
+        requireModel(config),
+        config.timeoutMs,
+        config.baseUrl,
       );
-    default:
-      throw new Error(
-        `Unknown AI_PROVIDER: '${name}'. Supported values: ollama, openai, anthropic.`,
-      );
+    case "grok":
+      // xAI uses an OpenAI-compatible API surface.
+      if (!config.apiKey) {
+        throw new Error("AI_API_KEY is required for the Grok provider.");
+      }
+      return new OpenAICompatibleProvider({
+        providerName: "grok",
+        baseUrl: config.baseUrl,
+        model: requireModel(config),
+        apiKey: config.apiKey,
+        timeoutMs: config.timeoutMs,
+      });
   }
 }
 
-function getProvider(): AIProvider {
-  if (!cached) cached = buildProvider();
+function requireModel(config: ResolvedAIConfig): string {
+  if (!config.model) {
+    throw new Error(`No AI model configured for provider '${config.provider}'.`);
+  }
+  return config.model;
+}
+
+async function getProvider(): Promise<AIProvider> {
+  if (cached) return cached;
+  const config = await loadConfig();
+  cached = buildProvider(config);
   return cached;
 }
 
 export async function complete(input: AICompletionRequest): Promise<AICompletionResponse> {
   const payload = aiCompletionRequestSchema.parse(input);
-  return getProvider().complete(payload);
+  const provider = await getProvider();
+  return provider.complete(payload);
 }
 
 /**
@@ -74,8 +151,9 @@ export async function complete(input: AICompletionRequest): Promise<AICompletion
  * The orchestrator handles multi-turn tool loops; this is the bare provider
  * call for a single round.
  */
-export function chat(input: ChatInput): AsyncIterable<ChatChunk> {
-  return getProvider().chat(input);
+export async function* chat(input: ChatInput): AsyncIterable<ChatChunk> {
+  const provider = await getProvider();
+  yield* provider.chat(input);
 }
 
 export async function completeJson<TSchema extends z.ZodType>(
@@ -130,8 +208,8 @@ export async function completeJson<TSchema extends z.ZodType>(
   return { ...fix, data: fixedParsed.data, raw: fix.text };
 }
 
-export function getAIProviderName(): string {
-  return getProvider().name;
+export async function getAIProviderName(): Promise<string> {
+  return (await getProvider()).name;
 }
 
 export function _resetAIProviderForTests() {
@@ -204,12 +282,6 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function getRequiredModel(provider: string): string {
-  const model = process.env.AI_MODEL;
-  if (!model) throw new Error(`AI_MODEL is required when AI_PROVIDER=${provider}`);
-  return model;
-}
-
 export type {
   AICompletionRequest,
   AICompletionResponse,
@@ -221,3 +293,4 @@ export type {
   ToolDefinition,
 } from "./provider";
 export { AIProviderError } from "./provider";
+export { PROVIDERS, type ProviderId } from "./catalog";
