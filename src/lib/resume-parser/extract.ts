@@ -3,7 +3,12 @@ import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
+// pdf-parse v1 is intentionally pinned in package.json. v2 pulls in pdfjs-dist,
+// which requires the native @napi-rs/canvas package for DOMMatrix and friends —
+// that combo doesn't load in Vercel's serverless runtime ("ReferenceError:
+// DOMMatrix is not defined"). v1 does Buffer-only parsing with zero native deps.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require("pdf-parse") as (buffer: Buffer) => Promise<{ text: string }>;
 
 type ResumeSource =
   | File
@@ -86,13 +91,8 @@ function detectResumeKind(resume: LoadedResume): ResumeKind {
 }
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
-  try {
-    const result = await parser.getText();
-    return normalizeWhitespace(result.text);
-  } finally {
-    await parser.destroy();
-  }
+  const result = await pdfParse(buffer);
+  return normalizeWhitespace(result.text);
 }
 
 async function extractDocxText(buffer: Buffer): Promise<string> {

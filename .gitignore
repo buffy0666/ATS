@@ -45,3 +45,5 @@ next-env.d.ts
 
 # User-uploaded resumes (don't commit candidate data)
 /public/uploads
+
+.vercel

@@ -7,9 +7,9 @@ import { updateCandidateResume } from "../actions";
 /**
  * Compact resume upload button that lives in the candidate detail page header.
  *
- * "Replace resume" if one already exists, "Upload resume" if not. Picks the
- * file via a hidden <input type="file"> so the trigger button can be styled
- * however we like.
+ * Single "Add/Replace resume" affordance — confirms before overwriting an
+ * existing file. Picks the file via a hidden <input type="file"> so the
+ * trigger button can be styled however we like.
  */
 export function ResumeUploadButton({
   candidateId,
@@ -70,11 +70,7 @@ export function ResumeUploadButton({
         disabled={pending}
         className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
       >
-        {pending
-          ? "Uploading…"
-          : hasExistingResume
-            ? "Replace resume"
-            : "Upload resume"}
+        {pending ? "Uploading…" : "Add/Replace resume"}
       </button>
       {error && <span className="text-xs text-red-600">{error}</span>}
     </div>
