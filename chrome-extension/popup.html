@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>ATS Settings</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-size: 13px;
+        width: 320px;
+        padding: 16px;
+        margin: 0;
+        background: #fff;
+        color: #111;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #0f0f10; color: #f4f4f5; }
+      }
+      h1 { font-size: 14px; margin: 0 0 12px; font-weight: 600; }
+      label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #71717a; margin-bottom: 4px; margin-top: 10px; }
+      input {
+        width: 100%;
+        padding: 7px 9px;
+        font-size: 13px;
+        border: 1px solid #d4d4d8;
+        border-radius: 6px;
+        background: #fff;
+        color: inherit;
+        box-sizing: border-box;
+      }
+      @media (prefers-color-scheme: dark) {
+        input { background: #18181b; border-color: #3f3f46; }
+      }
+      button {
+        margin-top: 14px;
+        width: 100%;
+        padding: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        background: #18181b;
+        color: #fff;
+        border: 0;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      @media (prefers-color-scheme: dark) {
+        button { background: #f4f4f5; color: #18181b; }
+      }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      .status { margin-top: 10px; font-size: 12px; min-height: 16px; }
+      .status.ok { color: #15803d; }
+      .status.err { color: #b91c1c; }
+      .hint { font-size: 11px; color: #71717a; margin-top: 4px; }
+      a { color: #2563eb; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <h1>ATS Connection</h1>
+
+    <label for="atsUrl">ATS URL</label>
+    <input id="atsUrl" type="url" placeholder="https://your-ats.vercel.app" />
+    <div class="hint">No trailing slash. Local dev: <code>http://localhost:3000</code></div>
+
+    <label for="apiToken">API token</label>
+    <input id="apiToken" type="password" placeholder="ats_…" />
+    <div class="hint">
+      Generate in your ATS under <strong>Settings → API tokens</strong>.
+    </div>
+
+    <button id="save">Save</button>
+    <div id="status" class="status"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

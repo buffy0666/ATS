@@ -4,6 +4,7 @@ import { requireSession } from "@/lib/auth-utils";
 const TABS = [
   { href: "/settings/tags", label: "Tags" },
   { href: "/settings/choices", label: "Choices" },
+  { href: "/settings/api-tokens", label: "API tokens" },
 ];
 
 export default async function SettingsLayout({

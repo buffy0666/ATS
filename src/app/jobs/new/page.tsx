@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { createJob } from "../actions";
+import { SalaryFeeFields } from "../SalaryFeeFields";
 
 export default async function NewJobPage({
   searchParams,
@@ -77,6 +78,7 @@ export default async function NewJobPage({
             <option value="CLOSED">Closed</option>
           </select>
         </div>
+        <SalaryFeeFields />
         <button
           type="submit"
           className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-4 py-2 text-sm font-medium"

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { updateJob } from "../../actions";
+import { SalaryFeeFields } from "../../SalaryFeeFields";
 
 export default async function EditJobPage({
   params,
@@ -80,6 +81,11 @@ export default async function EditJobPage({
             <option value="CLOSED">Closed</option>
           </select>
         </div>
+        <SalaryFeeFields
+          defaultLow={job.salaryLow}
+          defaultHigh={job.salaryHigh}
+          defaultPercent={job.placementFeePercent}
+        />
         <div className="flex gap-2">
           <button
             type="submit"

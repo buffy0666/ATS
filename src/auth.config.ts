@@ -8,7 +8,9 @@ export const authConfig = {
       const isOnLogin = nextUrl.pathname.startsWith("/login");
       const isPublicApi = nextUrl.pathname.startsWith("/api/auth");
       const isPublicApply = nextUrl.pathname.startsWith("/apply");
-      if (isPublicApi || isPublicApply) return true;
+      // /api/external is gated by Bearer token, not session — middleware must not redirect.
+      const isExternalApi = nextUrl.pathname.startsWith("/api/external");
+      if (isPublicApi || isPublicApply || isExternalApi) return true;
       if (isOnLogin) {
         if (isLoggedIn) return Response.redirect(new URL("/", nextUrl));
         return true;

@@ -259,31 +259,54 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  jobsCreated         Job[]                 @relation("JobCreator")
-  notes               Note[]
-  clientsOwned        Client[]              @relation("ClientOwner")
-  emailsSent          EmailLog[]
-  emailTemplates      EmailTemplate[]       @relation("EmailTemplateCreator")
-  candidatesSourced   Candidate[]           @relation("CandidateSourcer")
-  candidatesReferred  Candidate[]           @relation("CandidateReferrerUser")
-  referencesContacted CandidateReference[]
-  documentsUploaded   CandidateDocument[]
-  activities          CandidateActivity[]
-  tasksCreated        Task[]                @relation("TaskCreator")
-  taskAttachments     TaskAttachment[]      @relation("TaskAttachmentUploader")
-  lists               CandidateList[]
-  listMembersAdded    CandidateListMember[] @relation("ListMemberAdder")
-  savedSearches       SavedSearch[]
-  sequencesCreated    Sequence[]            @relation("SequenceCreator")
-  enrollmentsCreated  SequenceEnrollment[]  @relation("SequenceEnroller")
-  stepRunsCompleted   StepRun[]             @relation("StepRunCompleter")
+  jobsCreated            Job[]                   @relation("JobCreator")
+  notes                  Note[]
+  clientsOwned           Client[]                @relation("ClientOwner")
+  emailsSent             EmailLog[]
+  emailTemplates         EmailTemplate[]         @relation("EmailTemplateCreator")
+  candidatesSourced      Candidate[]             @relation("CandidateSourcer")
+  candidatesReferred     Candidate[]             @relation("CandidateReferrerUser")
+  referencesContacted    CandidateReference[]
+  documentsUploaded      CandidateDocument[]
+  activities             CandidateActivity[]
+  tasksCreated           Task[]                  @relation("TaskCreator")
+  taskAttachments        TaskAttachment[]        @relation("TaskAttachmentUploader")
+  lists                  CandidateList[]
+  listMembersAdded       CandidateListMember[]   @relation("ListMemberAdder")
+  savedSearches          SavedSearch[]
+  sequencesCreated       Sequence[]              @relation("SequenceCreator")
+  enrollmentsCreated     SequenceEnrollment[]    @relation("SequenceEnroller")
+  stepRunsCompleted      StepRun[]               @relation("StepRunCompleter")
   assistantConversations AssistantConversation[] @relation("AssistantUser")
   assistantToolCalls     AssistantToolCall[]     @relation("AssistantToolCaller")
 
   // Calendar
-  iCalToken             String?              @unique
-  interviewsOrganized   Interview[]          @relation("InterviewOrganizer")
-  interviewAttendances  InterviewAttendee[]  @relation("InterviewAttendeeUser")
+  iCalToken            String?             @unique
+  interviewsOrganized  Interview[]         @relation("InterviewOrganizer")
+  interviewAttendances InterviewAttendee[] @relation("InterviewAttendeeUser")
+
+  // API tokens (used by Chrome extension and any future external integrations)
+  apiTokens ApiToken[]
+}
+
+/// Hashed API tokens for external integrations (Chrome extension etc.).
+/// The plaintext token is shown once at creation time; only the SHA-256
+/// hash is stored. `tokenPrefix` is the first 12 chars of the token, kept
+/// to help users identify which token is which in the UI.
+model ApiToken {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  tokenHash   String    @unique
+  tokenPrefix String
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
 }
 
 model Job {
@@ -302,6 +325,12 @@ model Job {
 
   clientId String?
   client   Client? @relation(fields: [clientId], references: [id])
+
+  // Compensation + placement fee. Estimated fee dollars are derived on read
+  // as salaryLow * placementFeePercent / 100, so only inputs are stored.
+  salaryLow           Int?
+  salaryHigh          Int?
+  placementFeePercent Int?
 
   @@index([status])
   @@index([clientId])
@@ -421,11 +450,11 @@ model Candidate {
   source              String?
   sourceDetail        String?
   sourcedById         String?
-  sourcedBy           User?            @relation("CandidateSourcer", fields: [sourcedById], references: [id])
+  sourcedBy           User?          @relation("CandidateSourcer", fields: [sourcedById], references: [id])
   referredByUserId    String?
-  referredByUser      User?            @relation("CandidateReferrerUser", fields: [referredByUserId], references: [id])
+  referredByUser      User?          @relation("CandidateReferrerUser", fields: [referredByUserId], references: [id])
   referredByContactId String?
-  referredByContact   ClientContact?   @relation("CandidateReferrerContact", fields: [referredByContactId], references: [id])
+  referredByContact   ClientContact? @relation("CandidateReferrerContact", fields: [referredByContactId], references: [id])
   referredByName      String?
 
   // Engagement
@@ -790,7 +819,7 @@ model Sequence {
 }
 
 model SequenceStep {
-  id        String           @id @default(cuid())
+  id         String           @id @default(cuid())
   sequenceId String
   order      Int
   type       SequenceStepType

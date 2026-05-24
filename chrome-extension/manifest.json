@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "ATS — Add Candidate from LinkedIn",
+  "description": "Adds an 'Add to ATS' button on LinkedIn profiles that pushes the candidate into your ATS.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "ATS Settings",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "http://localhost/*",
+    "https://*.vercel.app/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/in/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}

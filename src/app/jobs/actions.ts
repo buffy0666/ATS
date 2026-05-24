@@ -7,6 +7,15 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { JobStatus, Stage } from "@/generated/prisma";
 
+const optionalInt = (min: number, max: number) =>
+  z.preprocess((v) => {
+    if (typeof v !== "string") return v ?? null;
+    const trimmed = v.trim();
+    if (!trimmed) return null;
+    const n = Number.parseInt(trimmed.replace(/[,$\s]/g, ""), 10);
+    return Number.isFinite(n) ? n : null;
+  }, z.number().int().min(min).max(max).nullable());
+
 const jobSchema = z.object({
   title: z.string().min(1).max(200),
   department: z.string().max(100).optional().or(z.literal("")).transform((v) => v || null),
@@ -14,6 +23,9 @@ const jobSchema = z.object({
   description: z.string().min(1),
   status: z.nativeEnum(JobStatus).default(JobStatus.OPEN),
   clientId: z.string().optional().or(z.literal("")).transform((v) => v || null),
+  salaryLow: optionalInt(0, 100_000_000),
+  salaryHigh: optionalInt(0, 100_000_000),
+  placementFeePercent: optionalInt(0, 100),
 });
 
 export async function createJob(formData: FormData) {
@@ -27,6 +39,9 @@ export async function createJob(formData: FormData) {
     description: formData.get("description"),
     status: formData.get("status"),
     clientId: formData.get("clientId"),
+    salaryLow: formData.get("salaryLow"),
+    salaryHigh: formData.get("salaryHigh"),
+    placementFeePercent: formData.get("placementFeePercent"),
   });
 
   const job = await prisma.job.create({
@@ -63,6 +78,9 @@ export async function updateJob(jobId: string, formData: FormData) {
     description: formData.get("description"),
     status: formData.get("status"),
     clientId: formData.get("clientId"),
+    salaryLow: formData.get("salaryLow"),
+    salaryHigh: formData.get("salaryHigh"),
+    placementFeePercent: formData.get("placementFeePercent"),
   });
 
   const job = await prisma.job.update({
