@@ -1,6 +1,8 @@
 import { auth } from "@/auth";
+import { CustomFieldEntity } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
+import { loadCustomFields } from "@/lib/custom-fields";
 import { CandidateForm } from "./CandidateForm";
 
 export default async function NewCandidatePage() {
@@ -19,28 +21,30 @@ export default async function NewCandidatePage() {
     ),
   ]);
 
-  const [users, contacts, allTags, sourceOptions, seniorityOptions] = await Promise.all([
-    prisma.user.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, email: true },
-    }),
-    prisma.clientContact.findMany({
-      where: { status: "ACTIVE" },
-      orderBy: [{ client: { name: "asc" } }, { lastName: "asc" }],
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        client: { select: { name: true } },
-      },
-    }),
-    prisma.tag.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, color: true },
-    }),
-    loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
-    loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
-  ]);
+  const [users, contacts, allTags, sourceOptions, seniorityOptions, customFields] =
+    await Promise.all([
+      prisma.user.findMany({
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, email: true },
+      }),
+      prisma.clientContact.findMany({
+        where: { status: "ACTIVE" },
+        orderBy: [{ client: { name: "asc" } }, { lastName: "asc" }],
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          client: { select: { name: true } },
+        },
+      }),
+      prisma.tag.findMany({
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, color: true },
+      }),
+      loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
+      loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
+      loadCustomFields(CustomFieldEntity.CANDIDATE),
+    ]);
 
   const contactOptions = contacts.map((c) => ({
     id: c.id,
@@ -59,6 +63,7 @@ export default async function NewCandidatePage() {
         currentUserId={session.user.id ?? ""}
         sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
         seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
+        customFields={customFields}
       />
     </main>
   );

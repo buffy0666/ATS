@@ -13,7 +13,9 @@ import {
   RemotePref,
   WorkAuth,
 } from "@/generated/prisma";
+import { CustomFieldsForm } from "@/components/custom-fields/CustomFieldsForm";
 import { TagInput } from "@/components/TagInput";
+import { type CustomFieldRow } from "@/lib/custom-fields-shared";
 import type { EducationItem, ParsedResume, WorkHistoryItem } from "@/lib/resume-parser/schema";
 
 type UserOption = { id: string; name: string | null; email: string };
@@ -78,6 +80,7 @@ export function CandidateForm({
   currentUserId,
   sourceOptions,
   seniorityOptions,
+  customFields,
 }: {
   users: UserOption[];
   contacts: ContactOption[];
@@ -85,6 +88,7 @@ export function CandidateForm({
   currentUserId: string;
   sourceOptions: ChoiceOption[];
   seniorityOptions: ChoiceOption[];
+  customFields: CustomFieldRow[];
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [fields, setFields] = useState<CandidateFieldValues>(emptyCandidateFieldValues);
@@ -524,6 +528,12 @@ export function CandidateForm({
           className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
         />
       </Section>
+
+      {customFields.length > 0 && (
+        <Section title="Custom fields">
+          <CustomFieldsForm fields={customFields} />
+        </Section>
+      )}
 
       <button
         type="submit"

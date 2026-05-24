@@ -5,12 +5,14 @@ import { prisma } from "@/lib/prisma";
 import { EmailComposer } from "./EmailComposer";
 import { EmailHistory } from "./EmailHistory";
 import { NotesSection } from "./NotesSection";
+import { ResumeViewer } from "./ResumeViewer";
 import {
   CandidateSequencesSection,
   type CandidateEnrollment,
 } from "./CandidateSequencesSection";
 import {
   CandidateStatus,
+  CustomFieldEntity,
   EmploymentType,
   EnrollmentStatus,
   RemotePref,
@@ -19,6 +21,8 @@ import {
   StepRunStatus,
   WorkAuth,
 } from "@/generated/prisma";
+import { CustomFieldsView } from "@/components/custom-fields/CustomFieldsView";
+import { loadCustomFields, loadCustomFieldValues } from "@/lib/custom-fields";
 import { tagClass } from "@/lib/tag-colors";
 
 const WORK_AUTH_LABEL: Record<WorkAuth, string> = {
@@ -111,71 +115,81 @@ export default async function CandidateDetailPage({
 }) {
   const { id } = await params;
 
-  const [candidate, session, notes, templates, candidateEnrollments, availableSequences] =
-    await Promise.all([
-      prisma.candidate.findUnique({
-        where: { id },
-        include: {
-          applications: {
-            include: { job: true },
-            orderBy: { createdAt: "desc" },
-          },
-          emails: {
-            orderBy: { sentAt: "desc" },
-            include: {
-              fromUser: { select: { name: true, email: true } },
-              application: { select: { job: { select: { title: true } } } },
-            },
-          },
-          tags: true,
-          sourcedBy: { select: { id: true, name: true, email: true } },
-          referredByUser: { select: { id: true, name: true, email: true } },
-          referredByContact: {
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              client: { select: { id: true, name: true } },
-            },
+  const [
+    candidate,
+    session,
+    notes,
+    templates,
+    candidateEnrollments,
+    availableSequences,
+    customFields,
+    customFieldValues,
+  ] = await Promise.all([
+    prisma.candidate.findUnique({
+      where: { id },
+      include: {
+        applications: {
+          include: { job: true },
+          orderBy: { createdAt: "desc" },
+        },
+        emails: {
+          orderBy: { sentAt: "desc" },
+          include: {
+            fromUser: { select: { name: true, email: true } },
+            application: { select: { job: { select: { title: true } } } },
           },
         },
-      }),
-      auth(),
-      prisma.note.findMany({
-        where: { application: { candidateId: id } },
-        orderBy: { createdAt: "desc" },
-        include: {
-          author: { select: { name: true, email: true } },
-          application: {
-            select: {
-              id: true,
-              stage: true,
-              job: { select: { id: true, title: true } },
-            },
+        tags: true,
+        sourcedBy: { select: { id: true, name: true, email: true } },
+        referredByUser: { select: { id: true, name: true, email: true } },
+        referredByContact: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            client: { select: { id: true, name: true } },
           },
         },
-      }),
-      prisma.emailTemplate.findMany({
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, subject: true, body: true },
-      }),
-      prisma.sequenceEnrollment.findMany({
-        where: { candidateId: id },
-        orderBy: { startedAt: "desc" },
-        include: {
-          sequence: { select: { id: true, name: true } },
-          stepRuns: {
-            select: { id: true, status: true, scheduledFor: true },
-            orderBy: { scheduledFor: "asc" },
+      },
+    }),
+    auth(),
+    prisma.note.findMany({
+      where: { application: { candidateId: id } },
+      orderBy: { createdAt: "desc" },
+      include: {
+        author: { select: { name: true, email: true } },
+        application: {
+          select: {
+            id: true,
+            stage: true,
+            job: { select: { id: true, title: true } },
           },
         },
-      }),
-      prisma.sequence.findMany({
-        where: { status: SequenceStatus.ACTIVE },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true },
-      }),
-    ]);
+      },
+    }),
+    prisma.emailTemplate.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, subject: true, body: true },
+    }),
+    prisma.sequenceEnrollment.findMany({
+      where: { candidateId: id },
+      orderBy: { startedAt: "desc" },
+      include: {
+        sequence: { select: { id: true, name: true } },
+        stepRuns: {
+          select: { id: true, status: true, scheduledFor: true },
+          orderBy: { scheduledFor: "asc" },
+        },
+      },
+    }),
+    prisma.sequence.findMany({
+      where: { status: SequenceStatus.ACTIVE },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    loadCustomFields(CustomFieldEntity.CANDIDATE),
+    loadCustomFieldValues(CustomFieldEntity.CANDIDATE, id),
+  ]);
 
   if (!candidate) notFound();
 
@@ -208,7 +222,6 @@ export default async function CandidateDetailPage({
     };
   });
 
-  // Hide sequences the candidate is already actively enrolled in from the picker.
   const activeEnrollmentIds = new Set(
     candidateEnrollments
       .filter((e) => e.status === EnrollmentStatus.ACTIVE || e.status === EnrollmentStatus.PAUSED)
@@ -217,344 +230,367 @@ export default async function CandidateDetailPage({
   const enrollableSequences = availableSequences.filter((s) => !activeEnrollmentIds.has(s.id));
 
   return (
-    <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10">
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6 lg:items-start">
-        <div className="min-w-0">
-      <Link href="/candidates" className="text-sm text-zinc-500 hover:underline">
-        ← All candidates
-      </Link>
-
-      <div className="mt-1 flex flex-wrap items-baseline gap-3">
-        <h1 className="text-2xl font-semibold">
-          {candidate.firstName} {candidate.lastName}
-          {candidate.preferredName && (
-            <span className="ml-2 text-base font-normal text-zinc-500">
-              &ldquo;{candidate.preferredName}&rdquo;
+    <main className="flex-1 flex flex-col max-w-[120rem] mx-auto w-full px-6 py-4 h-screen">
+      {/* Header — name, status, summary stay above the workspace */}
+      <header className="shrink-0 mb-3">
+        <Link href="/candidates" className="text-xs text-zinc-500 hover:underline">
+          ← All candidates
+        </Link>
+        <div className="mt-1 flex flex-wrap items-baseline gap-3">
+          <h1 className="text-2xl font-semibold">
+            {candidate.firstName} {candidate.lastName}
+            {candidate.preferredName && (
+              <span className="ml-2 text-base font-normal text-zinc-500">
+                &ldquo;{candidate.preferredName}&rdquo;
+              </span>
+            )}
+          </h1>
+          {candidate.pronouns && (
+            <span className="text-sm text-zinc-500">({candidate.pronouns})</span>
+          )}
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wide ${STATUS_BADGE[candidate.status]}`}
+          >
+            {STATUS_LABEL[candidate.status]}
+          </span>
+          {candidate.rating != null && (
+            <span className="text-sm text-amber-600 dark:text-amber-400">
+              {"★".repeat(candidate.rating)}
+              <span className="text-zinc-400">{"★".repeat(Math.max(0, 5 - candidate.rating))}</span>
             </span>
           )}
-        </h1>
-        {candidate.pronouns && (
-          <span className="text-sm text-zinc-500">({candidate.pronouns})</span>
-        )}
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wide ${STATUS_BADGE[candidate.status]}`}
-        >
-          {STATUS_LABEL[candidate.status]}
-        </span>
-        {candidate.rating != null && (
-          <span className="text-sm text-amber-600 dark:text-amber-400">
-            {"★".repeat(candidate.rating)}
-            <span className="text-zinc-400">{"★".repeat(Math.max(0, 5 - candidate.rating))}</span>
-          </span>
-        )}
-      </div>
-
-      {(candidate.currentTitle || candidate.currentCompany) && (
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          {candidate.currentTitle}
-          {candidate.currentTitle && candidate.currentCompany && " at "}
-          {candidate.currentCompany}
-        </p>
-      )}
-
-      <p className="mt-1 text-sm text-zinc-500">{candidate.email}</p>
-
-      {candidate.tags.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {candidate.tags.map((t) => (
-            <span
-              key={t.id}
-              className={`rounded-full px-2 py-0.5 text-xs ${tagClass(t.color)}`}
-            >
-              {t.name}
+          {(candidate.currentTitle || candidate.currentCompany) && (
+            <span className="text-sm text-zinc-600 dark:text-zinc-400">
+              · {candidate.currentTitle}
+              {candidate.currentTitle && candidate.currentCompany && " at "}
+              {candidate.currentCompany}
             </span>
-          ))}
-        </div>
-      )}
-
-      {candidate.summary && (
-        <p className="mt-4 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
-          {candidate.summary}
-        </p>
-      )}
-
-      <section className="mt-6">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            Jobs ({candidate.applications.length})
-          </h2>
-          <Link
-            href={`/interviews/new?candidateId=${candidate.id}`}
-            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800"
-          >
-            Schedule interview
-          </Link>
-        </div>
-        {candidate.applications.length === 0 ? (
-          <p className="text-sm text-zinc-500">Not associated with any job yet.</p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {candidate.applications.map((a) => (
-              <Link
-                key={a.id}
-                href={`/jobs/${a.job.id}`}
-                className="inline-flex items-center gap-2 rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm hover:border-zinc-400 dark:hover:border-zinc-600"
-              >
-                <span className="font-medium">{a.job.title}</span>
-                <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-[10px] uppercase tracking-wide">
-                  {a.stage.replace(/_/g, " ")}
+          )}
+          <span className="text-sm text-zinc-500">· {candidate.email}</span>
+          {candidate.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {candidate.tags.map((t) => (
+                <span
+                  key={t.id}
+                  className={`rounded-full px-2 py-0.5 text-xs ${tagClass(t.color)}`}
+                >
+                  {t.name}
                 </span>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </div>
+      </header>
 
-      <DetailGrid title="Contact">
-        <Detail label="Email" value={candidate.email} />
-        <Detail label="Alternate email" value={candidate.alternateEmail} />
-        <Detail label="Phone" value={candidate.phone} />
-        <Detail label="Alternate phone" value={candidate.alternatePhone} />
-      </DetailGrid>
+      {/* Workspace: resume left, notes + metadata stacked on the right */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-4 flex-1 min-h-0">
+        {/* Left: resume viewer */}
+        <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden min-h-0">
+          <ResumeViewer url={candidate.resumeUrl} />
+        </section>
 
-      <DetailGrid title="Location & work authorization">
-        <Detail label="Location" value={displayLocation || null} />
-        <Detail label="Timezone" value={candidate.timezone} />
-        <Detail
-          label="Open to relocation"
-          value={candidate.willingToRelocate ? "Yes" : "No"}
-        />
-        <Detail
-          label="Work authorization"
-          value={candidate.workAuthorization ? WORK_AUTH_LABEL[candidate.workAuthorization] : null}
-        />
-        <Detail
-          label="Requires sponsorship"
-          value={candidate.requiresSponsorship ? "Yes" : "No"}
-        />
-      </DetailGrid>
+        {/* Right column: notes on top, metadata below, both internally scrollable */}
+        <div className="flex flex-col gap-4 min-h-0">
+          <section
+            className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col min-h-0 overflow-hidden"
+            style={{ flex: "1 1 50%" }}
+          >
+            <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Notes
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-5">
+              <NotesSection
+                candidateId={candidate.id}
+                notes={notes}
+                applications={candidate.applications.map((a) => ({
+                  id: a.id,
+                  jobTitle: a.job.title,
+                  stage: a.stage,
+                }))}
+                currentUserId={session?.user?.id ?? ""}
+                currentUserIsAdmin={session?.user?.role === Role.ADMIN}
+              />
+            </div>
+          </section>
 
-      <DetailGrid title="Career">
-        <Detail label="Current title" value={candidate.currentTitle} />
-        <Detail label="Current company" value={candidate.currentCompany} />
-        <Detail
-          label="Years of experience"
-          value={candidate.yearsExperience != null ? String(candidate.yearsExperience) : null}
-        />
-        <Detail
-          label="Seniority"
-          value={candidate.seniority ? (SENIORITY_LABEL[candidate.seniority] ?? candidate.seniority) : null}
-        />
-      </DetailGrid>
+          <section
+            className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col min-h-0 overflow-hidden"
+            style={{ flex: "1 1 50%" }}
+          >
+            <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Profile & activity
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-6">
+              {candidate.summary && (
+                <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+                  {candidate.summary}
+                </p>
+              )}
 
-      <DetailGrid title="Compensation & availability">
-        <Detail label="Desired salary" value={desiredSalary} />
-        <Detail label="Current salary" value={formatSalary(candidate.currentSalary)} />
-        <Detail
-          label="Available from"
-          value={candidate.availableFrom ? candidate.availableFrom.toLocaleDateString() : null}
-        />
-        <Detail
-          label="Notice period"
-          value={candidate.noticePeriodDays != null ? `${candidate.noticePeriodDays} days` : null}
-        />
-        <Detail
-          label="Employment type"
-          value={
-            candidate.employmentTypePref.length > 0
-              ? candidate.employmentTypePref.map((e) => EMPLOYMENT_TYPE_LABEL[e]).join(", ")
-              : null
-          }
-        />
-        <Detail
-          label="Work mode"
-          value={
-            candidate.remotePref.length > 0
-              ? candidate.remotePref.map((r) => REMOTE_PREF_LABEL[r]).join(", ")
-              : null
-          }
-        />
-      </DetailGrid>
-
-      {(candidate.industries.length > 0 || candidate.specialties.length > 0) && (
-        <DetailGrid title="Focus">
-          <Detail
-            label="Industries"
-            value={candidate.industries.length > 0 ? candidate.industries.join(", ") : null}
-          />
-          <Detail
-            label="Specialties"
-            value={candidate.specialties.length > 0 ? candidate.specialties.join(", ") : null}
-          />
-        </DetailGrid>
-      )}
-
-      <DetailGrid title="Links">
-        <Detail label="LinkedIn" value={linkOrNull(candidate.linkedinUrl)} />
-        <Detail label="GitHub" value={linkOrNull(candidate.githubUrl)} />
-        <Detail label="Portfolio" value={linkOrNull(candidate.portfolioUrl)} />
-        <Detail
-          label="Resume"
-          value={
-            candidate.resumeUrl ? (
-              <a
-                href={candidate.resumeUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline"
-              >
-                Download
-              </a>
-            ) : null
-          }
-        />
-        {candidate.otherUrls.length > 0 && (
-          <Detail
-            label="Other URLs"
-            value={
-              <ul className="space-y-0.5">
-                {candidate.otherUrls.map((u) => (
-                  <li key={u}>
-                    <a
-                      href={u}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline break-all"
-                    >
-                      {u}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            }
-          />
-        )}
-      </DetailGrid>
-
-      <DetailGrid title="Source & ownership">
-        <Detail
-          label="Source"
-          value={candidate.source ? (SOURCE_LABEL[candidate.source] ?? candidate.source) : null}
-        />
-        <Detail label="Source detail" value={candidate.sourceDetail} />
-        <Detail
-          label="Sourced by"
-          value={
-            candidate.sourcedBy ? candidate.sourcedBy.name ?? candidate.sourcedBy.email : null
-          }
-        />
-        <Detail
-          label="Referred by"
-          value={
-            candidate.referredByUser
-              ? candidate.referredByUser.name ?? candidate.referredByUser.email
-              : candidate.referredByContact ? (
+              <section>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Jobs ({candidate.applications.length})
+                  </h2>
                   <Link
-                    href={`/clients/${candidate.referredByContact.client.id}`}
-                    className="underline"
+                    href={`/interviews/new?candidateId=${candidate.id}`}
+                    className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs font-medium hover:bg-zinc-50 dark:hover:bg-zinc-800"
                   >
-                    {candidate.referredByContact.firstName} {candidate.referredByContact.lastName} ({candidate.referredByContact.client.name})
+                    Schedule interview
                   </Link>
-                )
-              : candidate.referredByName ?? null
-          }
-        />
-        <Detail
-          label="Last contacted"
-          value={
-            candidate.lastContactedAt ? candidate.lastContactedAt.toLocaleString() : null
-          }
-        />
-        <Detail
-          label="Next follow-up"
-          value={
-            candidate.nextFollowUpAt ? candidate.nextFollowUpAt.toLocaleDateString() : null
-          }
-        />
-        <Detail
-          label="Email subscription"
-          value={candidate.unsubscribedAt ? "Unsubscribed" : "Subscribed"}
-        />
-        <Detail label="Added" value={candidate.createdAt.toLocaleDateString()} />
-      </DetailGrid>
+                </div>
+                {candidate.applications.length === 0 ? (
+                  <p className="text-sm text-zinc-500">Not associated with any job yet.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {candidate.applications.map((a) => (
+                      <Link
+                        key={a.id}
+                        href={`/jobs/${a.job.id}`}
+                        className="inline-flex items-center gap-2 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 px-3 py-1.5 text-sm hover:border-zinc-400 dark:hover:border-zinc-600"
+                      >
+                        <span className="font-medium">{a.job.title}</span>
+                        <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                          {a.stage.replace(/_/g, " ")}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </section>
 
-      {candidate.skills.length > 0 && (
-        <section className="mt-6 rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-            Skills
-          </h2>
-          <div className="flex flex-wrap gap-1.5">
-            {candidate.skills.map((s) => (
-              <span
-                key={s}
-                className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800"
-              >
-                {s}
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
+              <DetailGrid title="Contact">
+                <Detail label="Email" value={candidate.email} />
+                <Detail label="Alternate email" value={candidate.alternateEmail} />
+                <Detail label="Phone" value={candidate.phone} />
+                <Detail label="Alternate phone" value={candidate.alternatePhone} />
+              </DetailGrid>
 
-      {candidate.notes && (
-        <section className="mt-6 rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-500">
-            Notes
-          </h2>
-          <p className="whitespace-pre-wrap text-sm">{candidate.notes}</p>
-        </section>
-      )}
+              <DetailGrid title="Location & work authorization">
+                <Detail label="Location" value={displayLocation || null} />
+                <Detail label="Timezone" value={candidate.timezone} />
+                <Detail
+                  label="Open to relocation"
+                  value={candidate.willingToRelocate ? "Yes" : "No"}
+                />
+                <Detail
+                  label="Work authorization"
+                  value={candidate.workAuthorization ? WORK_AUTH_LABEL[candidate.workAuthorization] : null}
+                />
+                <Detail
+                  label="Requires sponsorship"
+                  value={candidate.requiresSponsorship ? "Yes" : "No"}
+                />
+              </DetailGrid>
 
-      <CandidateSequencesSection
-        candidateId={candidate.id}
-        enrollments={enrollmentsForUI}
-        availableSequences={enrollableSequences}
-        applications={candidate.applications.map((a) => ({
-          id: a.id,
-          jobTitle: a.job.title,
-        }))}
-      />
+              <DetailGrid title="Career">
+                <Detail label="Current title" value={candidate.currentTitle} />
+                <Detail label="Current company" value={candidate.currentCompany} />
+                <Detail
+                  label="Years of experience"
+                  value={candidate.yearsExperience != null ? String(candidate.yearsExperience) : null}
+                />
+                <Detail
+                  label="Seniority"
+                  value={candidate.seniority ? (SENIORITY_LABEL[candidate.seniority] ?? candidate.seniority) : null}
+                />
+              </DetailGrid>
 
-      <section className="mt-8">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
-            Communication ({candidate.emails.length})
-          </h2>
+              <DetailGrid title="Compensation & availability">
+                <Detail label="Desired salary" value={desiredSalary} />
+                <Detail label="Current salary" value={formatSalary(candidate.currentSalary)} />
+                <Detail
+                  label="Available from"
+                  value={candidate.availableFrom ? candidate.availableFrom.toLocaleDateString() : null}
+                />
+                <Detail
+                  label="Notice period"
+                  value={candidate.noticePeriodDays != null ? `${candidate.noticePeriodDays} days` : null}
+                />
+                <Detail
+                  label="Employment type"
+                  value={
+                    candidate.employmentTypePref.length > 0
+                      ? candidate.employmentTypePref.map((e) => EMPLOYMENT_TYPE_LABEL[e]).join(", ")
+                      : null
+                  }
+                />
+                <Detail
+                  label="Work mode"
+                  value={
+                    candidate.remotePref.length > 0
+                      ? candidate.remotePref.map((r) => REMOTE_PREF_LABEL[r]).join(", ")
+                      : null
+                  }
+                />
+              </DetailGrid>
+
+              {(candidate.industries.length > 0 || candidate.specialties.length > 0) && (
+                <DetailGrid title="Focus">
+                  <Detail
+                    label="Industries"
+                    value={candidate.industries.length > 0 ? candidate.industries.join(", ") : null}
+                  />
+                  <Detail
+                    label="Specialties"
+                    value={candidate.specialties.length > 0 ? candidate.specialties.join(", ") : null}
+                  />
+                </DetailGrid>
+              )}
+
+              <DetailGrid title="Links">
+                <Detail label="LinkedIn" value={linkOrNull(candidate.linkedinUrl)} />
+                <Detail label="GitHub" value={linkOrNull(candidate.githubUrl)} />
+                <Detail label="Portfolio" value={linkOrNull(candidate.portfolioUrl)} />
+                <Detail
+                  label="Resume"
+                  value={
+                    candidate.resumeUrl ? (
+                      <a
+                        href={candidate.resumeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        Download
+                      </a>
+                    ) : null
+                  }
+                />
+                {candidate.otherUrls.length > 0 && (
+                  <Detail
+                    label="Other URLs"
+                    value={
+                      <ul className="space-y-0.5">
+                        {candidate.otherUrls.map((u) => (
+                          <li key={u}>
+                            <a
+                              href={u}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="underline break-all"
+                            >
+                              {u}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    }
+                  />
+                )}
+              </DetailGrid>
+
+              <DetailGrid title="Source & ownership">
+                <Detail
+                  label="Source"
+                  value={candidate.source ? (SOURCE_LABEL[candidate.source] ?? candidate.source) : null}
+                />
+                <Detail label="Source detail" value={candidate.sourceDetail} />
+                <Detail
+                  label="Sourced by"
+                  value={
+                    candidate.sourcedBy ? candidate.sourcedBy.name ?? candidate.sourcedBy.email : null
+                  }
+                />
+                <Detail
+                  label="Referred by"
+                  value={
+                    candidate.referredByUser
+                      ? candidate.referredByUser.name ?? candidate.referredByUser.email
+                      : candidate.referredByContact ? (
+                          <Link
+                            href={`/clients/${candidate.referredByContact.client.id}`}
+                            className="underline"
+                          >
+                            {candidate.referredByContact.firstName} {candidate.referredByContact.lastName} ({candidate.referredByContact.client.name})
+                          </Link>
+                        )
+                      : candidate.referredByName ?? null
+                  }
+                />
+                <Detail
+                  label="Last contacted"
+                  value={
+                    candidate.lastContactedAt ? candidate.lastContactedAt.toLocaleString() : null
+                  }
+                />
+                <Detail
+                  label="Next follow-up"
+                  value={
+                    candidate.nextFollowUpAt ? candidate.nextFollowUpAt.toLocaleDateString() : null
+                  }
+                />
+                <Detail
+                  label="Email subscription"
+                  value={candidate.unsubscribedAt ? "Unsubscribed" : "Subscribed"}
+                />
+                <Detail label="Added" value={candidate.createdAt.toLocaleDateString()} />
+              </DetailGrid>
+
+              {candidate.skills.length > 0 && (
+                <section>
+                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Skills
+                  </h2>
+                  <div className="flex flex-wrap gap-1.5">
+                    {candidate.skills.map((s) => (
+                      <span
+                        key={s}
+                        className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800"
+                      >
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {candidate.notes && (
+                <section>
+                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Candidate notes (legacy)
+                  </h2>
+                  <p className="whitespace-pre-wrap text-sm">{candidate.notes}</p>
+                </section>
+              )}
+
+              <CustomFieldsView fields={customFields} values={customFieldValues} />
+
+              <CandidateSequencesSection
+                candidateId={candidate.id}
+                enrollments={enrollmentsForUI}
+                availableSequences={enrollableSequences}
+                applications={candidate.applications.map((a) => ({
+                  id: a.id,
+                  jobTitle: a.job.title,
+                }))}
+              />
+
+              <section>
+                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Communication ({candidate.emails.length})
+                </h2>
+                <div className="mb-4">
+                  <EmailComposer
+                    candidateId={candidate.id}
+                    candidateEmail={candidate.email}
+                    candidateFirstName={candidate.firstName}
+                    candidateLastName={candidate.lastName}
+                    candidatePhone={candidate.phone}
+                    senderName={senderName}
+                    senderEmail={session?.user?.email ?? ""}
+                    applications={candidate.applications.map((a) => ({
+                      id: a.id,
+                      jobTitle: a.job.title,
+                    }))}
+                    templates={templates}
+                  />
+                </div>
+                <EmailHistory emails={candidate.emails} />
+              </section>
+            </div>
+          </section>
         </div>
-        <div className="mb-4">
-          <EmailComposer
-            candidateId={candidate.id}
-            candidateEmail={candidate.email}
-            candidateFirstName={candidate.firstName}
-            candidateLastName={candidate.lastName}
-            candidatePhone={candidate.phone}
-            senderName={senderName}
-            senderEmail={session?.user?.email ?? ""}
-            applications={candidate.applications.map((a) => ({
-              id: a.id,
-              jobTitle: a.job.title,
-            }))}
-            templates={templates}
-          />
-        </div>
-        <EmailHistory emails={candidate.emails} />
-      </section>
-
-        </div>
-
-        <aside className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pr-1">
-          <NotesSection
-            candidateId={candidate.id}
-            notes={notes}
-            applications={candidate.applications.map((a) => ({
-              id: a.id,
-              jobTitle: a.job.title,
-              stage: a.stage,
-            }))}
-            currentUserId={session?.user?.id ?? ""}
-            currentUserIsAdmin={session?.user?.role === Role.ADMIN}
-          />
-        </aside>
       </div>
     </main>
   );
@@ -562,7 +598,7 @@ export default async function CandidateDetailPage({
 
 function DetailGrid({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-6">
+    <section>
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">{title}</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{children}</div>
     </section>

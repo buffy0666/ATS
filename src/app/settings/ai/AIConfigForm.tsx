@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { PROVIDERS, type ProviderId } from "@/lib/ai/catalog";
 import {
-  KEY_UNCHANGED,
   listOllamaModels,
   saveAIConfig,
   testAIConfig,
@@ -11,6 +10,7 @@ import {
   type SaveAIConfigResult,
   type TestAIConfigResult,
 } from "./actions";
+import { KEY_UNCHANGED } from "./constants";
 
 type Initial = {
   provider: string;

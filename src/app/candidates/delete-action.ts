@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { CustomFieldEntity } from "@/generated/prisma";
 import { requireSession } from "@/lib/auth-utils";
+import { deleteCustomFieldValuesFor } from "@/lib/custom-fields";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -12,5 +14,6 @@ import { prisma } from "@/lib/prisma";
 export async function deleteCandidate(candidateId: string) {
   await requireSession();
   await prisma.candidate.delete({ where: { id: candidateId } });
+  await deleteCustomFieldValuesFor(CustomFieldEntity.CANDIDATE, candidateId);
   revalidatePath("/candidates");
 }

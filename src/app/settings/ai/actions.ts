@@ -7,8 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret, maskKey } from "@/lib/crypto";
 import { complete, invalidateAIProviderCache } from "@/lib/ai";
 import { isProviderId, ollamaNativeRoot, PROVIDERS } from "@/lib/ai/catalog";
-
-const KEY_UNCHANGED = "__unchanged__";
+import { KEY_UNCHANGED } from "./constants";
 
 const saveSchema = z.object({
   provider: z.string().refine(isProviderId, "Unknown provider."),
@@ -216,4 +215,3 @@ export async function getCurrentKeyPreview(): Promise<string | null> {
   }
 }
 
-export { KEY_UNCHANGED };

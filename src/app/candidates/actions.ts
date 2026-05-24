@@ -14,11 +14,13 @@ import {
   type ParsedResume,
   WorkHistoryItemSchema,
 } from "@/lib/resume-parser";
+import { saveCustomFieldValues } from "@/lib/custom-fields";
 import { extractResumeText } from "@/lib/resume-parser/extract";
 import { saveResume } from "@/lib/uploads";
 import { tagColorForName } from "@/lib/tag-colors";
 import {
   CandidateStatus,
+  CustomFieldEntity,
   EmploymentType,
   RemotePref,
   WorkAuth,
@@ -331,6 +333,8 @@ export async function createCandidate(formData: FormData) {
       tags: tagIds.length ? { connect: tagIds.map((id) => ({ id })) } : undefined,
     },
   });
+
+  await saveCustomFieldValues(CustomFieldEntity.CANDIDATE, candidate.id, formData);
 
   revalidatePath("/candidates");
   redirect(`/candidates/${candidate.id}`);
