@@ -13,11 +13,16 @@ export {
 import type { CustomFieldRow } from "./custom-fields-shared";
 
 /**
- * Load active field definitions for an entity, in display order.
+ * Load active field definitions for an entity, in display order. Scoped to
+ * the caller's org — each tenant defines their own custom fields and they
+ * must not bleed across organizations.
  */
-export async function loadCustomFields(entity: CustomFieldEntity): Promise<CustomFieldRow[]> {
+export async function loadCustomFields(
+  entity: CustomFieldEntity,
+  organizationId: string,
+): Promise<CustomFieldRow[]> {
   return prisma.customField.findMany({
-    where: { entity, active: true },
+    where: { entity, active: true, organizationId },
     orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
     select: {
       id: true,
@@ -36,15 +41,18 @@ export async function loadCustomFields(entity: CustomFieldEntity): Promise<Custo
 
 /**
  * Load all values for one record, returned as a map keyed by field id.
+ * Scoped through the parent CustomField (which carries organizationId),
+ * so a row in org A's custom field can't be read from org B.
  */
 export async function loadCustomFieldValues(
   entity: CustomFieldEntity,
   entityId: string,
+  organizationId: string,
 ): Promise<Map<string, CustomFieldValue>> {
   const rows = await prisma.customFieldValue.findMany({
     where: {
       entityId,
-      field: { entity },
+      field: { entity, organizationId },
     },
   });
   return new Map(rows.map((r) => [r.fieldId, r]));
@@ -89,9 +97,10 @@ export function readCustomFieldValue(
 export async function saveCustomFieldValues(
   entity: CustomFieldEntity,
   entityId: string,
+  organizationId: string,
   formData: FormData,
 ): Promise<void> {
-  const fields = await loadCustomFields(entity);
+  const fields = await loadCustomFields(entity, organizationId);
   if (fields.length === 0) return;
 
   for (const field of fields) {
@@ -111,6 +120,10 @@ export async function saveCustomFieldValues(
       continue;
     }
 
+    // CustomFieldValue inherits org scope through its parent CustomField
+    // — we filter the parent's organizationId on every read. No direct
+    // org_id column on the child (Phase 6 may add one for defense in
+    // depth).
     await prisma.customFieldValue.upsert({
       where: { fieldId_entityId: { fieldId: field.id, entityId } },
       create: { fieldId: field.id, entityId, ...data },
@@ -119,13 +132,18 @@ export async function saveCustomFieldValues(
   }
 }
 
-/** Remove every custom field value attached to a record. Call from delete actions. */
+/**
+ * Remove every custom field value attached to a record. Call from delete
+ * actions. Scoped through the parent CustomField's org so we can't
+ * accidentally cascade across tenants.
+ */
 export async function deleteCustomFieldValuesFor(
   entity: CustomFieldEntity,
   entityId: string,
+  organizationId: string,
 ): Promise<void> {
   await prisma.customFieldValue.deleteMany({
-    where: { entityId, field: { entity } },
+    where: { entityId, field: { entity, organizationId } },
   });
 }
 

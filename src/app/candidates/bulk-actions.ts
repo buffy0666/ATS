@@ -1,19 +1,42 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { tagColorForName } from "@/lib/tag-colors";
 import { Stage } from "@/generated/prisma";
 
 const MAX_BULK = 500;
 
+/**
+ * Strip out invalid cuids AND cap to MAX_BULK. Every bulk action also
+ * intersects the resulting list with rows that belong to the caller's org
+ * — anything outside is silently dropped (rather than throwing) so the
+ * remaining valid rows still get processed.
+ */
 function sanitizeIds(ids: string[]): string[] {
   return Array.from(
     new Set(
       ids.filter((id) => typeof id === "string" && id.length > 0 && id.length < 40),
     ),
   ).slice(0, MAX_BULK);
+}
+
+/**
+ * Filter a list of candidate ids to just those that belong to the given
+ * org. Used by every bulk action to prevent cross-tenant writes when the
+ * client smuggles ids from another org.
+ */
+async function filterCandidateIdsToOrg(
+  ids: string[],
+  orgId: string,
+): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await prisma.candidate.findMany({
+    where: { id: { in: ids }, organizationId: orgId },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
 }
 
 export type BulkActionResult = {
@@ -27,20 +50,22 @@ export async function addCandidatesToList(
   candidateIds: string[],
   listId: string,
 ): Promise<BulkActionResult> {
-  const session = await requireSession();
-  const ids = sanitizeIds(candidateIds);
-  if (ids.length === 0 || !listId) {
+  const { session, orgId } = await requireSessionWithOrg();
+  const rawIds = sanitizeIds(candidateIds);
+  if (rawIds.length === 0 || !listId) {
     return { ok: false, message: "Pick at least one candidate and a list.", affected: 0 };
   }
 
-  const list = await prisma.candidateList.findUnique({
-    where: { id: listId },
+  const list = await prisma.candidateList.findFirst({
+    where: { id: listId, organizationId: orgId },
     select: { id: true, name: true, scope: true, ownerId: true },
   });
   if (!list) return { ok: false, message: "List not found.", affected: 0 };
   if (list.scope === "PERSONAL" && list.ownerId !== session.user.id) {
     return { ok: false, message: "You can't add to someone else's personal list.", affected: 0 };
   }
+
+  const ids = await filterCandidateIdsToOrg(rawIds, orgId);
 
   const result = await prisma.candidateListMember.createMany({
     data: ids.map((candidateId) => ({
@@ -71,34 +96,35 @@ export async function addCandidatesToJob(
   candidateIds: string[],
   jobId: string,
 ): Promise<BulkActionResult> {
-  await requireSession();
-  const ids = sanitizeIds(candidateIds);
-  if (ids.length === 0 || !jobId) {
+  const { orgId } = await requireSessionWithOrg();
+  const rawIds = sanitizeIds(candidateIds);
+  if (rawIds.length === 0 || !jobId) {
     return { ok: false, message: "Pick at least one candidate and a job.", affected: 0 };
   }
 
-  const job = await prisma.job.findUnique({
-    where: { id: jobId },
+  const job = await prisma.job.findFirst({
+    where: { id: jobId, organizationId: orgId },
     select: { id: true, title: true },
   });
   if (!job) return { ok: false, message: "Job not found.", affected: 0 };
 
+  const ids = await filterCandidateIdsToOrg(rawIds, orgId);
+
   // Find existing applications so we can report how many were already attached.
   const existing = await prisma.application.findMany({
-    where: { jobId, candidateId: { in: ids } },
+    where: { jobId, candidateId: { in: ids }, organizationId: orgId },
     select: { candidateId: true },
   });
   const existingSet = new Set(existing.map((a) => a.candidateId));
   const toCreate = ids.filter((id) => !existingSet.has(id));
 
-  // `createMany` would be one roundtrip, but applications have a compound
-  // unique on (jobId, candidateId) and we want to be safe under races.
   if (toCreate.length > 0) {
     await prisma.application.createMany({
       data: toCreate.map((candidateId) => ({
         jobId,
         candidateId,
         stage: Stage.APPLIED,
+        organizationId: orgId,
       })),
       skipDuplicates: true,
     });
@@ -124,22 +150,25 @@ export async function addTagsToCandidates(
   candidateIds: string[],
   tagNames: string[],
 ): Promise<BulkActionResult> {
-  await requireSession();
-  const ids = sanitizeIds(candidateIds);
+  const { orgId } = await requireSessionWithOrg();
+  const rawIds = sanitizeIds(candidateIds);
   const names = Array.from(
     new Set(tagNames.map((n) => n.trim()).filter((n) => n.length > 0 && n.length <= 60)),
   );
-  if (ids.length === 0 || names.length === 0) {
+  if (rawIds.length === 0 || names.length === 0) {
     return { ok: false, message: "Pick at least one candidate and one tag.", affected: 0 };
   }
 
-  // Upsert each tag to get IDs, then connect to each candidate.
-  // (Prisma doesn't support bulk M2M connect via updateMany.)
+  const ids = await filterCandidateIdsToOrg(rawIds, orgId);
+
+  // Upsert each tag to get IDs, then connect to each candidate. The
+  // upsert key is still the global Tag.name during Phase 1-5; Phase 6
+  // swaps this to a compound (organizationId, name) key.
   const tags = await Promise.all(
     names.map((name) =>
       prisma.tag.upsert({
         where: { name },
-        create: { name, color: tagColorForName(name) },
+        create: { name, color: tagColorForName(name), organizationId: orgId },
         update: {},
         select: { id: true },
       }),
@@ -169,14 +198,14 @@ export async function removeCandidatesFromList(
   candidateIds: string[],
   listId: string,
 ): Promise<BulkActionResult> {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const ids = sanitizeIds(candidateIds);
   if (ids.length === 0 || !listId) {
     return { ok: false, message: "Pick at least one candidate.", affected: 0 };
   }
 
-  const list = await prisma.candidateList.findUnique({
-    where: { id: listId },
+  const list = await prisma.candidateList.findFirst({
+    where: { id: listId, organizationId: orgId },
     select: { id: true, name: true, scope: true, ownerId: true },
   });
   if (!list) return { ok: false, message: "List not found.", affected: 0 };
@@ -202,9 +231,10 @@ export async function removeCandidatesFromList(
 export async function listsVisibleToCurrentUser(): Promise<
   { id: string; name: string; scope: "PERSONAL" | "SHARED"; ownerId: string }[]
 > {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const lists = await prisma.candidateList.findMany({
     where: {
+      organizationId: orgId,
       OR: [{ ownerId: session.user.id }, { scope: "SHARED" }],
     },
     orderBy: [{ name: "asc" }],
@@ -216,7 +246,7 @@ export async function listsVisibleToCurrentUser(): Promise<
 export async function createListForBulk(
   name: string,
 ): Promise<{ id: string; name: string } | { error: string }> {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const trimmed = name.trim();
   if (!trimmed) return { error: "Name is required." };
   if (trimmed.length > 120) return { error: "Name is too long (max 120 chars)." };
@@ -226,6 +256,7 @@ export async function createListForBulk(
       name: trimmed,
       ownerId: session.user.id,
       scope: "PERSONAL",
+      organizationId: orgId,
     },
     select: { id: true, name: true },
   });
@@ -234,9 +265,9 @@ export async function createListForBulk(
 }
 
 export async function openJobsForBulk(): Promise<{ id: string; title: string }[]> {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
   return prisma.job.findMany({
-    where: { status: "OPEN" },
+    where: { status: "OPEN", organizationId: orgId },
     orderBy: { title: "asc" },
     select: { id: true, title: true },
     take: 200,
@@ -244,9 +275,9 @@ export async function openJobsForBulk(): Promise<{ id: string; title: string }[]
 }
 
 export async function activeSequencesForBulk(): Promise<{ id: string; name: string }[]> {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
   return prisma.sequence.findMany({
-    where: { status: "ACTIVE" },
+    where: { status: "ACTIVE", organizationId: orgId },
     orderBy: { name: "asc" },
     select: { id: true, name: true },
     take: 200,

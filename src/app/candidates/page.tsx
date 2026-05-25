@@ -1,4 +1,4 @@
-import { auth } from "@/auth";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import {
   CandidateStatus,
   EmploymentType,
@@ -37,7 +37,7 @@ export default async function CandidatesPage({
 }: {
   searchParams: Promise<SearchParamsShape>;
 }) {
-  const session = await auth();
+  const { session, orgId } = await requireSessionWithOrg();
   const sp = await searchParams;
 
   // Seed default options on first load so the filter dropdowns always have
@@ -50,16 +50,24 @@ export default async function CandidatesPage({
     ),
   ]);
 
-  const where = buildCandidateWhere(sp);
+  // Multi-tenant: scope every read to the caller's org. `where` is built
+  // from the URL search params; org filter is unconditional and runs
+  // *before* the search-param filters via AND-merging.
+  const where: Prisma.CandidateWhereInput = {
+    organizationId: orgId,
+    ...buildCandidateWhere(sp),
+  };
 
   // Run FTS first so we can intersect candidate IDs with the structured filters.
+  // searchCandidates is org-aware: see candidate-search.ts.
   let ftsIds: string[] | null = null;
   if (hasSearchInput(sp.q)) {
-    ftsIds = await searchCandidates(sp.q);
+    ftsIds = await searchCandidates(sp.q, orgId);
     if (ftsIds && ftsIds.length === 0) {
       // Tsquery ran cleanly but matched nothing — short-circuit.
       const [availableTags, sourceOptions, seniorityOptions] = await Promise.all([
         prisma.tag.findMany({
+          where: { organizationId: orgId },
           orderBy: { name: "asc" },
           select: { id: true, name: true, color: true },
         }),
@@ -70,8 +78,8 @@ export default async function CandidatesPage({
         <CandidatesView
           candidates={[]}
           availableTags={availableTags}
-          savedSearches={await loadSavedSearches(session?.user?.id)}
-          currentUserId={session?.user?.id ?? ""}
+          savedSearches={await loadSavedSearches(session.user.id, orgId)}
+          currentUserId={session.user.id}
           sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
           seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
         />
@@ -110,10 +118,11 @@ export default async function CandidatesPage({
         take: 500,
       }),
       prisma.tag.findMany({
+        where: { organizationId: orgId },
         orderBy: { name: "asc" },
         select: { id: true, name: true, color: true },
       }),
-      loadSavedSearches(session?.user?.id),
+      loadSavedSearches(session.user.id, orgId),
       loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
       loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
     ]);
@@ -186,17 +195,21 @@ export default async function CandidatesPage({
       candidates={rows}
       availableTags={availableTags}
       savedSearches={savedSearches}
-      currentUserId={session?.user?.id ?? ""}
+      currentUserId={session.user.id}
       sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
       seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
     />
   );
 }
 
-async function loadSavedSearches(userId: string | undefined): Promise<SavedSearchEntry[]> {
+async function loadSavedSearches(
+  userId: string | undefined,
+  orgId: string,
+): Promise<SavedSearchEntry[]> {
   if (!userId) return [];
   const rows = await prisma.savedSearch.findMany({
     where: {
+      organizationId: orgId,
       OR: [{ ownerId: userId }, { scope: SavedSearchScope.SHARED }],
     },
     orderBy: { name: "asc" },

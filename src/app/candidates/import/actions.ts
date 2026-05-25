@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@/auth";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { parseCsv, rowsToRecords } from "@/lib/csv";
 import { tagColorForName } from "@/lib/tag-colors";
@@ -12,8 +12,7 @@ const MAX_CSV_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_ROWS_PER_IMPORT = 5000;
 
 export async function importCandidatesCsv(formData: FormData): Promise<ImportResult> {
-  const session = await auth();
-  if (!session?.user) throw new Error("Unauthorized");
+  const { session, orgId } = await requireSessionWithOrg();
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
@@ -71,8 +70,11 @@ export async function importCandidatesCsv(formData: FormData): Promise<ImportRes
     }
 
     try {
-      const existing = await prisma.candidate.findUnique({
-        where: { email: parsed.email },
+      // Dedupe by email *within this org*. Two firms can both have a
+      // "jane@example.com" without collision once Phase 6 swaps the
+      // global Candidate.email unique to an org-scoped compound.
+      const existing = await prisma.candidate.findFirst({
+        where: { email: parsed.email, organizationId: orgId },
         select: { id: true },
       });
       if (existing) {
@@ -86,11 +88,12 @@ export async function importCandidatesCsv(formData: FormData): Promise<ImportRes
         continue;
       }
 
-      const tagIds = await syncTagNamesToIds(parsed.tags);
+      const tagIds = await syncTagNamesToIds(parsed.tags, orgId);
       const candidate = await prisma.candidate.create({
         data: {
           ...parsed.data,
           sourcedById: session.user.id ?? null,
+          organizationId: orgId,
           tags: tagIds.length ? { connect: tagIds.map((id) => ({ id })) } : undefined,
         },
         select: { id: true },
@@ -139,16 +142,23 @@ function failure(message: string): ImportResult {
   };
 }
 
-async function syncTagNamesToIds(rawNames: string[]): Promise<string[]> {
+async function syncTagNamesToIds(rawNames: string[], orgId: string): Promise<string[]> {
   const names = Array.from(
     new Set(rawNames.map((n) => n.trim()).filter((n) => n.length > 0 && n.length <= 60)),
   );
   if (names.length === 0) return [];
+  // Phase 1-5 limitation: Tag.name is still globally @unique. Upsert uses
+  // that global key, so two orgs literally can't have a tag with the same
+  // name. The unique becomes [organizationId, name] in Phase 6 and this
+  // upsert will switch to the compound key then. For now, ensure the
+  // existing row is tagged with this org (won't overwrite if it already
+  // belongs to someone else — which would be a multi-tenant bug Phase 6
+  // fixes properly).
   const tags = await Promise.all(
     names.map((name) =>
       prisma.tag.upsert({
         where: { name },
-        create: { name, color: tagColorForName(name) },
+        create: { name, color: tagColorForName(name), organizationId: orgId },
         update: {},
       }),
     ),

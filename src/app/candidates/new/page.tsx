@@ -1,15 +1,12 @@
-import { auth } from "@/auth";
 import { CustomFieldEntity } from "@/generated/prisma";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 import { loadCustomFields } from "@/lib/custom-fields";
 import { CandidateForm } from "./CandidateForm";
 
 export default async function NewCandidatePage() {
-  const session = await auth();
-  if (!session?.user) {
-    return null;
-  }
+  const { session, orgId } = await requireSessionWithOrg();
 
   // Lazy-seed default options so the form's dropdowns always have something
   // selectable, even on a fresh database.
@@ -23,12 +20,14 @@ export default async function NewCandidatePage() {
 
   const [users, contacts, allTags, sourceOptions, seniorityOptions, customFields] =
     await Promise.all([
+      // Users in this org only — we'll filter by the same orgId below.
       prisma.user.findMany({
+        where: { organizationId: orgId },
         orderBy: { name: "asc" },
         select: { id: true, name: true, email: true },
       }),
       prisma.clientContact.findMany({
-        where: { status: "ACTIVE" },
+        where: { status: "ACTIVE", organizationId: orgId },
         orderBy: [{ client: { name: "asc" } }, { lastName: "asc" }],
         select: {
           id: true,
@@ -38,12 +37,13 @@ export default async function NewCandidatePage() {
         },
       }),
       prisma.tag.findMany({
+        where: { organizationId: orgId },
         orderBy: { name: "asc" },
         select: { id: true, name: true, color: true },
       }),
       loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
       loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
-      loadCustomFields(CustomFieldEntity.CANDIDATE),
+      loadCustomFields(CustomFieldEntity.CANDIDATE, orgId),
     ]);
 
   const contactOptions = contacts.map((c) => ({

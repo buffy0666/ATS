@@ -36,11 +36,17 @@ export function hasSearchInput(raw: string | null | undefined): raw is string {
 }
 
 /**
- * Run an FTS query and return candidate IDs ranked by relevance.
- * Returns null if the query is empty or compiles to nothing meaningful
- * (caller should fall back to a non-FTS findMany in that case).
+ * Run an FTS query and return candidate IDs ranked by relevance, scoped
+ * to a single organization. Returns null if the query is empty or
+ * compiles to nothing meaningful (caller should fall back to a non-FTS
+ * findMany in that case).
+ *
+ * `orgId` is required — searching across tenants would leak candidates.
  */
-export async function searchCandidates(rawInput: string): Promise<string[] | null> {
+export async function searchCandidates(
+  rawInput: string,
+  orgId: string,
+): Promise<string[] | null> {
   const tsquery = compileTsquery(rawInput);
   if (!tsquery) return null;
 
@@ -48,7 +54,8 @@ export async function searchCandidates(rawInput: string): Promise<string[] | nul
     const rows = await prisma.$queryRaw<{ id: string }[]>`
       SELECT id
       FROM "Candidate"
-      WHERE "searchVector" @@ to_tsquery(${TS_LANG}, ${tsquery})
+      WHERE "organizationId" = ${orgId}
+        AND "searchVector" @@ to_tsquery(${TS_LANG}, ${tsquery})
       ORDER BY ts_rank("searchVector", to_tsquery(${TS_LANG}, ${tsquery})) DESC, "createdAt" DESC
       LIMIT ${FTS_RESULT_LIMIT}
     `;

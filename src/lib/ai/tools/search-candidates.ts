@@ -29,8 +29,14 @@ export const searchCandidatesTool = defineTool({
       .describe("Filter to candidates with any of these tag names."),
     limit: z.number().int().min(1).max(50).default(20),
   }),
-  async execute(args) {
-    const where: Parameters<typeof prisma.candidate.findMany>[0] = {};
+  async execute(args, ctx) {
+    if (!ctx.organizationId) {
+      return { error: "No organization context — re-authenticate and try again." };
+    }
+    const orgId = ctx.organizationId;
+    const where: Parameters<typeof prisma.candidate.findMany>[0] = {
+      where: { organizationId: orgId },
+    };
     if (args.status && args.status.length > 0) {
       where.where = { ...where.where, status: { in: args.status } };
     }
@@ -43,7 +49,7 @@ export const searchCandidatesTool = defineTool({
 
     let ftsIds: string[] | null = null;
     if (hasSearchInput(args.query)) {
-      ftsIds = await searchCandidates(args.query);
+      ftsIds = await searchCandidates(args.query, orgId);
       if (ftsIds && ftsIds.length === 0) return { results: [], total: 0 };
       if (ftsIds) {
         where.where = { ...where.where, id: { in: ftsIds } };

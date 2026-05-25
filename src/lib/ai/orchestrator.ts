@@ -28,13 +28,17 @@ export type RunAssistantInput = {
   conversationId: string;
   userId: string;
   role: Role;
+  // Multi-tenant: piped from session.user.organizationId at the route layer.
+  // Nullable to absorb users on stale (pre-Phase-2) sessions; the tools
+  // refuse to operate when null.
+  organizationId: string | null;
   userMessage: string;
 };
 
 export async function* runAssistantTurn(
   input: RunAssistantInput,
 ): AsyncIterable<AssistantEvent> {
-  const { conversationId, userId, role, userMessage } = input;
+  const { conversationId, userId, role, userMessage, organizationId } = input;
 
   try {
     // 1. Persist the user's message + ensure the conversation has a title.
@@ -194,6 +198,7 @@ export async function* runAssistantTurn(
           userId,
           role,
           conversationId,
+          organizationId,
         });
 
         messages = [
@@ -233,8 +238,9 @@ async function runOneTool(input: {
   userId: string;
   role: Role;
   conversationId: string;
+  organizationId: string | null;
 }): Promise<ToolRunResult> {
-  const { toolCall, assistantMessageId, userId, role, conversationId } = input;
+  const { toolCall, assistantMessageId, userId, role, conversationId, organizationId } = input;
   const tool = findToolByName(toolCall.name);
 
   if (!tool) {
@@ -297,7 +303,12 @@ async function runOneTool(input: {
   }
 
   try {
-    const result = await tool.execute(parsedArgs, { userId, role, conversationId });
+    const result = await tool.execute(parsedArgs, {
+      userId,
+      role,
+      conversationId,
+      organizationId,
+    });
     await persistToolOutcome({
       conversationId,
       assistantMessageId,

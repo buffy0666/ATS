@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { auth } from "@/auth";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { AIProviderError } from "@/lib/ai";
 import { prisma } from "@/lib/prisma";
 import {
@@ -257,8 +258,7 @@ export async function parseCandidateResume(formData: FormData): Promise<Candidat
 }
 
 export async function createCandidate(formData: FormData) {
-  const session = await auth();
-  if (!session?.user) throw new Error("Unauthorized");
+  const { session, orgId } = await requireSessionWithOrg();
 
   const data = candidateSchema.parse({
     firstName: formData.get("firstName"),
@@ -323,6 +323,7 @@ export async function createCandidate(formData: FormData) {
     data: {
       ...data,
       sourcedById,
+      organizationId: orgId,
       resumeUrl,
       resumeText,
       skills: structuredData.skills,
@@ -334,7 +335,7 @@ export async function createCandidate(formData: FormData) {
     },
   });
 
-  await saveCustomFieldValues(CustomFieldEntity.CANDIDATE, candidate.id, formData);
+  await saveCustomFieldValues(CustomFieldEntity.CANDIDATE, candidate.id, orgId, formData);
 
   revalidatePath("/candidates");
   redirect(`/candidates/${candidate.id}`);
@@ -355,8 +356,7 @@ export async function updateCandidateResume(
   candidateId: string,
   formData: FormData,
 ): Promise<UpdateResumeResult> {
-  const session = await auth();
-  if (!session?.user) return { ok: false, error: "Unauthorized." };
+  const { orgId } = await requireSessionWithOrg();
 
   const file = formData.get("resume");
   if (!(file instanceof File) || file.size === 0) {
@@ -370,6 +370,14 @@ export async function updateCandidateResume(
   if (!name.endsWith(".pdf") && !name.endsWith(".docx") && !name.endsWith(".doc")) {
     return { ok: false, error: "Only PDF, DOC, and DOCX files are supported." };
   }
+
+  // Confirm the candidate belongs to the caller's org before writing —
+  // otherwise a guessed id from another tenant could be hijacked.
+  const candidate = await prisma.candidate.findFirst({
+    where: { id: candidateId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!candidate) return { ok: false, error: "Candidate not found." };
 
   try {
     const resumeUrl = await saveResume(file);

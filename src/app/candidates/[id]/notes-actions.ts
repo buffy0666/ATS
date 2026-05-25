@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 
 const noteSchema = z.object({
@@ -18,13 +18,17 @@ export type NoteActionResult = { ok: true } | { ok: false; error: string };
  * candidate directly (general note). The schema stores exactly one of
  * `applicationId` / `candidateId`; the form selects this via the dropdown
  * value ("general" sentinel → candidate-level).
+ *
+ * Multi-tenant: every read and write is scoped to the caller's
+ * organizationId. A note from another tenant can't be read or edited even
+ * with a guessed cuid.
  */
 export async function addNote(
   candidateId: string,
   _prev: NoteActionResult | undefined,
   formData: FormData,
 ): Promise<NoteActionResult> {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
 
   const parsed = noteSchema.safeParse({
     applicationId: formData.get("applicationId"),
@@ -36,9 +40,9 @@ export async function addNote(
 
   if (parsed.data.applicationId) {
     // Application-level note: verify the application belongs to this
-    // candidate (prevent cross-write).
+    // candidate AND this org (prevent cross-tenant write).
     const app = await prisma.application.findFirst({
-      where: { id: parsed.data.applicationId, candidateId },
+      where: { id: parsed.data.applicationId, candidateId, organizationId: orgId },
       select: { id: true },
     });
     if (!app) {
@@ -49,12 +53,14 @@ export async function addNote(
         applicationId: app.id,
         authorId: session.user.id,
         body: parsed.data.body,
+        organizationId: orgId,
       },
     });
   } else {
-    // Candidate-level note: attach directly. Verify the candidate exists.
-    const candidate = await prisma.candidate.findUnique({
-      where: { id: candidateId },
+    // Candidate-level note: attach directly. Verify the candidate exists
+    // and belongs to this org.
+    const candidate = await prisma.candidate.findFirst({
+      where: { id: candidateId, organizationId: orgId },
       select: { id: true },
     });
     if (!candidate) return { ok: false, error: "Candidate not found." };
@@ -63,6 +69,7 @@ export async function addNote(
         candidateId: candidate.id,
         authorId: session.user.id,
         body: parsed.data.body,
+        organizationId: orgId,
       },
     });
   }
@@ -76,15 +83,15 @@ export async function updateNote(
   candidateId: string,
   body: string,
 ): Promise<NoteActionResult> {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
 
   const parsed = z.string().min(1).max(10000).safeParse(body);
   if (!parsed.success) {
     return { ok: false, error: "Note body must be 1–10000 characters." };
   }
 
-  const note = await prisma.note.findUnique({
-    where: { id: noteId },
+  const note = await prisma.note.findFirst({
+    where: { id: noteId, organizationId: orgId },
     select: {
       authorId: true,
       candidateId: true,
@@ -111,10 +118,10 @@ export async function updateNote(
 }
 
 export async function deleteNote(noteId: string, candidateId: string) {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
 
-  const note = await prisma.note.findUnique({
-    where: { id: noteId },
+  const note = await prisma.note.findFirst({
+    where: { id: noteId, organizationId: orgId },
     select: {
       authorId: true,
       candidateId: true,

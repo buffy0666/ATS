@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, EmailProviderError } from "@/lib/email";
 
@@ -21,7 +21,7 @@ export async function sendCandidateEmail(
   _prev: ComposeResult | undefined,
   formData: FormData,
 ): Promise<ComposeResult> {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
 
   const parsed = schema.safeParse({
     subject: formData.get("subject"),
@@ -32,8 +32,8 @@ export async function sendCandidateEmail(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
-  const candidate = await prisma.candidate.findUnique({
-    where: { id: candidateId },
+  const candidate = await prisma.candidate.findFirst({
+    where: { id: candidateId, organizationId: orgId },
     select: { id: true, email: true, firstName: true, lastName: true },
   });
   if (!candidate) {
@@ -60,6 +60,7 @@ export async function sendCandidateEmail(
         candidateId: candidate.id,
         applicationId: applicationId ?? undefined,
         fromUserId: session.user.id,
+        organizationId: orgId,
         to: candidate.email,
         replyTo: senderEmail,
         subject,
@@ -86,6 +87,7 @@ export async function sendCandidateEmail(
         candidateId: candidate.id,
         applicationId: applicationId ?? undefined,
         fromUserId: session.user.id,
+        organizationId: orgId,
         to: candidate.email,
         replyTo: senderEmail,
         subject,

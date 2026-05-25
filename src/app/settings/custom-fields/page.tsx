@@ -1,5 +1,5 @@
 import { CustomFieldEntity } from "@/generated/prisma";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import {
   CUSTOM_FIELD_ENTITY_LABEL,
   loadCustomFields,
@@ -17,13 +17,13 @@ const ENTITY_ORDER: CustomFieldEntity[] = [
 ];
 
 export default async function CustomFieldsSettingsPage() {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
 
   const sections = await Promise.all(
     ENTITY_ORDER.map(async (entity) => ({
       entity,
       label: CUSTOM_FIELD_ENTITY_LABEL[entity],
-      fields: await loadCustomFields(entity),
+      fields: await loadCustomFields(entity, orgId),
     })),
   );
 

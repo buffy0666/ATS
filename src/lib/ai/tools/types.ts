@@ -12,6 +12,12 @@ export type ToolContext = {
   userId: string;
   role: Role;
   conversationId: string;
+  // Multi-tenant scope. Every tool that reads or writes tenant data must
+  // include this in its where clauses — otherwise the assistant could
+  // surface candidates / jobs / clients from another org. Nullable only
+  // because the session might predate the org-aware sign-in (Phase 6
+  // will lock this to non-null once everyone has re-authed).
+  organizationId: string | null;
 };
 
 /**

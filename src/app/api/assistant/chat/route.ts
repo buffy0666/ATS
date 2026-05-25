@@ -56,6 +56,7 @@ export async function POST(request: Request) {
           conversationId,
           userId: session.user.id!,
           role: session.user.role,
+          organizationId: session.user.organizationId ?? null,
           userMessage: body.message,
         });
         for await (const event of events) {

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { ReviewClient, type Candidate } from "./ReviewClient";
 
@@ -19,9 +20,10 @@ export default async function CandidateReviewPage({
   const { id } = await params;
   const { from } = await searchParams;
   const fromParam = from ?? "all";
+  const { orgId } = await requireSessionWithOrg();
 
-  const candidate = await prisma.candidate.findUnique({
-    where: { id },
+  const candidate = await prisma.candidate.findFirst({
+    where: { id, organizationId: orgId },
     include: {
       tags: { select: { id: true, name: true, color: true } },
       applications: {
@@ -34,9 +36,10 @@ export default async function CandidateReviewPage({
   if (!candidate) notFound();
 
   // Recent notes — picks up both application-scoped notes and candidate-level
-  // notes (those have no application attached).
+  // notes (those have no application attached). Org-scoped.
   const recentNotes = await prisma.note.findMany({
     where: {
+      organizationId: orgId,
       OR: [
         { candidateId: id },
         { application: { candidateId: id } },
@@ -53,7 +56,7 @@ export default async function CandidateReviewPage({
   });
 
   // Build the sibling sequence based on the `from` context.
-  const { ids, position, total } = await getSiblings(id, fromParam);
+  const { ids, position, total } = await getSiblings(id, fromParam, orgId);
   const prevId = position > 1 ? ids[position - 2] : null;
   const nextId = position < total ? ids[position] : null;
 
@@ -111,11 +114,12 @@ export default async function CandidateReviewPage({
 async function getSiblings(
   currentId: string,
   fromParam: string,
+  orgId: string,
 ): Promise<{ ids: string[]; position: number; total: number }> {
   if (fromParam.startsWith("job:")) {
     const jobId = fromParam.slice(4);
     const apps = await prisma.application.findMany({
-      where: { jobId },
+      where: { jobId, organizationId: orgId },
       orderBy: [{ stage: "asc" }, { createdAt: "asc" }],
       select: { candidateId: true },
     });
@@ -135,8 +139,10 @@ async function getSiblings(
     };
   }
 
-  // Default: all candidates by createdAt desc (matches the candidates list default).
+  // Default: all candidates in this org by createdAt desc (matches the
+  // candidates list default).
   const candidates = await prisma.candidate.findMany({
+    where: { organizationId: orgId },
     orderBy: { createdAt: "desc" },
     select: { id: true },
     take: 2000,

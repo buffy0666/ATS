@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { auth } from "@/auth";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { EmailComposer } from "./EmailComposer";
 import { EmailHistory } from "./EmailHistory";
@@ -119,10 +119,10 @@ export default async function CandidateDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const { session, orgId } = await requireSessionWithOrg();
 
   const [
     candidate,
-    session,
     notes,
     templates,
     candidateEnrollments,
@@ -131,8 +131,11 @@ export default async function CandidateDetailPage({
     customFieldValues,
     openJobs,
   ] = await Promise.all([
-    prisma.candidate.findUnique({
-      where: { id },
+    // findFirst (not findUnique) so we can compose id + organizationId in
+    // the where clause — prevents cross-tenant reads if someone guesses
+    // a candidate cuid.
+    prisma.candidate.findFirst({
+      where: { id, organizationId: orgId },
       include: {
         applications: {
           include: { job: true },
@@ -158,9 +161,9 @@ export default async function CandidateDetailPage({
         },
       },
     }),
-    auth(),
     prisma.note.findMany({
       where: {
+        organizationId: orgId,
         OR: [
           { candidateId: id },
           { application: { candidateId: id } },
@@ -179,11 +182,15 @@ export default async function CandidateDetailPage({
       },
     }),
     prisma.emailTemplate.findMany({
+      where: { organizationId: orgId },
       orderBy: { name: "asc" },
       select: { id: true, name: true, subject: true, body: true },
     }),
     prisma.sequenceEnrollment.findMany({
-      where: { candidateId: id },
+      // sequenceEnrollment is scoped via its candidate; the explicit
+      // candidateId filter already provides tenant isolation. Phase 6
+      // adds direct organizationId once SequenceEnrollment carries it.
+      where: { candidateId: id, candidate: { organizationId: orgId } },
       orderBy: { startedAt: "desc" },
       include: {
         sequence: { select: { id: true, name: true } },
@@ -194,19 +201,19 @@ export default async function CandidateDetailPage({
       },
     }),
     prisma.sequence.findMany({
-      where: { status: SequenceStatus.ACTIVE },
+      where: { status: SequenceStatus.ACTIVE, organizationId: orgId },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
-    loadCustomFields(CustomFieldEntity.CANDIDATE),
-    loadCustomFieldValues(CustomFieldEntity.CANDIDATE, id),
+    loadCustomFields(CustomFieldEntity.CANDIDATE, orgId),
+    loadCustomFieldValues(CustomFieldEntity.CANDIDATE, id, orgId),
     // For the "add to another job" picker — only OPEN jobs the recruiter
-    // can realistically place candidates on. Includes the client so the
-    // picker can filter "by client first, then job". Already-assigned
-    // jobs are filtered out client-side after the candidate's
-    // applications load.
+    // can realistically place candidates on, scoped to this org. Includes
+    // the client so the picker can filter "by client first, then job".
+    // Already-assigned jobs are filtered out client-side after the
+    // candidate's applications load.
     prisma.job.findMany({
-      where: { status: JobStatus.OPEN },
+      where: { status: JobStatus.OPEN, organizationId: orgId },
       orderBy: { title: "asc" },
       select: {
         id: true,
