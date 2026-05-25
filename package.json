@@ -14,6 +14,7 @@
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "process-ai-queue": "tsx --env-file=.env scripts/process-ai-queue.ts",
     "migrate:multitenant": "tsx --env-file=.env scripts/migrate-to-multitenant.ts",
+    "smoke-test": "NODE_OPTIONS=\"--require ./scripts/_server-only-noop.cjs\" tsx --env-file=.env scripts/test-cross-tenant-isolation.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
