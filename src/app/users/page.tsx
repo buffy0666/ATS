@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
-import { requireAdminWithOrg } from "@/lib/auth-utils";
+import { canCreateGlobalAdmin, requireAdminWithOrg } from "@/lib/auth-utils";
 
 export default async function UsersPage() {
   // Scope to this org — without it, an admin in tenant A could see
   // every user in tenant B's workspace. requireAdminWithOrg returns the
   // org context we filter on.
-  const { orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireAdminWithOrg();
+  const canMintGlobalAdmin = canCreateGlobalAdmin(session.user.email);
 
   const [users, pendingInvitations] = await Promise.all([
     prisma.user.findMany({
@@ -54,6 +55,19 @@ export default async function UsersPage() {
             >
               New user (with password)
             </Link>
+            {canMintGlobalAdmin && (
+              // Restricted to the hardcoded creator allowlist in
+              // lib/auth-utils.ts. Hidden for everyone else — including
+              // other platform admins not on the list. The server action
+              // re-checks, so hiding the button isn't the only barrier.
+              <Link
+                href="/users/new-global-admin"
+                className="rounded-md border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/30 text-purple-900 dark:text-purple-200 px-3 py-2 text-sm font-medium hover:bg-purple-100 dark:hover:bg-purple-900/50"
+                title="Create a new platform admin (restricted to the creator allowlist)"
+              >
+                + New global admin
+              </Link>
+            )}
           </div>
         </div>
 

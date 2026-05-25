@@ -5,7 +5,11 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { requireAdmin, requireAdminWithOrg } from "@/lib/auth-utils";
+import {
+  requireAdmin,
+  requireAdminWithOrg,
+  requireCanCreateGlobalAdmin,
+} from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@/generated/prisma";
 import { sendEmail } from "@/lib/email";
@@ -298,4 +302,76 @@ async function resolveAppOrigin(): Promise<string> {
   const host = h.get("x-forwarded-host") ?? h.get("host");
   if (!host) return "";
   return `${proto}://${host}`;
+}
+
+// ---- Global admin creation (restricted) ---------------------------------
+
+const globalAdminSchema = z.object({
+  email: z.string().trim().toLowerCase().email().max(200),
+  name: z.string().trim().max(120).optional().or(z.literal("")).transform((v) => v || null),
+  password: z.string().min(10, "Password must be at least 10 characters."),
+});
+
+export type CreateGlobalAdminResult =
+  | { ok: true; email: string }
+  | { ok: false; error: string };
+
+/**
+ * Create a new platform admin (isPlatformAdmin = true). Gated to the
+ * hardcoded GLOBAL_ADMIN_CREATOR_EMAILS allowlist in lib/auth-utils.ts.
+ *
+ * The new user is also created as a tenant ADMIN inside the creator's
+ * current organization, so they have a working tenant context to dogfood
+ * from. They can move to a different org later by accepting an
+ * invitation, or you can demote them out of this org via the regular
+ * user-management UI.
+ */
+export async function createGlobalAdminAction(
+  _prev: CreateGlobalAdminResult | undefined,
+  formData: FormData,
+): Promise<CreateGlobalAdminResult> {
+  // First gate: must be an authenticated tenant ADMIN with an org —
+  // matches the existing /users/new flow's invariants.
+  const { orgId } = await requireAdminWithOrg();
+  // Second gate: must be in the hardcoded creator allowlist. This is a
+  // separate check because not every tenant admin should be able to
+  // mint platform admins.
+  await requireCanCreateGlobalAdmin();
+
+  const parsed = globalAdminSchema.safeParse({
+    email: formData.get("email"),
+    name: formData.get("name"),
+    password: formData.get("password"),
+  });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { email: parsed.data.email },
+    select: { id: true, isPlatformAdmin: true, organizationId: true },
+  });
+  if (existing) {
+    return {
+      ok: false,
+      error: existing.isPlatformAdmin
+        ? `${parsed.data.email} is already a platform admin.`
+        : `${parsed.data.email} already has an account. Promote them from /platform/organizations instead.`,
+    };
+  }
+
+  const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+  await prisma.user.create({
+    data: {
+      email: parsed.data.email,
+      name: parsed.data.name,
+      passwordHash,
+      role: Role.ADMIN,
+      organizationId: orgId,
+      isPlatformAdmin: true,
+    },
+  });
+
+  revalidatePath("/users");
+  return { ok: true, email: parsed.data.email };
 }

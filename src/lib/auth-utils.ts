@@ -84,3 +84,45 @@ export async function requirePlatformAdmin() {
   }
   return session;
 }
+
+/**
+ * Hardcoded allowlist of emails permitted to MINT new platform admins via
+ * /users/new-global-admin. Separation of duties: an arbitrary platform
+ * admin can demote and promote existing users (see togglePlatformAdminAction),
+ * but only these humans can create new ones from scratch with a password.
+ *
+ * The hardcoded list is the source of truth and survives DB problems.
+ * GLOBAL_ADMIN_CREATORS env var (comma-separated) can append to it
+ * without a code change — useful for adding a new co-founder.
+ *
+ * Anyone NOT on this list will get a forbidden bounce even if they're a
+ * platform admin.
+ */
+const GLOBAL_ADMIN_CREATOR_EMAILS = new Set(
+  [
+    "afj@bbagc.com",
+    "lyt@bbagc.com",
+    "jimenez.evd.a@gmail.com",
+    ...(process.env.GLOBAL_ADMIN_CREATORS ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  ].map((e) => e.toLowerCase()),
+);
+
+export function canCreateGlobalAdmin(email: string | null | undefined): boolean {
+  if (!email) return false;
+  return GLOBAL_ADMIN_CREATOR_EMAILS.has(email.toLowerCase());
+}
+
+/**
+ * Server-side guard for the "create global admin" flow. Even an admin
+ * with the UI button hidden can't POST to the action — this enforces it.
+ */
+export async function requireCanCreateGlobalAdmin() {
+  const session = await requireSession();
+  if (!canCreateGlobalAdmin(session.user.email)) {
+    redirect("/?error=forbidden");
+  }
+  return session;
+}
