@@ -200,12 +200,18 @@ export default async function CandidateDetailPage({
     loadCustomFields(CustomFieldEntity.CANDIDATE),
     loadCustomFieldValues(CustomFieldEntity.CANDIDATE, id),
     // For the "add to another job" picker — only OPEN jobs the recruiter
-    // can realistically place candidates on. Already-assigned jobs are
-    // filtered out client-side after the candidate's applications load.
+    // can realistically place candidates on. Includes the client so the
+    // picker can filter "by client first, then job". Already-assigned
+    // jobs are filtered out client-side after the candidate's
+    // applications load.
     prisma.job.findMany({
       where: { status: JobStatus.OPEN },
       orderBy: { title: "asc" },
-      select: { id: true, title: true },
+      select: {
+        id: true,
+        title: true,
+        client: { select: { id: true, name: true } },
+      },
     }),
   ]);
 
@@ -344,9 +350,14 @@ export default async function CandidateDetailPage({
                   jobTitle: a.job.title,
                   stage: a.stage,
                 }))}
-                availableJobs={openJobs.filter(
-                  (j) => !candidate.applications.some((a) => a.job.id === j.id),
-                )}
+                availableJobs={openJobs
+                  .filter((j) => !candidate.applications.some((a) => a.job.id === j.id))
+                  .map((j) => ({
+                    id: j.id,
+                    title: j.title,
+                    clientId: j.client?.id ?? null,
+                    clientName: j.client?.name ?? null,
+                  }))}
               />
 
               <DetailGrid title="Contact">

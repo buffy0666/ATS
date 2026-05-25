@@ -72,15 +72,30 @@ export async function ResumeViewer({ url }: { url: string | null }) {
           Open in new tab ↗
         </Link>
       </div>
+      {/*
+        Why this is sized the way it is:
+        - Chrome's native PDF viewer (used for cross-origin URLs like our
+          Vercel Blob URLs) reserves ~40-50px for its own toolbar inside
+          the iframe, then renders the page below. With a strict 8.5/11
+          aspect ratio the toolbar steals from the visible page height
+          and the bottom inch gets clipped → "PDF is cut off".
+        - To avoid that we use a slightly taller aspect ratio (8.5/12.2)
+          so a letter-sized page fits even after the browser's toolbar
+          and a small bottom margin.
+        - Multiple hash hints are passed because each browser respects
+          a different subset: `view=FitH` is PDF.js, `zoom=page-fit`
+          works in Chrome + Firefox, `pagemode=none` hides the side
+          panel in Chrome.
+      */}
       <div className="bg-zinc-100 dark:bg-zinc-950 p-3">
         <div
-          className="mx-auto bg-white shadow-sm overflow-hidden rounded-sm"
-          style={{ aspectRatio: "8.5 / 11", maxWidth: "100%" }}
+          className="mx-auto bg-white shadow-sm rounded-sm"
+          style={{ aspectRatio: "8.5 / 12.2", maxWidth: "100%" }}
         >
           <iframe
-            src={`${safeUrl}#toolbar=1&navpanes=0&view=FitH`}
+            src={`${safeUrl}#view=FitH&zoom=page-fit&pagemode=none&toolbar=1&navpanes=0`}
             title="Resume"
-            className="block w-full h-full border-0"
+            className="block w-full h-full border-0 rounded-sm"
           />
         </div>
       </div>

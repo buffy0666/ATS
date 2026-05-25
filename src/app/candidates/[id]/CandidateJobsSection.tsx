@@ -26,7 +26,12 @@ type Application = {
   stage: Stage;
 };
 
-type JobOption = { id: string; title: string };
+type JobOption = {
+  id: string;
+  title: string;
+  clientId: string | null;
+  clientName: string | null;
+};
 
 const STAGE_OPTIONS: { value: Stage; label: string }[] = [
   { value: Stage.APPLIED, label: "Applied" },
@@ -169,9 +174,14 @@ function ApplicationRow({
 }
 
 /**
- * Typeahead picker for adding the candidate to another open job. Reuses the
- * combobox UX from the job-detail page's AddCandidateForm, scoped down.
+ * Add the candidate to another job. Two-step: pick a client first (or
+ * leave blank = "all clients"), then the typeahead below filters its job
+ * list to that client's open jobs. Sentinel values:
+ *   - "" / unset → all clients (default)
+ *   - "__no_client__" → only jobs with no client attached
  */
+const NO_CLIENT_VALUE = "__no_client__";
+
 function AddToJobPicker({
   candidateId,
   availableJobs,
@@ -179,6 +189,7 @@ function AddToJobPicker({
   candidateId: string;
   availableJobs: JobOption[];
 }) {
+  const [clientFilter, setClientFilter] = useState<string>("");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -186,17 +197,43 @@ function AddToJobPicker({
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
+  // Unique client list pulled from the available jobs, alphabetized.
+  const clients = useMemo(() => {
+    const map = new Map<string, string>();
+    let hasUnassigned = false;
+    for (const j of availableJobs) {
+      if (j.clientId && j.clientName) {
+        map.set(j.clientId, j.clientName);
+      } else {
+        hasUnassigned = true;
+      }
+    }
+    const list = [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (hasUnassigned) list.push({ id: NO_CLIENT_VALUE, name: "(No client)" });
+    return list;
+  }, [availableJobs]);
+
+  // Jobs filtered by the chosen client (or all when no client filter set).
+  const clientFilteredJobs = useMemo(() => {
+    if (!clientFilter) return availableJobs;
+    if (clientFilter === NO_CLIENT_VALUE) return availableJobs.filter((j) => !j.clientId);
+    return availableJobs.filter((j) => j.clientId === clientFilter);
+  }, [availableJobs, clientFilter]);
+
+  // Then text-filter by query within those jobs.
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return availableJobs.slice(0, 20);
+    if (!q) return clientFilteredJobs.slice(0, 50);
     const tokens = q.split(/\s+/);
-    return availableJobs
+    return clientFilteredJobs
       .filter((j) => {
-        const hay = j.title.toLowerCase();
+        const hay = `${j.title} ${j.clientName ?? ""}`.toLowerCase();
         return tokens.every((t) => hay.includes(t));
       })
-      .slice(0, 20);
-  }, [query, availableJobs]);
+      .slice(0, 50);
+  }, [query, clientFilteredJobs]);
 
   if (availableJobs.length === 0) {
     return (
@@ -240,58 +277,103 @@ function AddToJobPicker({
   }
 
   return (
-    <div className="relative">
-      <input
-        type="text"
-        value={query}
-        disabled={pending}
-        placeholder="Add to another job…"
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOpen(true);
-          setHighlight(0);
-        }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onKeyDown={onKeyDown}
-        aria-autocomplete="list"
-        aria-expanded={open}
-        role="combobox"
-        className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400 dark:focus:ring-zinc-600 disabled:opacity-50"
-      />
-      {open && results.length > 0 && (
-        <ul
-          role="listbox"
-          className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg"
+    <div className="space-y-2">
+      {/* Client filter — narrow the job list before typing. Keeps recruiters
+          who think client-first (most do) from scanning a giant flat list. */}
+      <div className="flex items-center gap-2">
+        <label htmlFor="job-client-filter" className="text-xs text-zinc-500 shrink-0">
+          Client
+        </label>
+        <select
+          id="job-client-filter"
+          value={clientFilter}
+          disabled={pending}
+          onChange={(e) => {
+            setClientFilter(e.target.value);
+            setQuery("");
+            setHighlight(0);
+          }}
+          className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5 text-sm disabled:opacity-50"
         >
-          {results.map((j, i) => (
-            <li
-              key={j.id}
-              role="option"
-              aria-selected={i === highlight}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                pick(j);
-              }}
-              onMouseEnter={() => setHighlight(i)}
-              className={`cursor-pointer px-3 py-2 text-sm ${
-                i === highlight
-                  ? "bg-zinc-100 dark:bg-zinc-800"
-                  : "hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
-              }`}
-            >
-              {j.title}
-            </li>
-          ))}
-        </ul>
-      )}
-      {open && results.length === 0 && query.trim() && (
-        <div className="absolute z-20 mt-1 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg px-3 py-2 text-sm text-zinc-500">
-          No matching jobs.
-        </div>
-      )}
-      {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
-      {pending && <p className="mt-1.5 text-xs text-zinc-500">Adding…</p>}
+          <option value="">All clients ({availableJobs.length} jobs)</option>
+          {clients.map((c) => {
+            const count =
+              c.id === NO_CLIENT_VALUE
+                ? availableJobs.filter((j) => !j.clientId).length
+                : availableJobs.filter((j) => j.clientId === c.id).length;
+            return (
+              <option key={c.id} value={c.id}>
+                {c.name} ({count})
+              </option>
+            );
+          })}
+        </select>
+      </div>
+
+      {/* Typeahead within the (optionally) client-filtered jobs */}
+      <div className="relative">
+        <input
+          type="text"
+          value={query}
+          disabled={pending}
+          placeholder={
+            clientFilter
+              ? `Find a job at ${clients.find((c) => c.id === clientFilter)?.name ?? "this client"}…`
+              : "Add to another job…"
+          }
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+            setHighlight(0);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onKeyDown={onKeyDown}
+          aria-autocomplete="list"
+          aria-expanded={open}
+          role="combobox"
+          className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-zinc-400 dark:focus:ring-zinc-600 disabled:opacity-50"
+        />
+        {open && results.length > 0 && (
+          <ul
+            role="listbox"
+            className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg"
+          >
+            {results.map((j, i) => (
+              <li
+                key={j.id}
+                role="option"
+                aria-selected={i === highlight}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pick(j);
+                }}
+                onMouseEnter={() => setHighlight(i)}
+                className={`cursor-pointer px-3 py-2 text-sm ${
+                  i === highlight
+                    ? "bg-zinc-100 dark:bg-zinc-800"
+                    : "hover:bg-zinc-50 dark:hover:bg-zinc-800/60"
+                }`}
+              >
+                <div className="font-medium">{j.title}</div>
+                {!clientFilter && j.clientName && (
+                  <div className="text-[11px] text-zinc-500 truncate">{j.clientName}</div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {open && results.length === 0 && (
+          <div className="absolute z-20 mt-1 w-full rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg px-3 py-2 text-sm text-zinc-500">
+            {clientFilter
+              ? "No matching jobs at this client."
+              : "No matching jobs."}
+          </div>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      {pending && <p className="text-xs text-zinc-500">Adding…</p>}
     </div>
   );
 }
