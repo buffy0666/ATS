@@ -310,6 +310,8 @@ model Organization {
   sequences              Sequence[]
   assistantConversations AssistantConversation[]
   customFields           CustomField[]
+  invitations            Invitation[]
+  impersonationSessions  ImpersonationSession[] @relation("ImpersonationTargetOrg")
 }
 
 model Tag {
@@ -386,6 +388,18 @@ model User {
   // API tokens (used by Chrome extension and any future external integrations)
   apiTokens ApiToken[]
 
+  // Phase 4c — invitations
+  invitationsCreated  Invitation[] @relation("InvitationCreator")
+  invitationsAccepted Invitation[] @relation("InvitationAcceptor")
+
+  // Phase 4d — impersonation audit log. Two relations: one for sessions
+  // I (the platform admin) initiated, and one for sessions in which I
+  // was the target (so support engagements show up in my own audit
+  // history). The target relation should usually be unused — you don't
+  // sign in as platform admins to "support" them.
+  impersonationsStarted ImpersonationSession[] @relation("ImpersonationPlatformAdmin")
+  impersonationsTargeted ImpersonationSession[] @relation("ImpersonationTarget")
+
   // Multi-tenant: every user belongs to exactly one Organization. Nullable
   // during the staged migration (current users get assigned to the Default
   // Org by scripts/migrate-to-multitenant.ts before Phase 6 flips it NOT
@@ -396,6 +410,79 @@ model User {
   ownedOrganization Organization? @relation("OrganizationOwner")
 
   @@index([organizationId])
+}
+
+/// Pending magic-link invitations. Created when either (a) a platform
+/// admin spins up a new tenant for a customer at /platform/organizations/new
+/// or (b) a tenant ADMIN invites a teammate at /users/new.
+///
+/// The plaintext token is shown once (embedded in the email URL); we store
+/// only its SHA-256 hash. Tokens expire after 7 days and are single-use
+/// (acceptedAt flips on accept, after which lookups by tokenHash return a
+/// "this invitation has already been used" error).
+model Invitation {
+  id              String       @id @default(cuid())
+  email           String
+  tokenHash       String       @unique
+  tokenPrefix     String       // first 12 chars of the token for UI display
+  role            Role         @default(RECRUITER)
+
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Whoever clicked the "send invite" button. Null for invites the
+  // platform admin sends to brand-new orgs (the inviter is a different
+  // tenant from the invitee).
+  invitedByUserId String?
+  invitedBy       User?        @relation("InvitationCreator", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  // True when the invite is for the org's first user → they become both
+  // the founding ADMIN and the Organization.ownerUserId on accept. Set by
+  // the platform-admin "create new tenant" flow.
+  asOwner         Boolean      @default(false)
+
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  acceptedUserId  String?
+  acceptedUser    User?        @relation("InvitationAcceptor", fields: [acceptedUserId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([expiresAt])
+}
+
+/// Audit row for every time a platform admin signs in as a tenant user.
+///
+/// We never delete these — they're the audit trail. `endedAt` is set when
+/// the impersonator clicks the banner's "exit" button or when the session
+/// auto-expires (default 30 min via `expiresAt`).
+///
+/// Defense in depth: a separate `requireNotImpersonating()` guard runs on
+/// dangerous routes (delete org, change billing, etc.) so even a logged-in
+/// impersonator can't act on the platform side.
+model ImpersonationSession {
+  id                  String   @id @default(cuid())
+  platformAdminUserId String
+  platformAdmin       User     @relation("ImpersonationPlatformAdmin", fields: [platformAdminUserId], references: [id])
+  targetUserId        String
+  targetUser          User     @relation("ImpersonationTarget", fields: [targetUserId], references: [id])
+  targetOrgId         String
+  targetOrg           Organization @relation("ImpersonationTargetOrg", fields: [targetOrgId], references: [id], onDelete: Cascade)
+  reason              String?  // optional free-text from the platform admin
+
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  // Hard cap regardless of whether endedAt is set — sessions older than
+  // this are treated as inactive even if endedAt is null (the user closed
+  // the tab without clicking exit).
+  expiresAt  DateTime
+
+  @@index([platformAdminUserId, endedAt])
+  @@index([targetUserId])
+  @@index([startedAt])
 }
 
 /// Hashed API tokens for external integrations (Chrome extension etc.).

@@ -27,7 +27,12 @@ function matchesPlatformAdminEnv(email: string): boolean {
   return allow.includes(email.toLowerCase());
 }
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+// `unstable_update` is NextAuth v5's official way to mutate the JWT
+// server-side. We use it from the impersonation server actions to push
+// the impersonation overlay into the platform admin's session token.
+// Name's "unstable" but it's the documented path — re-export under a
+// friendlier name for our app.
+export const { handlers, auth, signIn, signOut, unstable_update: updateSession } = NextAuth({
   ...authConfig,
   session: { strategy: "jwt" },
   providers: [

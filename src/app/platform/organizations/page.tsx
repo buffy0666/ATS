@@ -43,28 +43,36 @@ export default async function PlatformOrgsPage({
 
   return (
     <div className="space-y-4">
-      <form className="flex gap-2 items-center">
-        <input
-          name="q"
-          defaultValue={query}
-          placeholder="Search by name or slug…"
-          className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
-        />
-        <button
-          type="submit"
-          className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-2 text-sm font-medium hover:opacity-90"
-        >
-          Search
-        </button>
-        {query && (
-          <Link
-            href="/platform/organizations"
-            className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
+      <div className="flex gap-2 items-center justify-between">
+        <form className="flex-1 flex gap-2 items-center">
+          <input
+            name="q"
+            defaultValue={query}
+            placeholder="Search by name or slug…"
+            className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
+          />
+          <button
+            type="submit"
+            className="rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm font-medium hover:bg-zinc-100 dark:hover:bg-zinc-800"
           >
-            Clear
-          </Link>
-        )}
-      </form>
+            Search
+          </button>
+          {query && (
+            <Link
+              href="/platform/organizations"
+              className="text-sm text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
+            >
+              Clear
+            </Link>
+          )}
+        </form>
+        <Link
+          href="/platform/organizations/new"
+          className="rounded-md bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 text-sm font-medium"
+        >
+          + New tenant
+        </Link>
+      </div>
 
       <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
         <table className="w-full text-sm">
