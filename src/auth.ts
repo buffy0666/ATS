@@ -24,8 +24,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!parsed.success) return null;
         const { email, password } = parsed.data;
 
-        const user = await prisma.user.findUnique({ where: { email } });
+        // Include the org via the relation so the session carries the
+        // tenant context without a second query per request. We tolerate
+        // a null org during the staged multi-tenant migration — Phase 4
+        // adds the /onboarding redirect that catches stranded users.
+        const user = await prisma.user.findUnique({
+          where: { email },
+          include: {
+            organization: { select: { id: true, name: true } },
+          },
+        });
         if (!user) return null;
+        if (!user.active) return null;
 
         const ok = await bcrypt.compare(password, user.passwordHash);
         if (!ok) return null;
@@ -35,6 +45,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: user.email,
           name: user.name,
           role: user.role,
+          organizationId: user.organization?.id ?? null,
+          organizationName: user.organization?.name ?? null,
         };
       },
     }),

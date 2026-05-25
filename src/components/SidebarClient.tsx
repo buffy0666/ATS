@@ -28,10 +28,15 @@ export function SidebarClient({
   email,
   role,
   isAdmin,
+  organizationName,
 }: {
   email: string;
   role: string;
   isAdmin: boolean;
+  // Multi-tenant: shown above the nav so users know which tenant context
+  // they're operating in. Null during the staged migration if the user
+  // somehow has no org (Phase 4 onboarding flow catches them earlier).
+  organizationName: string | null;
 }) {
   const pathname = usePathname();
 
@@ -43,9 +48,17 @@ export function SidebarClient({
   return (
     <aside className="w-60 shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col">
       <div className="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800">
-        <Link href="/" className="font-semibold tracking-tight text-lg">
+        <Link href="/" className="font-semibold tracking-tight text-lg block">
           ATS
         </Link>
+        {organizationName && (
+          <div
+            className="mt-0.5 text-xs text-zinc-500 truncate"
+            title={organizationName}
+          >
+            {organizationName}
+          </div>
+        )}
       </div>
 
       <nav className="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto">

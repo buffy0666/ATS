@@ -20,9 +20,16 @@ export const authConfig = {
       return isLoggedIn;
     },
     jwt({ token, user }) {
+      // `user` is only populated on the sign-in / sign-up callback; on
+      // subsequent requests we just carry the JWT forward unchanged. That's
+      // important to remember: org membership changes won't reflect in the
+      // session until the user logs out and back in (or until we add an
+      // explicit "refresh session" hook).
       if (user) {
         token.role = user.role;
         token.id = user.id;
+        token.organizationId = user.organizationId ?? null;
+        token.organizationName = user.organizationName ?? null;
       }
       return token;
     },
@@ -30,6 +37,9 @@ export const authConfig = {
       if (token && session.user) {
         session.user.id = token.id as string;
         session.user.role = token.role as typeof session.user.role;
+        session.user.organizationId = (token.organizationId as string | null | undefined) ?? null;
+        session.user.organizationName =
+          (token.organizationName as string | null | undefined) ?? null;
       }
       return session;
     },
