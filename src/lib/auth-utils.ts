@@ -62,3 +62,25 @@ export async function requireAdminWithOrg() {
     orgName: session.user.organizationName,
   };
 }
+
+/**
+ * Gate for /platform/* routes — the SaaS operator's cross-tenant view.
+ * Distinct from `requireAdmin()` which gates per-tenant ADMIN role. A
+ * platform admin is the person running the SaaS itself, not a customer.
+ *
+ * Behavior:
+ *   - Unauthenticated → /login.
+ *   - Authenticated but not isPlatformAdmin → /?error=forbidden (same
+ *     bounce as requireAdmin to avoid leaking which routes exist).
+ *
+ * Bootstrapping: the PLATFORM_ADMIN_EMAILS env var auto-promotes matching
+ * emails on every sign-in (see auth.ts), so you can grant access by
+ * editing Vercel env without DB access.
+ */
+export async function requirePlatformAdmin() {
+  const session = await requireSession();
+  if (!session.user.isPlatformAdmin) {
+    redirect("/?error=forbidden");
+  }
+  return session;
+}

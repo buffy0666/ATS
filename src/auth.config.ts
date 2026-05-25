@@ -6,6 +6,7 @@ export const authConfig = {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
       const isOnLogin = nextUrl.pathname.startsWith("/login");
+      const isOnSignup = nextUrl.pathname.startsWith("/signup");
       const isPublicApi = nextUrl.pathname.startsWith("/api/auth");
       const isPublicApply = nextUrl.pathname.startsWith("/apply");
       // /api/external is gated by Bearer token, not session — middleware must not redirect.
@@ -13,7 +14,8 @@ export const authConfig = {
       // /api/internal is gated by CRON_SECRET / x-vercel-cron header.
       const isInternalApi = nextUrl.pathname.startsWith("/api/internal");
       if (isPublicApi || isPublicApply || isExternalApi || isInternalApi) return true;
-      if (isOnLogin) {
+      if (isOnLogin || isOnSignup) {
+        // Signed-in users get bounced home — no point re-signing-up.
         if (isLoggedIn) return Response.redirect(new URL("/", nextUrl));
         return true;
       }
@@ -30,6 +32,7 @@ export const authConfig = {
         token.id = user.id;
         token.organizationId = user.organizationId ?? null;
         token.organizationName = user.organizationName ?? null;
+        token.isPlatformAdmin = user.isPlatformAdmin ?? false;
       }
       return token;
     },
@@ -40,6 +43,7 @@ export const authConfig = {
         session.user.organizationId = (token.organizationId as string | null | undefined) ?? null;
         session.user.organizationName =
           (token.organizationName as string | null | undefined) ?? null;
+        session.user.isPlatformAdmin = Boolean(token.isPlatformAdmin);
       }
       return session;
     },

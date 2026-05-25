@@ -273,6 +273,9 @@ model Organization {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
+  // Demo tenant flag. The /api/cron/cleanup-demo-orgs job hard-deletes
+  // demo orgs older than 14 days; cascade wipes every scoped child.
+  isDemo    Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -335,7 +338,16 @@ model User {
   email         String    @unique
   name          String?
   passwordHash  String
+  // Within-tenant role: ADMIN can configure settings, manage users, view
+  // tasks; RECRUITER is the regular recruiter. Orthogonal to
+  // `isPlatformAdmin` below — a single user can be both (e.g. the SaaS
+  // operator dogfooding their own tenant).
   role          Role      @default(RECRUITER)
+  // Platform admin tier — sees /platform/* routes that span all orgs.
+  // Used by the SaaS operator to manage tenants. Bootstrapped from the
+  // PLATFORM_ADMIN_EMAILS env var on every sign-in so a typo in the DB
+  // can't lock you out. See requirePlatformAdmin() in lib/auth-utils.ts.
+  isPlatformAdmin Boolean @default(false)
   // Soft-delete / disable flag — preserves audit trail on existing rows
   // while preventing sign-in. Set by the assistant's deactivate_user tool.
   active        Boolean   @default(true)
@@ -379,9 +391,9 @@ model User {
   // Org by scripts/migrate-to-multitenant.ts before Phase 6 flips it NOT
   // NULL). `ownedOrganization` is the reverse side of Organization.ownerUser
   // — set for the user who created their org.
-  organizationId     String?
-  organization       Organization? @relation("OrganizationMembers", fields: [organizationId], references: [id], onDelete: Cascade)
-  ownedOrganization  Organization? @relation("OrganizationOwner")
+  organizationId    String?
+  organization      Organization? @relation("OrganizationMembers", fields: [organizationId], references: [id], onDelete: Cascade)
+  ownedOrganization Organization? @relation("OrganizationOwner")
 
   @@index([organizationId])
 }
@@ -629,6 +641,11 @@ model Candidate {
   // Plain text extracted from the resume; backs the FTS searchVector column
   // (added via raw SQL migration — Prisma cannot describe generated tsvector).
   resumeText String?
+
+  // Raw text scraped from the candidate's LinkedIn profile by the Chrome
+  // extension. Kept separate from resumeText so a later PDF resume upload
+  // doesn't clobber the LinkedIn capture (and vice versa).
+  linkedinPageText String?
 
   notes     String?
   createdAt DateTime @default(now())

@@ -10,6 +10,23 @@ const credentialsSchema = z.object({
   password: z.string().min(1),
 });
 
+/**
+ * Comma-separated list of email addresses that should be treated as
+ * platform admins regardless of the DB flag. Lets the SaaS operator
+ * bootstrap themselves without poking the database.
+ *
+ * Example env: PLATFORM_ADMIN_EMAILS="andy@example.com,co-founder@example.com"
+ */
+function matchesPlatformAdminEnv(email: string): boolean {
+  const raw = process.env.PLATFORM_ADMIN_EMAILS ?? "";
+  if (!raw) return false;
+  const allow = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return allow.includes(email.toLowerCase());
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
   session: { strategy: "jwt" },
@@ -40,6 +57,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const ok = await bcrypt.compare(password, user.passwordHash);
         if (!ok) return null;
 
+        // Bootstrap path for the platform admin tier. The
+        // PLATFORM_ADMIN_EMAILS env var is the source of truth on every
+        // sign-in — that way a database write that strips the flag (or a
+        // botched migration) can't lock the SaaS operator out. We also
+        // persist the flag back to the DB so the rest of the app's
+        // server-side checks can rely on User.isPlatformAdmin without
+        // re-reading env vars.
+        const isPlatformAdmin =
+          user.isPlatformAdmin || matchesPlatformAdminEnv(user.email);
+        if (isPlatformAdmin && !user.isPlatformAdmin) {
+          await prisma.user
+            .update({ where: { id: user.id }, data: { isPlatformAdmin: true } })
+            .catch(() => {
+              // Non-fatal — env var still wins this session.
+            });
+        }
+
         return {
           id: user.id,
           email: user.email,
@@ -47,6 +81,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           role: user.role,
           organizationId: user.organization?.id ?? null,
           organizationName: user.organization?.name ?? null,
+          isPlatformAdmin,
         };
       },
     }),

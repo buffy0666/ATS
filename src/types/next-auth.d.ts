@@ -10,6 +10,10 @@ declare module "next-auth" {
     // an org gets bounced to /onboarding/create-organization (Phase 4).
     organizationId?: string | null;
     organizationName?: string | null;
+    // SaaS-operator tier — orthogonal to `role`. Set by either the
+    // PLATFORM_ADMIN_EMAILS env var (checked on every sign-in) or the
+    // promote-platform-admin script.
+    isPlatformAdmin?: boolean;
   }
 
   interface Session {
@@ -20,6 +24,7 @@ declare module "next-auth" {
       role: Role;
       organizationId: string | null;
       organizationName: string | null;
+      isPlatformAdmin: boolean;
     };
   }
 }
@@ -30,5 +35,6 @@ declare module "next-auth/jwt" {
     role?: Role;
     organizationId?: string | null;
     organizationName?: string | null;
+    isPlatformAdmin?: boolean;
   }
 }

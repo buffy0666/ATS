@@ -11,6 +11,7 @@ export async function Nav() {
       email={session.user.email}
       role={session.user.role}
       isAdmin={session.user.role === Role.ADMIN}
+      isPlatformAdmin={session.user.isPlatformAdmin}
       organizationName={session.user.organizationName ?? null}
     />
   );
