@@ -2,7 +2,9 @@
 
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { auth } from "@/auth";
+import { KnowledgeStatus, Role } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { saveAttachment } from "@/lib/uploads";
 
@@ -16,6 +18,27 @@ const ALLOWED_FILE_TYPES = new Set([
   "text/plain",
 ]);
 
+const inputSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  description: z
+    .string()
+    .trim()
+    .max(2000)
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => v || null),
+  type: z.enum(["document", "link"]),
+  url: z
+    .string()
+    .trim()
+    .url()
+    .max(1000)
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => v || ""),
+  status: z.nativeEnum(KnowledgeStatus).optional().default(KnowledgeStatus.UNDER_REVIEW),
+});
+
 async function saveKnowledgeFile(file: File): Promise<string> {
   if (file.size > MAX_FILE_BYTES) {
     throw new Error("File exceeds 20 MB limit.");
@@ -23,8 +46,6 @@ async function saveKnowledgeFile(file: File): Promise<string> {
   if (file.type && !ALLOWED_FILE_TYPES.has(file.type)) {
     throw new Error("Unsupported file type.");
   }
-  // saveAttachment handles both Vercel Blob (when BLOB_READ_WRITE_TOKEN is set)
-  // and the local filesystem fallback. Knowledge files live under uploads/knowledge.
   const result = await saveAttachment(file, "knowledge");
   return result.url;
 }
@@ -33,26 +54,76 @@ export async function addKnowledgeItem(formData: FormData) {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const name = (formData.get("name") as string)?.trim();
-  const type = formData.get("type") as string;
-  const linkUrl = formData.get("url") as string;
-  const file = formData.get("file") as File | null;
-
-  if (!name) return;
-
-  let finalUrl = "";
-
-  if (type === "link" && linkUrl) {
-    finalUrl = linkUrl;
-  } else if (type === "document" && file && file.size > 0) {
-    finalUrl = await saveKnowledgeFile(file);
-  } else {
-    return;
-  }
-
-  await prisma.knowledgeItem.create({
-    data: { name, type, url: finalUrl },
+  const parsed = inputSchema.parse({
+    name: formData.get("name"),
+    description: formData.get("description"),
+    type: formData.get("type"),
+    url: formData.get("url"),
+    status: formData.get("status") || KnowledgeStatus.UNDER_REVIEW,
   });
 
+  const file = formData.get("file") as File | null;
+  let finalUrl = "";
+
+  if (parsed.type === "link" && parsed.url) {
+    finalUrl = parsed.url;
+  } else if (parsed.type === "document" && file && file.size > 0) {
+    finalUrl = await saveKnowledgeFile(file);
+  } else {
+    throw new Error("Provide a URL for link type or a file for document type.");
+  }
+
+  // Only admins can set the initial status to APPROVED; everyone else has it
+  // forced to UNDER_REVIEW regardless of what they submit.
+  const isAdmin = session.user.role === Role.ADMIN;
+  const status = isAdmin ? parsed.status : KnowledgeStatus.UNDER_REVIEW;
+
+  await prisma.knowledgeItem.create({
+    data: {
+      name: parsed.name,
+      description: parsed.description,
+      type: parsed.type,
+      url: finalUrl,
+      status,
+      createdById: session.user.id,
+    },
+  });
+
+  revalidatePath("/knowledge");
+  redirect("/knowledge");
+}
+
+export async function setKnowledgeStatus(itemId: string, status: KnowledgeStatus) {
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+  if (session.user.role !== Role.ADMIN) {
+    throw new Error("Only admins can change knowledge item status.");
+  }
+
+  await prisma.knowledgeItem.update({
+    where: { id: itemId },
+    data: { status },
+  });
+
+  revalidatePath("/knowledge");
+}
+
+export async function deleteKnowledgeItem(itemId: string) {
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+
+  const item = await prisma.knowledgeItem.findUnique({
+    where: { id: itemId },
+    select: { createdById: true },
+  });
+  if (!item) return;
+
+  const isAdmin = session.user.role === Role.ADMIN;
+  const isOwner = item.createdById === session.user.id;
+  if (!isAdmin && !isOwner) {
+    throw new Error("Only the item's creator or an admin can delete it.");
+  }
+
+  await prisma.knowledgeItem.delete({ where: { id: itemId } });
   revalidatePath("/knowledge");
 }

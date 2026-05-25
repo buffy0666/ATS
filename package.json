@@ -13,6 +13,7 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "process-ai-queue": "tsx --env-file=.env scripts/process-ai-queue.ts",
+    "migrate:multitenant": "tsx --env-file=.env scripts/migrate-to-multitenant.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

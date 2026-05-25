@@ -239,6 +239,11 @@ enum SavedSearchScope {
   SHARED
 }
 
+enum KnowledgeStatus {
+  UNDER_REVIEW
+  APPROVED
+}
+
 enum InterviewType {
   PHONE_SCREEN
   TECHNICAL
@@ -256,15 +261,73 @@ enum InterviewStatus {
   RESCHEDULED
 }
 
+/// A tenant in the multi-tenant SaaS sense — every business object (Client,
+/// Candidate, Job, ...) belongs to exactly one Organization. A user belongs
+/// to exactly one Organization too (1:1) for now; we can M:N later if a
+/// user needs to consult across firms.
+///
+/// Cascade is set on most child relations so deleting an Organization
+/// scrubs every row that belongs to it. That's intentional — it's the
+/// "delete my account" path for a SaaS customer.
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The user who created the org. Has implicit OWNER privileges that
+  // can't be revoked by other admins (so a co-admin can't lock the
+  // founder out).
+  ownerUserId String? @unique
+  ownerUser   User?   @relation("OrganizationOwner", fields: [ownerUserId], references: [id])
+
+  // Back-relations — top-level scoped models. Child rows (e.g.
+  // CandidateDocument, SequenceStep, AssistantMessage) inherit isolation
+  // through their parent's organizationId and are scoped in later
+  // phases; for Phase 1 these top-level back-relations are enough.
+  users                  User[]                  @relation("OrganizationMembers")
+  tags                   Tag[]
+  apiTokens              ApiToken[]
+  aiConfig               AIConfig?
+  jobs                   Job[]
+  clients                Client[]
+  clientContacts         ClientContact[]
+  candidates             Candidate[]
+  applications           Application[]
+  noteThreads            Note[]
+  knowledgeItems         KnowledgeItem[]
+  emailTemplates         EmailTemplate[]
+  emails                 EmailLog[]
+  tasks                  Task[]
+  candidateLists         CandidateList[]
+  savedSearches          SavedSearch[]
+  interviews             Interview[]
+  choiceOptions          ChoiceOption[]
+  sequences              Sequence[]
+  assistantConversations AssistantConversation[]
+  customFields           CustomField[]
+}
+
 model Tag {
   id        String   @id @default(cuid())
+  // Still globally unique during Phase 1-5; Phase 6 swaps to
+  // @@unique([organizationId, name]) so two orgs can independently have a
+  // "Senior" tag. Existing queries still pass `where: { name }` until then.
   name      String   @unique
   color     String   @default("zinc")
   createdAt DateTime @default(now())
 
+  // Multi-tenant scope — nullable during the staged migration; Phase 6
+  // flips it NOT NULL once every query writes it.
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   clients    Client[]
   contacts   ClientContact[]
   candidates Candidate[]
+
+  @@index([organizationId])
 }
 
 model User {
@@ -292,6 +355,7 @@ model User {
   activities             CandidateActivity[]
   tasksCreated           Task[]                  @relation("TaskCreator")
   tasksAssigned          Task[]                  @relation("TaskAssignee")
+  knowledgeItemsCreated  KnowledgeItem[]         @relation("KnowledgeItemCreator")
   taskAttachments        TaskAttachment[]        @relation("TaskAttachmentUploader")
   lists                  CandidateList[]
   listMembersAdded       CandidateListMember[]   @relation("ListMemberAdder")
@@ -309,6 +373,17 @@ model User {
 
   // API tokens (used by Chrome extension and any future external integrations)
   apiTokens ApiToken[]
+
+  // Multi-tenant: every user belongs to exactly one Organization. Nullable
+  // during the staged migration (current users get assigned to the Default
+  // Org by scripts/migrate-to-multitenant.ts before Phase 6 flips it NOT
+  // NULL). `ownedOrganization` is the reverse side of Organization.ownerUser
+  // — set for the user who created their org.
+  organizationId     String?
+  organization       Organization? @relation("OrganizationMembers", fields: [organizationId], references: [id], onDelete: Cascade)
+  ownedOrganization  Organization? @relation("OrganizationOwner")
+
+  @@index([organizationId])
 }
 
 /// Hashed API tokens for external integrations (Chrome extension etc.).
@@ -327,16 +402,27 @@ model ApiToken {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Denormalized org scope. Tokens are user-owned, so org is transitive
+  // via user — but writing it on the row directly means the external
+  // candidate-ingest endpoint can resolve org with one query, not two.
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([userId])
   @@index([tokenHash])
+  @@index([organizationId])
 }
 
-/// Singleton AI-provider configuration. There is always exactly one row with
-/// id="default". The API key is AES-256-GCM encrypted using a key derived
-/// from AUTH_SECRET — the DB never holds plaintext keys, which matters when
-/// this database is handed off to external clients who set their own keys.
+/// AI-provider configuration. Was a global singleton (id="default") in the
+/// single-tenant era; now ONE PER ORGANIZATION so each tenant brings their
+/// own provider + key. The API key is AES-256-GCM encrypted using a key
+/// derived from AUTH_SECRET — the DB never holds plaintext keys.
+///
+/// `organizationId` is nullable during the staged migration; the legacy
+/// id="default" row is preserved and gets reassigned to the Default Org by
+/// the migration script.
 model AIConfig {
-  id              String   @id @default("default")
+  id              String   @id @default(cuid())
   provider        String // "ollama" | "openai" | "anthropic" | "grok"
   model           String
   baseUrl         String?
@@ -344,6 +430,9 @@ model AIConfig {
   timeoutMs       Int?
   updatedAt       DateTime @updatedAt
   updatedById     String?
+
+  organizationId String?       @unique
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 model Job {
@@ -369,8 +458,12 @@ model Job {
   salaryHigh          Int?
   placementFeePercent Int?
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([status])
   @@index([clientId])
+  @@index([organizationId])
 }
 
 model Client {
@@ -396,8 +489,12 @@ model Client {
   jobs     Job[]
   tags     Tag[]
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([status])
   @@index([ownerId])
+  @@index([organizationId])
 }
 
 model ClientContact {
@@ -422,8 +519,12 @@ model ClientContact {
   tags               Tag[]
   candidatesReferred Candidate[] @relation("CandidateReferrerContact")
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([clientId])
   @@index([status])
+  @@index([organizationId])
 }
 
 model Candidate {
@@ -515,15 +616,15 @@ model Candidate {
   recentActivity Json?
 
   // Batch AI processing — see AIProcessingStatus comment.
-  aiStatus       AIProcessingStatus @default(NONE)
-  aiProcessedAt  DateTime?
-  aiError        String?
+  aiStatus          AIProcessingStatus @default(NONE)
+  aiProcessedAt     DateTime?
+  aiError           String?
   // Polished resume produced by the AI worker. Shape:
   // { header: {...}, summary, skills, experience: [...], education: [...] }
   aiResumeFacsimile Json?
   // AI-suggested personalization hooks for crafting outreach. Shape:
   // [{ hook: string, source: string, suggestedOpener: string, tone: string }]
-  outreachInsights Json?
+  outreachInsights  Json?
 
   // Plain text extracted from the resume; backs the FTS searchVector column
   // (added via raw SQL migration — Prisma cannot describe generated tsvector).
@@ -547,11 +648,15 @@ model Candidate {
   // from the legacy `notes String?` free-form field above.
   noteThreads     Note[]                @relation("CandidateNoteThreads")
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([status])
   @@index([sourcedById])
   @@index([locationCity, locationState])
   @@index([currentCompany])
   @@index([seniority])
+  @@index([organizationId])
 }
 
 model Application {
@@ -570,8 +675,12 @@ model Application {
   interviews  Interview[]
   enrollments SequenceEnrollment[]
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@unique([jobId, candidateId])
   @@index([jobId, stage])
+  @@index([organizationId])
 }
 
 /// A note can attach to a specific job application (per-role feedback) or
@@ -591,17 +700,32 @@ model Note {
   candidate   Candidate?   @relation("CandidateNoteThreads", fields: [candidateId], references: [id], onDelete: Cascade)
   author      User         @relation(fields: [authorId], references: [id])
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([applicationId])
   @@index([candidateId])
+  @@index([organizationId])
 }
 
 model KnowledgeItem {
-  id        String   @id @default(cuid())
-  name      String
-  type      String // "document" | "link"
-  url       String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String          @id @default(cuid())
+  name        String
+  description String?
+  type        String // "document" | "link"
+  url         String
+  status      KnowledgeStatus @default(UNDER_REVIEW)
+  createdById String?
+  createdBy   User?           @relation("KnowledgeItemCreator", fields: [createdById], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([createdById])
+  @@index([organizationId])
 }
 
 model EmailTemplate {
@@ -615,7 +739,11 @@ model EmailTemplate {
   updatedAt     DateTime       @updatedAt
   sequenceSteps SequenceStep[]
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([createdById])
+  @@index([organizationId])
 }
 
 model EmailLog {
@@ -644,9 +772,13 @@ model EmailLog {
   fromUser    User         @relation(fields: [fromUserId], references: [id])
   stepRun     StepRun?
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([candidateId, sentAt])
   @@index([applicationId, sentAt])
   @@index([fromUserId])
+  @@index([organizationId])
 }
 
 model CandidateReference {
@@ -736,11 +868,15 @@ model Task {
 
   attachments TaskAttachment[]
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([status])
   @@index([assignedToId])
   @@index([dueDate])
   @@index([updatedAt])
   @@index([createdAt])
+  @@index([organizationId])
 }
 
 model TaskAttachment {
@@ -773,8 +909,12 @@ model CandidateList {
   owner   User                  @relation(fields: [ownerId], references: [id])
   members CandidateListMember[]
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([ownerId])
   @@index([scope])
+  @@index([organizationId])
 }
 
 model CandidateListMember {
@@ -806,8 +946,12 @@ model SavedSearch {
 
   owner User @relation(fields: [ownerId], references: [id])
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([ownerId])
   @@index([scope])
+  @@index([organizationId])
 }
 
 model Interview {
@@ -832,10 +976,14 @@ model Interview {
   organizer   User                @relation("InterviewOrganizer", fields: [organizerId], references: [id])
   attendees   InterviewAttendee[]
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([candidateId, startAt])
   @@index([organizerId, startAt])
   @@index([startAt])
   @@index([status])
+  @@index([organizationId])
 }
 
 model InterviewAttendee {
@@ -865,8 +1013,14 @@ model ChoiceOption {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Phase 6 will swap this to @@unique([organizationId, field, name]) once
+  // every query is org-aware.
   @@unique([field, name])
   @@index([field, active, sortOrder])
+  @@index([organizationId])
 }
 
 // ----- Sequences (multi-step cadences) -----
@@ -884,8 +1038,12 @@ model Sequence {
   steps       SequenceStep[]
   enrollments SequenceEnrollment[]
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([status])
   @@index([createdById])
+  @@index([organizationId])
 }
 
 model SequenceStep {
@@ -986,7 +1144,11 @@ model AssistantConversation {
   user     User               @relation("AssistantUser", fields: [userId], references: [id])
   messages AssistantMessage[]
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   @@index([userId, updatedAt])
+  @@index([organizationId])
 }
 
 model AssistantMessage {
@@ -1069,8 +1231,13 @@ model CustomField {
 
   values CustomFieldValue[]
 
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Phase 6 will swap this to @@unique([organizationId, entity, key]).
   @@unique([entity, key])
   @@index([entity, active, sortOrder])
+  @@index([organizationId])
 }
 
 model CustomFieldValue {
