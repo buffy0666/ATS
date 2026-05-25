@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
 import { startImpersonationAction } from "./impersonate-actions";
 import { InvitationActionsRow } from "./InvitationActionsRow";
+import { togglePlatformAdminAction } from "./platform-admin-actions";
 
 /**
  * Drill-down view for a single tenant. Read-only for now — sign-in-as
@@ -48,6 +50,10 @@ export default async function PlatformOrgDetailPage({
   });
 
   if (!org) notFound();
+
+  // Used by the per-row UI to refuse demoting yourself in your own table.
+  const currentSession = await auth();
+  const currentUserId = currentSession?.user.id ?? null;
 
   const [aiConfig, invitations] = await Promise.all([
     prisma.aIConfig.findUnique({
@@ -178,8 +184,10 @@ export default async function PlatformOrgDetailPage({
         <div className="px-5 py-3 border-b border-zinc-200 dark:border-zinc-800">
           <h3 className="text-sm font-semibold">Users ({org.users.length})</h3>
           <p className="text-xs text-zinc-500 mt-0.5">
-            &quot;Sign in as&quot; starts a 30-minute impersonation session, logged in
-            ImpersonationSession. Refuses platform admins and deactivated users.
+            <strong>Sign in as</strong> starts a 30-min impersonation session
+            (audit row written). <strong>↑ Platform</strong> promotes a user
+            to the SaaS-operator tier — they&apos;ll see /platform/* routes
+            after signing out + back in.
           </p>
         </div>
         <table className="w-full text-sm">
@@ -226,19 +234,51 @@ export default async function PlatformOrgDetailPage({
                   {u.createdAt.toLocaleDateString()}
                 </td>
                 <td className="px-4 py-2 text-right">
-                  {u.active && !u.isPlatformAdmin ? (
-                    <form action={startImpersonationAction}>
-                      <input type="hidden" name="targetUserId" value={u.id} />
-                      <button
-                        type="submit"
-                        className="text-xs rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-2 py-1 hover:bg-amber-100 dark:hover:bg-amber-900/50"
-                      >
-                        Sign in as
-                      </button>
-                    </form>
-                  ) : (
-                    <span className="text-xs text-zinc-400">—</span>
-                  )}
+                  <div className="flex justify-end gap-2">
+                    {u.active && !u.isPlatformAdmin && (
+                      <form action={startImpersonationAction}>
+                        <input type="hidden" name="targetUserId" value={u.id} />
+                        <button
+                          type="submit"
+                          className="text-xs rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-2 py-1 hover:bg-amber-100 dark:hover:bg-amber-900/50"
+                        >
+                          Sign in as
+                        </button>
+                      </form>
+                    )}
+                    {u.active && !u.isPlatformAdmin && (
+                      <form action={togglePlatformAdminAction}>
+                        <input type="hidden" name="targetUserId" value={u.id} />
+                        <input type="hidden" name="desired" value="true" />
+                        <button
+                          type="submit"
+                          title="Promote to platform admin"
+                          className="text-xs rounded-md border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-900/30 text-purple-900 dark:text-purple-200 px-2 py-1 hover:bg-purple-100 dark:hover:bg-purple-900/50"
+                        >
+                          ↑ Platform
+                        </button>
+                      </form>
+                    )}
+                    {u.active &&
+                      u.isPlatformAdmin &&
+                      u.id !== currentUserId && (
+                        <form action={togglePlatformAdminAction}>
+                          <input type="hidden" name="targetUserId" value={u.id} />
+                          <input type="hidden" name="desired" value="false" />
+                          <button
+                            type="submit"
+                            title="Remove platform admin (they keep their tenant role)"
+                            className="text-xs rounded-md border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 px-2 py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          >
+                            ↓ Demote
+                          </button>
+                        </form>
+                      )}
+                    {!u.active ||
+                      (u.isPlatformAdmin && u.id === currentUserId && (
+                        <span className="text-xs text-zinc-400">—</span>
+                      ))}
+                  </div>
                 </td>
               </tr>
             ))}
