@@ -3,12 +3,27 @@
 // Strategy:
 //  1. Reliably scrape just the two things that LinkedIn can't break:
 //     the canonical profile URL and the candidate's name.
-//  2. Grab the full visible text of the page (document.body.innerText).
-//  3. Send both to the background worker, which POSTs to the ATS. The
-//     ATS-side AI parser sifts the page text for structured fields.
+//  2. Force LinkedIn to render the lazy-loaded sections — Experience,
+//     Education, Skills don't enter the DOM until they scroll into view,
+//     so we programmatically scroll the whole page in chunks before
+//     scraping. We also click any "see more" buttons inside those
+//     sections so the AI gets the full bullet text instead of truncated
+//     previews.
+//  3. Scrape ONLY the sections we care about by anchoring on known h2
+//     headers (About, Experience, Education, Skills, Licenses,
+//     Certifications, Languages, Volunteering, Recommendations, Activity).
+//     This excludes the right-rail "People you may know", "More profiles
+//     for you", newsletters, footer, language picker, and messaging
+//     overlay — all of which used to crowd out the actual profile
+//     content in the AI's input.
+//  4. Send the scoped text to the background worker, which POSTs to the
+//     ATS. The ATS-side AI parser sifts the page text for structured
+//     fields.
 //
-// Doing it this way means the extension survives LinkedIn redesigns —
-// we don't depend on obfuscated CSS classes or specific DOM positions.
+// Anchoring on header *text* rather than CSS classes means we survive
+// LinkedIn redesigns — they rotate class names constantly but the
+// section headers ("Experience", "Education", "Skills") have been stable
+// for years.
 
 (function () {
   "use strict";
@@ -109,17 +124,203 @@
     return str;
   }
 
+  // -------------------------------------------------------------------------
+  // Force lazy-loaded sections to render.
+  //
+  // LinkedIn ships profile sections behind IntersectionObservers — Experience,
+  // Education, Skills, etc. don't exist in the DOM until they scroll into
+  // view. If we scrape right when the user clicks the button, those sections
+  // are completely missing and the AI never sees the candidate's career
+  // history. So before scraping we scroll the whole page in chunks, wait a
+  // beat between each scroll for LinkedIn's network calls and renders, and
+  // then click any visible "see more" buttons inside profile sections so
+  // bullets aren't truncated.
+  // -------------------------------------------------------------------------
+
+  function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  async function expandProfileSections() {
+    const initialY = window.scrollY;
+
+    // 1. Scroll through the page in ~10 steps. Each scroll fires
+    //    IntersectionObservers for the next slab of sections.
+    const docHeight = () =>
+      Math.max(
+        document.body.scrollHeight,
+        document.documentElement.scrollHeight,
+      );
+    const steps = 10;
+    for (let i = 1; i <= steps; i++) {
+      const target = Math.round((docHeight() * i) / steps);
+      window.scrollTo({ top: target, behavior: "instant" });
+      // 400ms is enough for the section to render + fetch any details.
+      // Total budget: ~4s, which the user perceives as "Saving…".
+      await sleep(400);
+    }
+
+    // 2. Click any "…see more" buttons inside profile sections so the
+    //    AI sees full bullet text instead of LinkedIn's "show more" stub.
+    //    LinkedIn marks these with aria-expanded="false". We match by
+    //    button text to avoid clicking unrelated buttons (Connect,
+    //    Follow, Send InMail, etc).
+    const seeMoreButtons = document.querySelectorAll(
+      'button[aria-expanded="false"], button.inline-show-more-text__button',
+    );
+    seeMoreButtons.forEach((btn) => {
+      const label = (btn.textContent || btn.getAttribute("aria-label") || "")
+        .trim()
+        .toLowerCase();
+      if (
+        label.includes("see more") ||
+        label.includes("show more") ||
+        label.includes("…more") ||
+        label.includes("...more")
+      ) {
+        try {
+          btn.click();
+        } catch {
+          // Ignore — some buttons throw when clicked off-screen.
+        }
+      }
+    });
+    // Let any newly-expanded text settle.
+    await sleep(400);
+
+    // 3. Restore the user's scroll position so the page doesn't visibly
+    //    jump after the "Saving…" toast.
+    window.scrollTo({ top: initialY, behavior: "instant" });
+  }
+
+  // -------------------------------------------------------------------------
+  // Scoped section scrape.
+  //
+  // Instead of grabbing the entire <main>.innerText — which sweeps in
+  // "People you may know", "More profiles for you", newsletters, footer,
+  // language picker, and the messaging overlay — we walk every <section>
+  // and pick the ones whose h2 header matches a known profile section
+  // ("Experience", "Education", "Skills", etc.). This keeps the AI's
+  // input dramatically denser in actual candidate data.
+  // -------------------------------------------------------------------------
+
   /**
-   * Grab the visible page text. Caps at ~80KB to keep payloads sane (the
-   * server further trims to 40KB for AI parsing — anything past that is
-   * almost certainly noise like activity feeds).
+   * Lowercase prefixes for the section headers we want to keep. Compared
+   * with startsWith so "Skills (21)" still matches "skills".
+   */
+  const WANTED_SECTION_HEADERS = [
+    "about",
+    "featured",
+    "activity",
+    "experience",
+    "education",
+    "licenses",
+    "certifications",
+    "skills",
+    "projects",
+    "publications",
+    "patents",
+    "courses",
+    "honors",
+    "test scores",
+    "languages",
+    "organizations",
+    "volunteering",
+    "volunteer",
+    "interests",
+    "recommendations",
+  ];
+
+  /**
+   * Headers we explicitly DROP even if they live inside <main>. LinkedIn
+   * sometimes renders these as full <section> elements with h2 headers
+   * inside the profile column.
+   */
+  const NOISE_SECTION_HEADERS = [
+    "people you may know",
+    "more profiles for you",
+    "you might like",
+    "newsletters for you",
+    "promoted",
+  ];
+
+  function matchesPrefix(text, prefixes) {
+    const t = (text || "").trim().toLowerCase();
+    return prefixes.some((p) => t.startsWith(p));
+  }
+
+  /**
+   * Scrape the profile header — name, headline, location, connection
+   * count. Picks up everything inside the top-level <section> that wraps
+   * the h1.
+   */
+  function scrapeHeader(main) {
+    const h1 = main.querySelector("h1");
+    if (!h1) return "";
+    // Climb up to the nearest enclosing <section> (the profile card).
+    const card = h1.closest("section") || h1.parentElement;
+    return (card?.innerText || "").trim();
+  }
+
+  /**
+   * Walk every <section> child of <main> (LinkedIn nests profile cards
+   * one section per topic). Keep the ones with a wanted header text.
+   */
+  function scrapeWantedSections(main) {
+    const sections = Array.from(main.querySelectorAll("section"));
+    const kept = [];
+    const seen = new Set();
+    for (const section of sections) {
+      const header =
+        section.querySelector("h2")?.textContent ||
+        section.querySelector("h3")?.textContent ||
+        "";
+      if (!header.trim()) continue;
+      if (matchesPrefix(header, NOISE_SECTION_HEADERS)) continue;
+      if (!matchesPrefix(header, WANTED_SECTION_HEADERS)) continue;
+      // Dedupe — LinkedIn occasionally double-nests sections.
+      const key = header.trim().toLowerCase().split(/\s+/).slice(0, 2).join("-");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      // section.innerText pulls all bullets, dates, descriptions, and
+      // already respects "see more" expansions because we clicked them.
+      const text = (section.innerText || "").trim();
+      if (text.length < 10) continue;
+      kept.push(text);
+    }
+    return kept;
+  }
+
+  /**
+   * Build the final string we send to the server. Caps at ~80KB to keep
+   * payloads sane (the server further trims to 40KB for AI parsing —
+   * anything past that is almost certainly noise).
+   *
+   * Assumes `expandProfileSections()` has already run.
    */
   function scrapePageText() {
-    // Prefer the main profile section if we can find it; falls back to body.
     const main = document.querySelector("main") || document.body;
-    const text = (main.innerText || "").replace(/ /g, " ");
-    // Compress runs of blank lines so we send less padding.
-    const cleaned = text
+    const chunks = [];
+
+    const header = scrapeHeader(main);
+    if (header) chunks.push(header);
+
+    const sections = scrapeWantedSections(main);
+    chunks.push(...sections);
+
+    // If something went wrong and we couldn't isolate any sections, fall
+    // back to the old behavior so we still send *something*. The server's
+    // AI parser handles noisy input gracefully.
+    if (sections.length === 0) {
+      const fallback = (main.innerText || "").trim();
+      if (fallback) chunks.push(fallback);
+    }
+
+    const joined = chunks.join("\n\n");
+    // Normalize whitespace: collapse runs of spaces within a line, drop
+    // empty lines. LinkedIn sprinkles non-breaking spaces and stretches of
+    // tabs through its markup; both become single spaces here.
+    const cleaned = joined
       .split("\n")
       .map((l) => l.replace(/\s+/g, " ").trim())
       .filter(Boolean)
@@ -139,12 +340,19 @@
     try {
       const { firstName, lastName } = scrapeName();
       const linkedinUrl = canonicalUrl();
-      const pageText = scrapePageText();
 
       if (!firstName) {
         toast("Couldn't find a name on this page. Open the profile fully first.", "error");
         return;
       }
+
+      // Force LinkedIn to render Experience/Education/Skills before we
+      // try to read them. Takes ~4 seconds for a typical profile.
+      btn.textContent = "Reading profile…";
+      await expandProfileSections();
+
+      btn.textContent = "Saving…";
+      const pageText = scrapePageText();
 
       const response = await chrome.runtime.sendMessage({
         type: "ats:add-candidate",
