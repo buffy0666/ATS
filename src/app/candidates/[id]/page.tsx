@@ -7,6 +7,7 @@ import { EmailHistory } from "./EmailHistory";
 import { NotesSection } from "./NotesSection";
 import { CandidateJobsSection } from "./CandidateJobsSection";
 import { CandidateNavigator } from "./CandidateNavigator";
+import { OutreachInsights, type ActivityItem, type OutreachInsight } from "./OutreachInsights";
 import { ResumeUploadButton } from "./ResumeUploadButton";
 import { ResumeViewer } from "./ResumeViewer";
 import {
@@ -325,7 +326,33 @@ export default async function CandidateDetailPage({
         {/* Left column: resume + everything else, stacked. */}
         <div className="space-y-4 min-w-0">
           <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
-            <ResumeViewer url={candidate.resumeUrl} />
+            <ResumeViewer
+              data={{
+                resumeUrl: candidate.resumeUrl,
+                resumeText: candidate.resumeText,
+                summary: candidate.summary,
+                skills: candidate.skills,
+                workHistory: (candidate.workHistory ?? []) as never,
+                education: (candidate.education ?? []) as never,
+                recentActivity: (candidate.recentActivity ?? []) as never,
+                firstName: candidate.firstName,
+                lastName: candidate.lastName,
+                email: candidate.email,
+                phone: candidate.phone,
+                linkedinUrl: candidate.linkedinUrl,
+                locationCity: candidate.locationCity,
+                locationState: candidate.locationState,
+                locationCountry: candidate.locationCountry,
+                // Extras that ResumeViewerTabs reads through a cast — keeps
+                // CandidateResumeData lean while still piping AI status
+                // through.
+                ...({
+                  aiResumeFacsimile: candidate.aiResumeFacsimile,
+                  aiStatus: candidate.aiStatus,
+                  aiError: candidate.aiError,
+                } as Record<string, unknown>),
+              }}
+            />
           </section>
 
           <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
@@ -563,6 +590,36 @@ export default async function CandidateDetailPage({
           </div>
         </div>
       </section>
+
+          {/* Outreach personalization — AI-extracted hooks + raw activity */}
+          {(candidate.recentActivity || candidate.outreachInsights) && (
+            <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+              <div className="border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 flex items-center justify-between gap-2">
+                <span>Outreach personalization</span>
+                {candidate.aiStatus === "PENDING" && (
+                  <span className="text-[10px] font-normal text-zinc-400 normal-case">
+                    AI processing queued…
+                  </span>
+                )}
+                {candidate.aiStatus === "PROCESSING" && (
+                  <span className="text-[10px] font-normal text-amber-600 normal-case">
+                    AI processing now…
+                  </span>
+                )}
+                {candidate.aiStatus === "READY" && (
+                  <span className="text-[10px] font-normal text-emerald-600 normal-case">
+                    AI processing complete
+                  </span>
+                )}
+              </div>
+              <div className="p-5">
+                <OutreachInsights
+                  insights={(candidate.outreachInsights ?? []) as OutreachInsight[]}
+                  activity={(candidate.recentActivity ?? []) as ActivityItem[]}
+                />
+              </div>
+            </section>
+          )}
 
           {/* Sequences — full width inside left column */}
           <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
