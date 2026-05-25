@@ -9,6 +9,7 @@ import {
   bulkUpdateTasks,
   type BulkPatchInput,
 } from "./actions";
+import type { SortColumn } from "./sort";
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
   NOT_STARTED: "Not started",
@@ -36,8 +37,11 @@ const PRIORITY_BADGE: Record<TaskPriority, string> = {
   URGENT: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
 };
 
-export const SORT_COLUMNS = ["name", "status", "priority", "dueDate", "updatedAt", "createdAt"] as const;
-export type SortColumn = (typeof SORT_COLUMNS)[number];
+// SORT_COLUMNS / SortColumn live in ./sort so server components can import
+// them without crossing the "use client" boundary (which would replace
+// the array with a client-reference proxy and crash .includes() at
+// runtime). Callers that need the value should import from ./sort
+// directly — TasksTable only re-exports TaskRow.
 
 export type TaskRow = {
   id: string;

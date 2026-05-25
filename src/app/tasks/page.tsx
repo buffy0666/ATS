@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Prisma, TaskStatus } from "@/generated/prisma";
 import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
-import { SORT_COLUMNS, type SortColumn, type TaskRow, TasksTable } from "./TasksTable";
+import { SORT_COLUMNS, type SortColumn } from "./sort";
+import { type TaskRow, TasksTable } from "./TasksTable";
 
 function parseSort(raw: string | undefined): SortColumn {
   return (SORT_COLUMNS as readonly string[]).includes(raw ?? "")
