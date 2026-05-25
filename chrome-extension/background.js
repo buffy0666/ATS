@@ -65,6 +65,21 @@ async function handleAddCandidate(payload) {
     // Non-JSON response — surface raw status.
   }
 
+  // Make sure the candidate URL is absolute. If the server returns a
+  // relative path (e.g. APP_URL env wasn't set on Vercel), window.open()
+  // from a LinkedIn page would resolve it against linkedin.com — which is
+  // exactly the bug we hit shipping 0.1.0. Normalize here so the toast
+  // click always lands in the ATS regardless of server config.
+  const absolutize = (url) => {
+    if (!url) return url;
+    if (/^https?:\/\//i.test(url)) return url;
+    const base = atsUrl.replace(/\/+$/, "");
+    return base + (url.startsWith("/") ? url : "/" + url);
+  };
+  if (body?.candidate?.url) {
+    body.candidate.url = absolutize(body.candidate.url);
+  }
+
   // ATS contract:
   //   201 → { status: "created", candidate: { id, firstName, lastName, url } }
   //   409 → { status: "exists",  candidate: { id, firstName, lastName, url } }

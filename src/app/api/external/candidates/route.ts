@@ -131,6 +131,13 @@ export async function POST(request: NextRequest) {
   }
   const data = parsed.data;
 
+  // Absolute origin to use when building candidate URLs in the response.
+  // APP_URL is preferred (set in Vercel env), but we always have the
+  // request's own origin as a fallback — that way the Chrome extension's
+  // toast click goes to the ATS host instead of resolving against
+  // linkedin.com.
+  const appOrigin = (process.env.APP_URL || "").replace(/\/+$/, "") || request.nextUrl.origin;
+
   // Duplicate detection — by linkedinUrl first (the strongest signal from this source),
   // then by email. Scoped to the API token's org so two tenants can each have
   // their own copy of the same LinkedIn URL without colliding. Pre-Phase 6
@@ -156,7 +163,7 @@ export async function POST(request: NextRequest) {
           firstName: existing.firstName,
           lastName: existing.lastName,
           linkedinUrl: existing.linkedinUrl,
-          url: `${process.env.APP_URL ?? ""}/candidates/${existing.id}`,
+          url: `${appOrigin}/candidates/${existing.id}`,
         },
       }),
       { status: 409, headers: { ...cors, "Content-Type": "application/json" } },
@@ -212,7 +219,7 @@ export async function POST(request: NextRequest) {
         id: created.id,
         firstName: created.firstName,
         lastName: created.lastName,
-        url: `${process.env.APP_URL ?? ""}/candidates/${created.id}`,
+        url: `${appOrigin}/candidates/${created.id}`,
       },
       // Tells the extension whether we'll be enriching this candidate
       // asynchronously, so the toast can say "queued for AI processing".
