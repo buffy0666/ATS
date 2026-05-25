@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 
 export default async function TemplatesPage() {
+  const { orgId } = await requireSessionWithOrg();
   const templates = await prisma.emailTemplate.findMany({
+    where: { organizationId: orgId },
     orderBy: { name: "asc" },
     include: { createdBy: { select: { name: true, email: true } } },
   });

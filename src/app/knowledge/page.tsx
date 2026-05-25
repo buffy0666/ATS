@@ -1,15 +1,14 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { auth } from "@/auth";
 import { Role } from "@/generated/prisma";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { KnowledgeTable, type KnowledgeRow } from "./KnowledgeTable";
 
 export default async function KnowledgeBase() {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const { session, orgId } = await requireSessionWithOrg();
 
   const items = await prisma.knowledgeItem.findMany({
+    where: { organizationId: orgId },
     orderBy: { createdAt: "desc" },
     include: {
       createdBy: { select: { id: true, name: true, email: true } },

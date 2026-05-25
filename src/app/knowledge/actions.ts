@@ -3,8 +3,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { auth } from "@/auth";
 import { KnowledgeStatus, Role } from "@/generated/prisma";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { saveAttachment } from "@/lib/uploads";
 
@@ -51,8 +51,7 @@ async function saveKnowledgeFile(file: File): Promise<string> {
 }
 
 export async function addKnowledgeItem(formData: FormData) {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const { session, orgId } = await requireSessionWithOrg();
 
   const parsed = inputSchema.parse({
     name: formData.get("name"),
@@ -86,6 +85,7 @@ export async function addKnowledgeItem(formData: FormData) {
       url: finalUrl,
       status,
       createdById: session.user.id,
+      organizationId: orgId,
     },
   });
 
@@ -94,14 +94,13 @@ export async function addKnowledgeItem(formData: FormData) {
 }
 
 export async function setKnowledgeStatus(itemId: string, status: KnowledgeStatus) {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const { session, orgId } = await requireSessionWithOrg();
   if (session.user.role !== Role.ADMIN) {
     throw new Error("Only admins can change knowledge item status.");
   }
 
-  await prisma.knowledgeItem.update({
-    where: { id: itemId },
+  await prisma.knowledgeItem.updateMany({
+    where: { id: itemId, organizationId: orgId },
     data: { status },
   });
 
@@ -109,11 +108,10 @@ export async function setKnowledgeStatus(itemId: string, status: KnowledgeStatus
 }
 
 export async function deleteKnowledgeItem(itemId: string) {
-  const session = await auth();
-  if (!session?.user) redirect("/login");
+  const { session, orgId } = await requireSessionWithOrg();
 
-  const item = await prisma.knowledgeItem.findUnique({
-    where: { id: itemId },
+  const item = await prisma.knowledgeItem.findFirst({
+    where: { id: itemId, organizationId: orgId },
     select: { createdById: true },
   });
   if (!item) return;

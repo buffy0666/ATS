@@ -17,13 +17,13 @@ export const listClientsTool = defineTool({
       .describe("Filter to these client statuses. Defaults to ACTIVE + PROSPECT."),
     limit: z.number().int().min(1).max(50).default(20),
   }),
-  async execute(args) {
+  async execute(args, ctx) {
     const statuses =
       args.status && args.status.length > 0
         ? args.status
         : [ClientStatus.ACTIVE, ClientStatus.PROSPECT];
     const clients = await prisma.client.findMany({
-      where: { status: { in: statuses } },
+      where: { status: { in: statuses }, organizationId: ctx.organizationId },
       orderBy: { name: "asc" },
       take: args.limit,
       select: {

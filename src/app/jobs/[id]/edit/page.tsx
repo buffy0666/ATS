@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { updateJob } from "../../actions";
 import { SalaryFeeFields } from "../../SalaryFeeFields";
@@ -10,10 +11,12 @@ export default async function EditJobPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const { orgId } = await requireSessionWithOrg();
 
   const [job, clients] = await Promise.all([
-    prisma.job.findUnique({ where: { id } }),
+    prisma.job.findFirst({ where: { id, organizationId: orgId } }),
     prisma.client.findMany({
+      where: { organizationId: orgId },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),

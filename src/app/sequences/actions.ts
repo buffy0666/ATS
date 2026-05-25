@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { cancelScheduledEmail, sendEmail, EmailProviderError } from "@/lib/email";
 import { renderTemplate } from "@/lib/template-renderer";
@@ -70,15 +70,29 @@ export type ActionResult =
 
 // ---------- Sequence CRUD ----------
 
+/**
+ * Helper: verify a sequence belongs to the caller's org. Returns the id on
+ * success, throws otherwise. Used by every step / enrollment / cleanup
+ * action so cross-tenant ids can't manipulate someone else's sequence.
+ */
+async function requireSequenceInOrg(sequenceId: string, orgId: string): Promise<string> {
+  const found = await prisma.sequence.findFirst({
+    where: { id: sequenceId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!found) throw new Error("Sequence not found.");
+  return found.id;
+}
+
 export async function createSequence(formData: FormData) {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const data = sequenceMetaSchema.parse({
     name: formData.get("name"),
     description: formData.get("description"),
     status: formData.get("status") || SequenceStatus.ACTIVE,
   });
   const seq = await prisma.sequence.create({
-    data: { ...data, createdById: session.user.id },
+    data: { ...data, createdById: session.user.id, organizationId: orgId },
     select: { id: true },
   });
   revalidatePath("/sequences");
@@ -89,7 +103,8 @@ export async function updateSequenceMeta(
   sequenceId: string,
   formData: FormData,
 ): Promise<ActionResult> {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
+  await requireSequenceInOrg(sequenceId, orgId);
   const data = sequenceMetaSchema.parse({
     name: formData.get("name"),
     description: formData.get("description"),
@@ -102,7 +117,8 @@ export async function updateSequenceMeta(
 }
 
 export async function deleteSequence(sequenceId: string): Promise<ActionResult> {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
+  await requireSequenceInOrg(sequenceId, orgId);
   // Cancel any still-scheduled emails on active enrollments before tearing down.
   await cancelEmailsForSequence(sequenceId);
   await prisma.sequence.delete({ where: { id: sequenceId } });
@@ -116,7 +132,8 @@ export async function addStep(
   sequenceId: string,
   formData: FormData,
 ): Promise<ActionResult> {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
+  await requireSequenceInOrg(sequenceId, orgId);
   const data = stepSchema.parse({
     type: formData.get("type"),
     delayDays: formData.get("delayDays"),
@@ -148,7 +165,13 @@ export async function updateStep(
   stepId: string,
   formData: FormData,
 ): Promise<ActionResult> {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
+  // Verify the step's parent sequence belongs to this org.
+  const existing = await prisma.sequenceStep.findFirst({
+    where: { id: stepId, sequence: { organizationId: orgId } },
+    select: { sequenceId: true },
+  });
+  if (!existing) return { ok: false, message: "Step not found." };
   const data = stepSchema.parse({
     type: formData.get("type"),
     delayDays: formData.get("delayDays"),
@@ -171,9 +194,9 @@ export async function updateStep(
 }
 
 export async function removeStep(stepId: string): Promise<ActionResult> {
-  await requireSession();
-  const step = await prisma.sequenceStep.findUnique({
-    where: { id: stepId },
+  const { orgId } = await requireSessionWithOrg();
+  const step = await prisma.sequenceStep.findFirst({
+    where: { id: stepId, sequence: { organizationId: orgId } },
     select: { sequenceId: true, order: true },
   });
   if (!step) return { ok: false, message: "Step not found." };
@@ -200,9 +223,9 @@ export async function removeStep(stepId: string): Promise<ActionResult> {
 }
 
 export async function moveStep(stepId: string, direction: "up" | "down"): Promise<ActionResult> {
-  await requireSession();
-  const step = await prisma.sequenceStep.findUnique({
-    where: { id: stepId },
+  const { orgId } = await requireSessionWithOrg();
+  const step = await prisma.sequenceStep.findFirst({
+    where: { id: stepId, sequence: { organizationId: orgId } },
     select: { id: true, sequenceId: true, order: true },
   });
   if (!step) return { ok: false, message: "Step not found." };
@@ -264,21 +287,20 @@ export async function enrollCandidateInSequence(
   sequenceId: string,
   applicationId?: string | null,
 ): Promise<EnrollResult> {
-  const session = await requireSession();
-  const result = await enrollMany([candidateId], sequenceId, applicationId, session.user.id);
-  return result;
+  const { session, orgId } = await requireSessionWithOrg();
+  return enrollMany([candidateId], sequenceId, applicationId, session.user.id, orgId);
 }
 
 export async function enrollCandidatesInSequence(
   candidateIds: string[],
   sequenceId: string,
 ): Promise<EnrollResult> {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const cleaned = Array.from(new Set(candidateIds.filter((id) => typeof id === "string" && id))).slice(0, 500);
   if (cleaned.length === 0) {
     return { ok: false, message: "Pick at least one candidate.", enrolled: 0, alreadyEnrolled: 0 };
   }
-  return enrollMany(cleaned, sequenceId, null, session.user.id);
+  return enrollMany(cleaned, sequenceId, null, session.user.id, orgId);
 }
 
 /**
@@ -290,13 +312,13 @@ export async function enrollListInSequence(
   listId: string,
   sequenceId: string,
 ): Promise<EnrollResult> {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   if (!listId || !sequenceId) {
     return { ok: false, message: "Pick a list and a sequence.", enrolled: 0, alreadyEnrolled: 0 };
   }
 
-  const list = await prisma.candidateList.findUnique({
-    where: { id: listId },
+  const list = await prisma.candidateList.findFirst({
+    where: { id: listId, organizationId: orgId },
     select: { id: true, scope: true, ownerId: true },
   });
   if (!list) return { ok: false, message: "List not found.", enrolled: 0, alreadyEnrolled: 0 };
@@ -323,7 +345,7 @@ export async function enrollListInSequence(
     };
   }
 
-  return enrollMany(members.map((m) => m.candidateId), sequenceId, null, session.user.id);
+  return enrollMany(members.map((m) => m.candidateId), sequenceId, null, session.user.id, orgId);
 }
 
 async function enrollMany(
@@ -331,9 +353,10 @@ async function enrollMany(
   sequenceId: string,
   applicationId: string | null | undefined,
   enrolledById: string,
+  orgId: string,
 ): Promise<EnrollResult> {
-  const sequence = await prisma.sequence.findUnique({
-    where: { id: sequenceId },
+  const sequence = await prisma.sequence.findFirst({
+    where: { id: sequenceId, organizationId: orgId },
     include: { steps: { orderBy: { order: "asc" } } },
   });
   if (!sequence) return { ok: false, message: "Sequence not found.", enrolled: 0, alreadyEnrolled: 0 };
@@ -354,13 +377,21 @@ async function enrollMany(
     };
   }
 
+  // Restrict to candidates that belong to the caller's org — defense
+  // against the client smuggling IDs from another tenant.
+  const validCandidates = await prisma.candidate.findMany({
+    where: { id: { in: candidateIds }, organizationId: orgId },
+    select: { id: true },
+  });
+  const validIds = validCandidates.map((c) => c.id);
+
   // Find which candidates are already enrolled so we can report cleanly.
   const existing = await prisma.sequenceEnrollment.findMany({
-    where: { sequenceId, candidateId: { in: candidateIds } },
+    where: { sequenceId, candidateId: { in: validIds } },
     select: { candidateId: true },
   });
   const alreadyEnrolledIds = new Set(existing.map((e) => e.candidateId));
-  const toEnroll = candidateIds.filter((id) => !alreadyEnrolledIds.has(id));
+  const toEnroll = validIds.filter((id) => !alreadyEnrolledIds.has(id));
 
   const enroller = await prisma.user.findUnique({
     where: { id: enrolledById },
@@ -375,6 +406,7 @@ async function enrollMany(
         candidateId,
         applicationId: applicationId ?? null,
         enrolledById,
+        organizationId: orgId,
         steps: sequence.steps,
         senderName: enroller?.name ?? enroller?.email ?? null,
         senderEmail: enroller?.email ?? null,
@@ -407,16 +439,19 @@ type EnrollOneArgs = {
   candidateId: string;
   applicationId: string | null;
   enrolledById: string;
+  organizationId: string;
   steps: { id: string; type: SequenceStepType; delayDays: number; subject: string | null; body: string | null; taskTitle: string | null }[];
   senderName: string | null;
   senderEmail: string | null;
 };
 
 async function runOneEnrollment(args: EnrollOneArgs): Promise<void> {
-  const { sequenceId, candidateId, applicationId, enrolledById, steps } = args;
+  const { sequenceId, candidateId, applicationId, enrolledById, steps, organizationId } = args;
 
-  const candidate = await prisma.candidate.findUnique({
-    where: { id: candidateId },
+  // Candidate is already filtered to this org by the caller (enrollMany);
+  // we still check here defensively.
+  const candidate = await prisma.candidate.findFirst({
+    where: { id: candidateId, organizationId },
     select: {
       id: true,
       firstName: true,
@@ -428,8 +463,8 @@ async function runOneEnrollment(args: EnrollOneArgs): Promise<void> {
   if (!candidate) throw new Error(`Candidate ${candidateId} not found`);
 
   const application = applicationId
-    ? await prisma.application.findUnique({
-        where: { id: applicationId },
+    ? await prisma.application.findFirst({
+        where: { id: applicationId, organizationId },
         include: { job: { select: { title: true } } },
       })
     : null;
@@ -467,6 +502,7 @@ async function runOneEnrollment(args: EnrollOneArgs): Promise<void> {
       candidateId,
       applicationId: applicationId ?? null,
       fromUserId: enrolledById,
+      organizationId,
       replyTo: args.senderEmail ?? undefined,
       ctx,
     });
@@ -499,6 +535,7 @@ type ScheduleArgs = {
   candidateId: string;
   applicationId: string | null;
   fromUserId: string;
+  organizationId: string;
   replyTo?: string;
   ctx: Record<string, string>;
 };
@@ -549,6 +586,7 @@ async function scheduleStepRun(args: ScheduleArgs): Promise<void> {
         candidateId: args.candidateId,
         applicationId: args.applicationId,
         fromUserId: args.fromUserId,
+        organizationId: args.organizationId,
         to: args.candidateEmail,
         subject,
         bodyText: text,
@@ -604,9 +642,9 @@ function buildTemplateContext(input: {
 // ---------- Pause / Resume / Cancel ----------
 
 export async function pauseEnrollment(enrollmentId: string): Promise<ActionResult> {
-  await requireSession();
-  const enrollment = await prisma.sequenceEnrollment.findUnique({
-    where: { id: enrollmentId },
+  const { orgId } = await requireSessionWithOrg();
+  const enrollment = await prisma.sequenceEnrollment.findFirst({
+    where: { id: enrollmentId, sequence: { organizationId: orgId } },
     select: { id: true, sequenceId: true, status: true },
   });
   if (!enrollment) return { ok: false, message: "Enrollment not found." };
@@ -625,9 +663,9 @@ export async function pauseEnrollment(enrollmentId: string): Promise<ActionResul
 }
 
 export async function resumeEnrollment(enrollmentId: string): Promise<ActionResult> {
-  const session = await requireSession();
-  const enrollment = await prisma.sequenceEnrollment.findUnique({
-    where: { id: enrollmentId },
+  const { session, orgId } = await requireSessionWithOrg();
+  const enrollment = await prisma.sequenceEnrollment.findFirst({
+    where: { id: enrollmentId, sequence: { organizationId: orgId } },
     include: {
       candidate: { select: { firstName: true, lastName: true, email: true, phone: true } },
       application: { include: { job: { select: { title: true } } } },
@@ -677,6 +715,7 @@ export async function resumeEnrollment(enrollmentId: string): Promise<ActionResu
           candidateId: enrollment.candidateId,
           applicationId: enrollment.applicationId,
           fromUserId: session.user.id,
+          organizationId: orgId,
           to: enrollment.candidate.email,
           subject,
           bodyText: text,
@@ -712,9 +751,9 @@ export async function resumeEnrollment(enrollmentId: string): Promise<ActionResu
 }
 
 export async function cancelEnrollment(enrollmentId: string): Promise<ActionResult> {
-  await requireSession();
-  const enrollment = await prisma.sequenceEnrollment.findUnique({
-    where: { id: enrollmentId },
+  const { orgId } = await requireSessionWithOrg();
+  const enrollment = await prisma.sequenceEnrollment.findFirst({
+    where: { id: enrollmentId, sequence: { organizationId: orgId } },
     select: { id: true, sequenceId: true, status: true },
   });
   if (!enrollment) return { ok: false, message: "Enrollment not found." };
@@ -795,11 +834,12 @@ export async function completeStepRun(
   stepRunId: string,
   outcomeNote: string,
 ): Promise<ActionResult> {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const { outcome } = completeSchema.parse({ outcome: outcomeNote });
 
-  const run = await prisma.stepRun.findUnique({
-    where: { id: stepRunId },
+  // Scope through the enrollment's sequence (which has organizationId).
+  const run = await prisma.stepRun.findFirst({
+    where: { id: stepRunId, enrollment: { sequence: { organizationId: orgId } } },
     include: {
       step: { select: { type: true, sequenceId: true } },
       enrollment: { select: { id: true, sequenceId: true } },

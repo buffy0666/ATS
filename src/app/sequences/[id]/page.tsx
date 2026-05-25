@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { EnrollmentStatus, SequenceStatus } from "@/generated/prisma";
 import { deleteSequence, updateSequenceMeta } from "../actions";
@@ -13,11 +13,11 @@ export default async function SequenceDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
 
   const [sequence, templates] = await Promise.all([
-    prisma.sequence.findUnique({
-      where: { id },
+    prisma.sequence.findFirst({
+      where: { id, organizationId: orgId },
       include: {
         steps: { orderBy: { order: "asc" } },
         _count: { select: { enrollments: true } },
@@ -28,6 +28,7 @@ export default async function SequenceDetailPage({
       },
     }),
     prisma.emailTemplate.findMany({
+      where: { organizationId: orgId },
       orderBy: { name: "asc" },
       select: { id: true, name: true, subject: true, body: true },
     }),

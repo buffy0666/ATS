@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { TaskPriority, TaskStatus } from "@/generated/prisma";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { removeAttachmentFile, saveAttachment } from "@/lib/uploads";
 
@@ -74,11 +74,11 @@ async function saveTaskAttachments(taskId: string, files: File[], userId: string
 }
 
 export async function createTask(formData: FormData) {
-  const session = await requireAdmin();
+  const { session, orgId } = await requireAdminWithOrg();
   const data = parseTaskInput(formData);
 
   const task = await prisma.task.create({
-    data: { ...data, createdById: session.user.id },
+    data: { ...data, createdById: session.user.id, organizationId: orgId },
   });
 
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File);
@@ -89,8 +89,14 @@ export async function createTask(formData: FormData) {
 }
 
 export async function updateTask(taskId: string, formData: FormData) {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
   const data = parseTaskInput(formData);
+
+  const existing = await prisma.task.findFirst({
+    where: { id: taskId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!existing) throw new Error("Task not found.");
 
   await prisma.task.update({ where: { id: taskId }, data });
 
@@ -99,7 +105,13 @@ export async function updateTask(taskId: string, formData: FormData) {
 }
 
 export async function deleteTask(taskId: string) {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
+
+  const task = await prisma.task.findFirst({
+    where: { id: taskId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!task) throw new Error("Task not found.");
 
   const attachments = await prisma.taskAttachment.findMany({
     where: { taskId },
@@ -113,16 +125,23 @@ export async function deleteTask(taskId: string) {
 }
 
 export async function addTaskAttachments(taskId: string, formData: FormData) {
-  const session = await requireAdmin();
+  const { session, orgId } = await requireAdminWithOrg();
+  const task = await prisma.task.findFirst({
+    where: { id: taskId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!task) throw new Error("Task not found.");
+
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File);
   await saveTaskAttachments(taskId, files, session.user.id);
   revalidatePath(`/tasks/${taskId}`);
 }
 
 export async function deleteTaskAttachment(attachmentId: string) {
-  await requireAdmin();
-  const attachment = await prisma.taskAttachment.findUnique({
-    where: { id: attachmentId },
+  const { orgId } = await requireAdminWithOrg();
+  // Join through task to verify the attachment belongs to a task in this org.
+  const attachment = await prisma.taskAttachment.findFirst({
+    where: { id: attachmentId, task: { organizationId: orgId } },
     select: { taskId: true, url: true },
   });
   if (!attachment) return;
@@ -168,7 +187,7 @@ export type BulkPatchInput = {
  * nullable field back to null.
  */
 export async function bulkUpdateTasks(taskIds: string[], patch: BulkPatchInput) {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
   if (taskIds.length === 0) return { count: 0 };
 
   const parsed = bulkPatchSchema.parse(patch);
@@ -203,7 +222,7 @@ export async function bulkUpdateTasks(taskIds: string[], patch: BulkPatchInput) 
   if (Object.keys(data).length === 0) return { count: 0 };
 
   const result = await prisma.task.updateMany({
-    where: { id: { in: taskIds } },
+    where: { id: { in: taskIds }, organizationId: orgId },
     data,
   });
 
@@ -212,15 +231,17 @@ export async function bulkUpdateTasks(taskIds: string[], patch: BulkPatchInput) 
 }
 
 export async function bulkDeleteTasks(taskIds: string[]) {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
   if (taskIds.length === 0) return { count: 0 };
 
   const attachments = await prisma.taskAttachment.findMany({
-    where: { taskId: { in: taskIds } },
+    where: { taskId: { in: taskIds }, task: { organizationId: orgId } },
     select: { url: true },
   });
 
-  const result = await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
+  const result = await prisma.task.deleteMany({
+    where: { id: { in: taskIds }, organizationId: orgId },
+  });
   await Promise.all(attachments.map((a) => removeAttachmentFile(a.url)));
 
   revalidatePath("/tasks");

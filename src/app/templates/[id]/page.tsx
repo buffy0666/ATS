@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { TemplateForm } from "../TemplateForm";
 import { updateTemplate, deleteTemplate } from "../actions";
@@ -11,7 +12,10 @@ export default async function EditTemplatePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const template = await prisma.emailTemplate.findUnique({ where: { id } });
+  const { orgId } = await requireSessionWithOrg();
+  const template = await prisma.emailTemplate.findFirst({
+    where: { id, organizationId: orgId },
+  });
   if (!template) notFound();
 
   const update = updateTemplate.bind(null, template.id);

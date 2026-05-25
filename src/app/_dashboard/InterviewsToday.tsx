@@ -19,10 +19,14 @@ export type InterviewsTodayData = {
   preview: InterviewItem[];
 };
 
-export async function loadInterviewsToday(userId: string): Promise<InterviewsTodayData> {
+export async function loadInterviewsToday(
+  userId: string,
+  orgId: string,
+): Promise<InterviewsTodayData> {
   const { start, endInclusive } = todayBounds();
 
   const baseWhere: Prisma.InterviewWhereInput = {
+    organizationId: orgId,
     startAt: { gte: start, lte: endInclusive },
     status: InterviewStatus.SCHEDULED,
     OR: [

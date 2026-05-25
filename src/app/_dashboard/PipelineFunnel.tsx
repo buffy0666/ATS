@@ -38,10 +38,10 @@ export type PipelineFunnelData = {
   max: number;
 };
 
-export async function loadPipelineFunnel(): Promise<PipelineFunnelData> {
+export async function loadPipelineFunnel(orgId: string): Promise<PipelineFunnelData> {
   const rows = await prisma.application.groupBy({
     by: ["stage"],
-    where: { job: { status: JobStatus.OPEN } },
+    where: { organizationId: orgId, job: { status: JobStatus.OPEN } },
     _count: { _all: true },
   });
 

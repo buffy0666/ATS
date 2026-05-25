@@ -1,14 +1,18 @@
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "../actions";
 import { ClientFormFields } from "../ClientFormFields";
 
 export default async function NewClientPage() {
+  const { orgId } = await requireSessionWithOrg();
   const [owners, allTags] = await Promise.all([
     prisma.user.findMany({
+      where: { organizationId: orgId },
       orderBy: [{ name: "asc" }, { email: "asc" }],
       select: { id: true, name: true, email: true },
     }),
     prisma.tag.findMany({
+      where: { organizationId: orgId },
       orderBy: { name: "asc" },
       select: { id: true, name: true, color: true },
     }),

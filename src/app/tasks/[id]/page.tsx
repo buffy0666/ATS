@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import {
   addTaskAttachments,
@@ -21,12 +21,12 @@ export default async function TaskDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
   const { id } = await params;
 
   const [task, assignableUsers] = await Promise.all([
-    prisma.task.findUnique({
-      where: { id },
+    prisma.task.findFirst({
+      where: { id, organizationId: orgId },
       include: {
         createdBy: { select: { name: true, email: true } },
         assignedTo: { select: { id: true, name: true, email: true } },
@@ -34,7 +34,7 @@ export default async function TaskDetailPage({
       },
     }),
     prisma.user.findMany({
-      where: { active: true },
+      where: { active: true, organizationId: orgId },
       orderBy: [{ name: "asc" }, { email: "asc" }],
       select: { id: true, name: true, email: true },
     }),

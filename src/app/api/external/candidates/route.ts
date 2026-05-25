@@ -132,9 +132,14 @@ export async function POST(request: NextRequest) {
   const data = parsed.data;
 
   // Duplicate detection — by linkedinUrl first (the strongest signal from this source),
-  // then by email.
+  // then by email. Scoped to the API token's org so two tenants can each have
+  // their own copy of the same LinkedIn URL without colliding. Pre-Phase 6
+  // there's still a global @unique on linkedinUrl/email at the schema level
+  // (will be relaxed to (organizationId, ...) in lockdown) — this check just
+  // gives a cleaner 409 than a constraint violation.
   const existing = await prisma.candidate.findFirst({
     where: {
+      organizationId: auth.organizationId,
       OR: [
         { linkedinUrl: data.linkedinUrl },
         ...(data.email ? [{ email: data.email.toLowerCase() }] : []),
@@ -194,6 +199,7 @@ export async function POST(request: NextRequest) {
       resumeText: data.pageText ?? null,
       source: data.source ?? "LinkedIn",
       sourcedById: auth.userId,
+      organizationId: auth.organizationId,
       aiStatus: willQueueAI ? AIProcessingStatus.PENDING : AIProcessingStatus.NONE,
     },
     select: { id: true, firstName: true, lastName: true },

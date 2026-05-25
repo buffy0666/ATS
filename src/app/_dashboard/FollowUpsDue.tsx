@@ -15,11 +15,12 @@ export type FollowUpsDueData = {
   preview: FollowUpItem[];
 };
 
-export async function loadFollowUpsDue(): Promise<FollowUpsDueData> {
+export async function loadFollowUpsDue(orgId: string): Promise<FollowUpsDueData> {
   const now = new Date();
   const cutoff = daysAgo(30, now);
 
   const where: Prisma.CandidateWhereInput = {
+    organizationId: orgId,
     status: CandidateStatus.ACTIVE,
     OR: [
       { nextFollowUpAt: { lte: now } },

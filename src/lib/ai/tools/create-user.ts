@@ -21,7 +21,7 @@ export const createUserTool = defineTool({
       .max(200)
       .describe("Initial password. Must be at least 10 chars; user should change it on first login."),
   }),
-  async execute(args) {
+  async execute(args, ctx) {
     const existing = await prisma.user.findUnique({
       where: { email: args.email.toLowerCase() },
       select: { id: true },
@@ -35,6 +35,7 @@ export const createUserTool = defineTool({
         name: args.name ?? null,
         role: args.role,
         passwordHash,
+        organizationId: ctx.organizationId,
       },
       select: { id: true, email: true, name: true, role: true },
     });

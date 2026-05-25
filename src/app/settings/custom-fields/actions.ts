@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { CustomFieldEntity, CustomFieldType } from "@/generated/prisma";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 
 export type CustomFieldResult = { ok: true } | { ok: false; error: string };
@@ -64,7 +64,7 @@ function formInput(formData: FormData) {
 }
 
 export async function createCustomField(formData: FormData): Promise<CustomFieldResult> {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
 
   const parsed = baseSchema.safeParse(formInput(formData));
   if (!parsed.success) {
@@ -76,6 +76,9 @@ export async function createCustomField(formData: FormData): Promise<CustomField
     return { ok: false, error: "Add at least one option (one per line or comma-separated)." };
   }
 
+  // The (entity, key) unique index is still global until Phase 6 swaps it
+  // for (organizationId, entity, key). Until then two orgs can't both
+  // define e.g. "candidate.linkedin_handle" — known limitation.
   const existing = await prisma.customField.findUnique({
     where: { entity_key: { entity, key } },
     select: { id: true },
@@ -85,7 +88,7 @@ export async function createCustomField(formData: FormData): Promise<CustomField
   }
 
   const max = await prisma.customField.aggregate({
-    where: { entity },
+    where: { entity, organizationId: orgId },
     _max: { sortOrder: true },
   });
 
@@ -99,6 +102,7 @@ export async function createCustomField(formData: FormData): Promise<CustomField
       required,
       options: typeNeedsOptions(type) ? options : [],
       sortOrder: (max._max.sortOrder ?? -1) + 1,
+      organizationId: orgId,
     },
   });
 
@@ -107,7 +111,7 @@ export async function createCustomField(formData: FormData): Promise<CustomField
 }
 
 export async function updateCustomField(id: string, formData: FormData): Promise<CustomFieldResult> {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
 
   const parsed = baseSchema.safeParse(formInput(formData));
   if (!parsed.success) {
@@ -119,8 +123,10 @@ export async function updateCustomField(id: string, formData: FormData): Promise
     return { ok: false, error: "Add at least one option (one per line or comma-separated)." };
   }
 
-  const current = await prisma.customField.findUnique({
-    where: { id },
+  // findFirst by (id, organizationId) so a guessed id from another tenant
+  // can't be edited via this endpoint.
+  const current = await prisma.customField.findFirst({
+    where: { id, organizationId: orgId },
     select: { id: true, type: true, entity: true },
   });
   if (!current) return { ok: false, error: "Field not found." };
@@ -149,16 +155,18 @@ export async function updateCustomField(id: string, formData: FormData): Promise
 }
 
 export async function deleteCustomField(id: string): Promise<CustomFieldResult> {
-  await requireAdmin();
-  await prisma.customField.delete({ where: { id } }); // cascades to values
+  const { orgId } = await requireAdminWithOrg();
+  // deleteMany so a stray id from another org just no-ops instead of
+  // bleeding across tenants. Cascade still cleans up CustomFieldValue.
+  await prisma.customField.deleteMany({ where: { id, organizationId: orgId } });
   revalidatePath("/settings/custom-fields");
   return { ok: true };
 }
 
 export async function reorderCustomField(id: string, direction: "up" | "down"): Promise<CustomFieldResult> {
-  await requireAdmin();
-  const target = await prisma.customField.findUnique({
-    where: { id },
+  const { orgId } = await requireAdminWithOrg();
+  const target = await prisma.customField.findFirst({
+    where: { id, organizationId: orgId },
     select: { id: true, entity: true, sortOrder: true },
   });
   if (!target) return { ok: false, error: "Field not found." };
@@ -166,6 +174,7 @@ export async function reorderCustomField(id: string, direction: "up" | "down"): 
   const neighbor = await prisma.customField.findFirst({
     where: {
       entity: target.entity,
+      organizationId: orgId,
       sortOrder: direction === "up" ? { lt: target.sortOrder } : { gt: target.sortOrder },
     },
     orderBy: { sortOrder: direction === "up" ? "desc" : "asc" },

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { ClientStatus } from "@/generated/prisma";
 import { tagClass } from "@/lib/tag-colors";
@@ -18,7 +19,9 @@ const STATUS_STYLE: Record<ClientStatus, string> = {
 };
 
 export default async function ClientsPage() {
+  const { orgId } = await requireSessionWithOrg();
   const clients = await prisma.client.findMany({
+    where: { organizationId: orgId },
     orderBy: [{ status: "asc" }, { name: "asc" }],
     include: {
       _count: { select: { jobs: true, contacts: true } },

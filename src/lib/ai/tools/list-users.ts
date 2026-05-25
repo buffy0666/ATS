@@ -13,9 +13,12 @@ export const listUsersTool = defineTool({
     includeInactive: z.boolean().default(false),
     limit: z.number().int().min(1).max(200).default(100),
   }),
-  async execute(args) {
+  async execute(args, ctx) {
     const users = await prisma.user.findMany({
-      where: args.includeInactive ? {} : { active: true },
+      where: {
+        organizationId: ctx.organizationId,
+        ...(args.includeInactive ? {} : { active: true }),
+      },
       orderBy: [{ active: "desc" }, { name: "asc" }],
       take: args.limit,
       select: {

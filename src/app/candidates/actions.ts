@@ -210,6 +210,9 @@ import type {
 export async function parseCandidateResume(formData: FormData): Promise<CandidateResumeParseResult> {
   const session = await auth();
   if (!session?.user) throw new Error("Unauthorized");
+  // Use the caller's org for AI provider resolution so each tenant's
+  // configured key + model is used. Null tolerated for legacy sessions.
+  const orgId = session.user.organizationId ?? null;
 
   const currentFields = getCandidateFieldValues(formData);
   const resume = formData.get("resume");
@@ -222,7 +225,7 @@ export async function parseCandidateResume(formData: FormData): Promise<Candidat
   }
 
   try {
-    const parsed = ParsedResumeSchema.parse(await parseResume(resume));
+    const parsed = ParsedResumeSchema.parse(await parseResume(resume, orgId));
     const parserVersion = getResumeParserVersion();
 
     return {

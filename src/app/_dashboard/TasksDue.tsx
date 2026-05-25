@@ -23,12 +23,16 @@ export type TasksDueData = {
   preview: TaskItem[];
 };
 
-export async function loadTasksDue(userId: string): Promise<TasksDueData> {
+export async function loadTasksDue(userId: string, orgId: string): Promise<TasksDueData> {
   const { endInclusive } = todayBounds();
 
   const [openTasks, stepRunsDue, stepRunCount] = await Promise.all([
     prisma.task.findMany({
-      where: { createdById: userId, status: { not: TaskStatus.COMPLETE } },
+      where: {
+        organizationId: orgId,
+        createdById: userId,
+        status: { not: TaskStatus.COMPLETE },
+      },
       orderBy: { updatedAt: "asc" },
       take: 5,
       select: { id: true, name: true, status: true, updatedAt: true },
@@ -41,6 +45,7 @@ export async function loadTasksDue(userId: string): Promise<TasksDueData> {
         enrollment: {
           enrolledById: userId,
           status: EnrollmentStatus.ACTIVE,
+          sequence: { organizationId: orgId },
         },
       },
       orderBy: { scheduledFor: "asc" },
@@ -62,13 +67,18 @@ export async function loadTasksDue(userId: string): Promise<TasksDueData> {
         enrollment: {
           enrolledById: userId,
           status: EnrollmentStatus.ACTIVE,
+          sequence: { organizationId: orgId },
         },
       },
     }),
   ]);
 
   const taskCount = await prisma.task.count({
-    where: { createdById: userId, status: { not: TaskStatus.COMPLETE } },
+    where: {
+      organizationId: orgId,
+      createdById: userId,
+      status: { not: TaskStatus.COMPLETE },
+    },
   });
 
   const stepItems: TaskItem[] = stepRunsDue.map((r) => ({

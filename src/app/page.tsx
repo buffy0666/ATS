@@ -1,4 +1,4 @@
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { loadActivityFeed, ActivityFeed } from "./_dashboard/ActivityFeed";
 import { loadFollowUpsDue, FollowUpsDueCard } from "./_dashboard/FollowUpsDue";
 import {
@@ -16,16 +16,16 @@ import {
 import { loadTasksDue, TasksDueCard } from "./_dashboard/TasksDue";
 
 export default async function Dashboard() {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const userId = session.user.id;
 
   const [tasks, interviews, followUps, stale, funnel, activity] = await Promise.all([
-    loadTasksDue(userId),
-    loadInterviewsToday(userId),
-    loadFollowUpsDue(),
-    loadStaleApplications(),
-    loadPipelineFunnel(),
-    loadActivityFeed(),
+    loadTasksDue(userId, orgId),
+    loadInterviewsToday(userId, orgId),
+    loadFollowUpsDue(orgId),
+    loadStaleApplications(orgId),
+    loadPipelineFunnel(orgId),
+    loadActivityFeed(orgId),
   ]);
 
   const greeting = session.user.name

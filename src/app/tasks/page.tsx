@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Prisma, TaskStatus } from "@/generated/prisma";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { SORT_COLUMNS, type SortColumn, type TaskRow, TasksTable } from "./TasksTable";
 
@@ -25,14 +25,17 @@ export default async function TasksPage({
 }: {
   searchParams: Promise<{ status?: string; sort?: string; dir?: string }>;
 }) {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
   const { status: statusRaw, sort: sortRaw, dir: dirRaw } = await searchParams;
 
   const status = parseStatus(statusRaw);
   const sort = parseSort(sortRaw);
   const dir = parseDir(dirRaw);
 
-  const where: Prisma.TaskWhereInput = status ? { status } : {};
+  const where: Prisma.TaskWhereInput = {
+    organizationId: orgId,
+    ...(status ? { status } : {}),
+  };
 
   const [tasks, assignableUsers] = await Promise.all([
     prisma.task.findMany({
@@ -52,7 +55,7 @@ export default async function TasksPage({
       },
     }),
     prisma.user.findMany({
-      where: { active: true },
+      where: { active: true, organizationId: orgId },
       orderBy: [{ name: "asc" }, { email: "asc" }],
       select: { id: true, name: true, email: true },
     }),

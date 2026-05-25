@@ -21,8 +21,8 @@ export const updateUserRoleTool = defineTool({
         error: "You can't demote yourself — ask another admin to do it.",
       };
     }
-    const before = await prisma.user.findUnique({
-      where: { id: args.userId },
+    const before = await prisma.user.findFirst({
+      where: { id: args.userId, organizationId: ctx.organizationId },
       select: { id: true, role: true, email: true },
     });
     if (!before) return { ok: false, error: "User not found." };

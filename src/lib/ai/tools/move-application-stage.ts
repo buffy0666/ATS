@@ -14,9 +14,9 @@ export const moveApplicationStageTool = defineTool({
     applicationId: z.string().min(1).max(40),
     stage: z.nativeEnum(Stage),
   }),
-  async execute(args) {
-    const before = await prisma.application.findUnique({
-      where: { id: args.applicationId },
+  async execute(args, ctx) {
+    const before = await prisma.application.findFirst({
+      where: { id: args.applicationId, organizationId: ctx.organizationId },
       select: {
         id: true,
         stage: true,

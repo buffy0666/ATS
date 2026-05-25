@@ -26,13 +26,20 @@ export const createListTool = defineTool({
         description: args.description?.trim() || null,
         scope: args.scope,
         ownerId: ctx.userId,
+        organizationId: ctx.organizationId,
       },
       select: { id: true, name: true },
     });
 
     let added = 0;
     if (args.candidateIds && args.candidateIds.length > 0) {
-      const ids = Array.from(new Set(args.candidateIds)).slice(0, 500);
+      const rawIds = Array.from(new Set(args.candidateIds)).slice(0, 500);
+      // Defense-in-depth: drop any candidate id that isn't actually in this org.
+      const allowed = await prisma.candidate.findMany({
+        where: { id: { in: rawIds }, organizationId: ctx.organizationId },
+        select: { id: true },
+      });
+      const ids = allowed.map((c) => c.id);
       const result = await prisma.candidateListMember.createMany({
         data: ids.map((candidateId) => ({
           listId: list.id,

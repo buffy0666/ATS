@@ -17,10 +17,10 @@ export const listJobsTool = defineTool({
       .describe("Filter to these job statuses. Defaults to [OPEN]."),
     limit: z.number().int().min(1).max(50).default(20),
   }),
-  async execute(args) {
+  async execute(args, ctx) {
     const statuses = args.status && args.status.length > 0 ? args.status : [JobStatus.OPEN];
     const jobs = await prisma.job.findMany({
-      where: { status: { in: statuses } },
+      where: { status: { in: statuses }, organizationId: ctx.organizationId },
       orderBy: { updatedAt: "desc" },
       take: args.limit,
       select: {

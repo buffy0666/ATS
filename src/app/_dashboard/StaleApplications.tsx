@@ -18,11 +18,12 @@ export type StaleApplicationsData = {
   preview: StaleItem[];
 };
 
-export async function loadStaleApplications(): Promise<StaleApplicationsData> {
+export async function loadStaleApplications(orgId: string): Promise<StaleApplicationsData> {
   const now = new Date();
   const cutoff = daysAgo(14, now);
 
   const where = {
+    organizationId: orgId,
     stage: { notIn: [Stage.HIRED, Stage.REJECTED] },
     updatedAt: { lt: cutoff },
   };

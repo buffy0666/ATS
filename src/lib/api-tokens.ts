@@ -13,6 +13,7 @@ const TOKEN_PREFIX = "ats_";
 export async function createApiToken(
   userId: string,
   name: string,
+  organizationId: string,
 ): Promise<{ token: string; record: { id: string; tokenPrefix: string; name: string } }> {
   const random = randomBytes(32).toString("hex");
   const token = `${TOKEN_PREFIX}${random}`;
@@ -20,7 +21,7 @@ export async function createApiToken(
   const tokenPrefix = token.slice(0, 12);
 
   const record = await prisma.apiToken.create({
-    data: { userId, name, tokenHash, tokenPrefix },
+    data: { userId, name, tokenHash, tokenPrefix, organizationId },
     select: { id: true, tokenPrefix: true, name: true },
   });
 
@@ -30,14 +31,20 @@ export async function createApiToken(
 /**
  * Look up the user behind a Bearer token. Updates lastUsedAt on success.
  * Returns null when the token is unknown, revoked, or malformed.
+ *
+ * Multi-tenant: returns the token's organizationId too so external
+ * endpoints (Chrome extension → /api/external/candidates) can scope
+ * their writes to the right tenant without a second user lookup.
  */
-export async function authenticateApiToken(token: string): Promise<{ userId: string; tokenId: string } | null> {
+export async function authenticateApiToken(
+  token: string,
+): Promise<{ userId: string; tokenId: string; organizationId: string | null } | null> {
   if (!token || !token.startsWith(TOKEN_PREFIX)) return null;
   const tokenHash = sha256Hex(token);
 
   const record = await prisma.apiToken.findUnique({
     where: { tokenHash },
-    select: { id: true, userId: true, revokedAt: true },
+    select: { id: true, userId: true, revokedAt: true, organizationId: true },
   });
   if (!record || record.revokedAt) return null;
 
@@ -46,7 +53,7 @@ export async function authenticateApiToken(token: string): Promise<{ userId: str
     .update({ where: { id: record.id }, data: { lastUsedAt: new Date() } })
     .catch(() => {});
 
-  return { userId: record.userId, tokenId: record.id };
+  return { userId: record.userId, tokenId: record.id, organizationId: record.organizationId };
 }
 
 export async function revokeApiToken(userId: string, tokenId: string): Promise<void> {

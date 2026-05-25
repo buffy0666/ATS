@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { Stage } from "@/generated/prisma";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { formatSalaryRange } from "./job-money";
 
 const IN_PROCESS_STAGES: Stage[] = [Stage.APPLIED, Stage.SCREEN, Stage.INTERVIEW, Stage.OFFER];
 
 export default async function JobsPage() {
+  const { orgId } = await requireSessionWithOrg();
   const jobs = await prisma.job.findMany({
+    where: { organizationId: orgId },
     orderBy: { createdAt: "desc" },
     include: {
       client: { select: { id: true, name: true } },

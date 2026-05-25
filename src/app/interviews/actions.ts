@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { InterviewStatus, InterviewType } from "@/generated/prisma";
 import { sendEmail } from "@/lib/email";
@@ -60,7 +60,7 @@ function parseAttendees(formData: FormData): InterviewInput["attendees"] {
 }
 
 export async function createInterview(formData: FormData) {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
 
   const data = interviewSchema.parse({
     candidateId: formData.get("candidateId"),
@@ -86,6 +86,20 @@ export async function createInterview(formData: FormData) {
     throw new Error("End time must be after start time.");
   }
 
+  // Verify the candidate (and application, if linked) belong to this org.
+  const candidate = await prisma.candidate.findFirst({
+    where: { id: data.candidateId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!candidate) throw new Error("Candidate not found.");
+  if (data.applicationId) {
+    const app = await prisma.application.findFirst({
+      where: { id: data.applicationId, organizationId: orgId, candidateId: data.candidateId },
+      select: { id: true },
+    });
+    if (!app) data.applicationId = null;
+  }
+
   const interview = await prisma.interview.create({
     data: {
       candidateId: data.candidateId,
@@ -99,6 +113,7 @@ export async function createInterview(formData: FormData) {
       videoUrl: data.videoUrl,
       description: data.description,
       organizerId: session.user.id,
+      organizationId: orgId,
       attendees: {
         create: data.attendees.map((a) => ({
           userId: a.userId,
@@ -126,7 +141,12 @@ export async function createInterview(formData: FormData) {
 }
 
 export async function updateInterview(interviewId: string, formData: FormData) {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
+  const existing = await prisma.interview.findFirst({
+    where: { id: interviewId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!existing) throw new Error("Interview not found.");
 
   const data = interviewSchema.parse({
     candidateId: formData.get("candidateId"),
@@ -191,21 +211,25 @@ export async function updateInterview(interviewId: string, formData: FormData) {
 }
 
 export async function setInterviewStatus(interviewId: string, status: InterviewStatus) {
-  await requireSession();
-  await prisma.interview.update({ where: { id: interviewId }, data: { status } });
+  const { orgId } = await requireSessionWithOrg();
+  await prisma.interview.updateMany({
+    where: { id: interviewId, organizationId: orgId },
+    data: { status },
+  });
   revalidatePath("/interviews");
   revalidatePath(`/interviews/${interviewId}`);
 }
 
 export async function deleteInterview(interviewId: string) {
-  await requireSession();
-  const iv = await prisma.interview.findUnique({
-    where: { id: interviewId },
+  const { orgId } = await requireSessionWithOrg();
+  const iv = await prisma.interview.findFirst({
+    where: { id: interviewId, organizationId: orgId },
     select: { candidateId: true },
   });
+  if (!iv) throw new Error("Interview not found.");
   await prisma.interview.delete({ where: { id: interviewId } });
   revalidatePath("/interviews");
-  if (iv) revalidatePath(`/candidates/${iv.candidateId}`);
+  revalidatePath(`/candidates/${iv.candidateId}`);
   redirect("/interviews");
 }
 
@@ -281,9 +305,16 @@ async function sendInviteEmails(
     } catch (err) {
       // Log to EmailLog as a failed send so the recruiter sees what happened.
       const message = err instanceof Error ? err.message : "Unknown error sending invite";
+      // Pull the organizer's org for the log; sendInviteEmails doesn't have
+      // orgId in scope so we look it up here. Cheap lookup, only on failure.
+      const senderRow = await prisma.user.findUnique({
+        where: { id: sender.id },
+        select: { organizationId: true },
+      });
       await prisma.emailLog.create({
         data: {
           fromUserId: sender.id,
+          organizationId: senderRow?.organizationId ?? null,
           to,
           replyTo: sender.email,
           subject,

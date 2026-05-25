@@ -12,9 +12,9 @@ export const getJobTool = defineTool({
   parameters: z.object({
     jobId: z.string().min(1).max(40),
   }),
-  async execute(args) {
-    const job = await prisma.job.findUnique({
-      where: { id: args.jobId },
+  async execute(args, ctx) {
+    const job = await prisma.job.findFirst({
+      where: { id: args.jobId, organizationId: ctx.organizationId },
       include: {
         client: { select: { id: true, name: true } },
         applications: {

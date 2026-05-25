@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { EnrollmentStatus, SequenceStatus } from "@/generated/prisma";
 
@@ -9,8 +9,9 @@ const STATUS_BADGE: Record<SequenceStatus, string> = {
 };
 
 export default async function SequencesPage() {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
   const sequences = await prisma.sequence.findMany({
+    where: { organizationId: orgId },
     orderBy: [{ status: "asc" }, { updatedAt: "desc" }],
     include: {
       _count: { select: { steps: true } },

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { auth } from "@/auth";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { JobStatus, Stage } from "@/generated/prisma";
 
@@ -29,8 +29,7 @@ const jobSchema = z.object({
 });
 
 export async function createJob(formData: FormData) {
-  const session = await auth();
-  if (!session?.user) throw new Error("Unauthorized");
+  const { session, orgId } = await requireSessionWithOrg();
 
   const data = jobSchema.parse({
     title: formData.get("title"),
@@ -44,8 +43,19 @@ export async function createJob(formData: FormData) {
     placementFeePercent: formData.get("placementFeePercent"),
   });
 
+  // Cross-tenant guard: if a clientId was picked, it must belong to this
+  // org. Otherwise drop it (the form's <select> is org-scoped so this is
+  // belt-and-suspenders against a hand-crafted POST).
+  if (data.clientId) {
+    const client = await prisma.client.findFirst({
+      where: { id: data.clientId, organizationId: orgId },
+      select: { id: true },
+    });
+    if (!client) data.clientId = null;
+  }
+
   const job = await prisma.job.create({
-    data: { ...data, createdById: session.user.id },
+    data: { ...data, createdById: session.user.id, organizationId: orgId },
   });
 
   revalidatePath("/jobs");
@@ -55,21 +65,32 @@ export async function createJob(formData: FormData) {
 }
 
 export async function addCandidateToJob(jobId: string, candidateId: string) {
-  const session = await auth();
-  if (!session?.user) throw new Error("Unauthorized");
+  const { orgId } = await requireSessionWithOrg();
+
+  // Verify both belong to this org before linking.
+  const [job, candidate] = await Promise.all([
+    prisma.job.findFirst({
+      where: { id: jobId, organizationId: orgId },
+      select: { id: true },
+    }),
+    prisma.candidate.findFirst({
+      where: { id: candidateId, organizationId: orgId },
+      select: { id: true },
+    }),
+  ]);
+  if (!job || !candidate) throw new Error("Not found in this organization");
 
   await prisma.application.upsert({
     where: { jobId_candidateId: { jobId, candidateId } },
     update: {},
-    create: { jobId, candidateId, stage: Stage.APPLIED },
+    create: { jobId, candidateId, stage: Stage.APPLIED, organizationId: orgId },
   });
 
   revalidatePath(`/jobs/${jobId}`);
 }
 
 export async function updateJob(jobId: string, formData: FormData) {
-  const session = await auth();
-  if (!session?.user) throw new Error("Unauthorized");
+  const { orgId } = await requireSessionWithOrg();
 
   const data = jobSchema.parse({
     title: formData.get("title"),
@@ -82,6 +103,22 @@ export async function updateJob(jobId: string, formData: FormData) {
     salaryHigh: formData.get("salaryHigh"),
     placementFeePercent: formData.get("placementFeePercent"),
   });
+
+  // Verify the job belongs to this org; reject otherwise.
+  const existing = await prisma.job.findFirst({
+    where: { id: jobId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!existing) throw new Error("Job not found.");
+
+  // Same cross-tenant guard on clientId as createJob.
+  if (data.clientId) {
+    const client = await prisma.client.findFirst({
+      where: { id: data.clientId, organizationId: orgId },
+      select: { id: true },
+    });
+    if (!client) data.clientId = null;
+  }
 
   const job = await prisma.job.update({
     where: { id: jobId },
@@ -95,30 +132,34 @@ export async function updateJob(jobId: string, formData: FormData) {
 }
 
 export async function deleteJob(jobId: string) {
-  const session = await auth();
-  if (!session?.user) throw new Error("Unauthorized");
+  const { orgId } = await requireSessionWithOrg();
 
-  const job = await prisma.job.findUnique({
-    where: { id: jobId },
-    select: { clientId: true },
+  const job = await prisma.job.findFirst({
+    where: { id: jobId, organizationId: orgId },
+    select: { id: true, clientId: true },
   });
+  if (!job) throw new Error("Job not found.");
 
   // Application has onDelete: Cascade so all applications + their notes/emails get cleaned up.
   await prisma.job.delete({ where: { id: jobId } });
 
   revalidatePath("/jobs");
-  if (job?.clientId) revalidatePath(`/clients/${job.clientId}`);
+  if (job.clientId) revalidatePath(`/clients/${job.clientId}`);
   redirect("/jobs");
 }
 
 export async function updateApplicationStage(applicationId: string, stage: Stage) {
-  const session = await auth();
-  if (!session?.user) throw new Error("Unauthorized");
+  const { orgId } = await requireSessionWithOrg();
 
-  const app = await prisma.application.update({
-    where: { id: applicationId },
+  const app = await prisma.application.findFirst({
+    where: { id: applicationId, organizationId: orgId },
+    select: { id: true, jobId: true },
+  });
+  if (!app) throw new Error("Application not found.");
+
+  await prisma.application.update({
+    where: { id: app.id },
     data: { stage },
-    select: { jobId: true },
   });
 
   revalidatePath(`/jobs/${app.jobId}`);

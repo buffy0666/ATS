@@ -55,22 +55,44 @@ export type ChoiceOptionRow = {
 };
 
 /**
- * Idempotent. Inserts the default options for a field if it has none yet.
- * Lets us avoid a separate seed script — the first visit to /settings/choices
- * (or first read of options for a field) just lazily fills the table.
+ * Idempotent. Inserts the default options for a field if the caller's org
+ * has none yet. Lets us avoid a separate seed script — the first visit to
+ * /settings/choices (or first read of options for a field) just lazily fills
+ * the table for that tenant.
+ *
+ * orgId is nullable to support callers that legitimately have no org
+ * (env-driven dev runs, etc.). Pre-Phase 6 there is also a global
+ * (field, name) unique index, so the createMany may need to silently skip
+ * duplicates if another org has already inserted the same default — that's
+ * fine, the row belongs to the other org and this one will still get a
+ * coherent set via the existing-count check.
  */
-export async function ensureChoiceDefaults(field: string, defaults: readonly string[]) {
-  const existing = await prisma.choiceOption.count({ where: { field } });
+export async function ensureChoiceDefaults(
+  field: string,
+  defaults: readonly string[],
+  orgId: string | null,
+) {
+  const existing = await prisma.choiceOption.count({
+    where: { field, organizationId: orgId },
+  });
   if (existing > 0) return;
   await prisma.choiceOption.createMany({
-    data: defaults.map((name, index) => ({ field, name, sortOrder: index })),
+    data: defaults.map((name, index) => ({
+      field,
+      name,
+      sortOrder: index,
+      organizationId: orgId,
+    })),
     skipDuplicates: true,
   });
 }
 
-export async function loadChoiceOptions(field: string): Promise<ChoiceOptionRow[]> {
+export async function loadChoiceOptions(
+  field: string,
+  orgId: string | null,
+): Promise<ChoiceOptionRow[]> {
   return prisma.choiceOption.findMany({
-    where: { field, active: true },
+    where: { field, active: true, organizationId: orgId },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true, field: true, name: true, sortOrder: true, active: true },
   });

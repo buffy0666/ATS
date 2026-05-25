@@ -15,6 +15,7 @@ export const listListsTool = defineTool({
   async execute(args, ctx) {
     const lists = await prisma.candidateList.findMany({
       where: {
+        organizationId: ctx.organizationId,
         OR: [{ ownerId: ctx.userId }, { scope: "SHARED" }],
       },
       orderBy: [{ updatedAt: "desc" }],

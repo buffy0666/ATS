@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { CHOICE_FIELDS, loadChoiceOptions } from "@/lib/choices";
 import { CandidatesView, type CandidateRow } from "@/app/candidates/CandidatesView";
@@ -12,10 +12,10 @@ export default async function ListDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
 
-  const list = await prisma.candidateList.findUnique({
-    where: { id },
+  const list = await prisma.candidateList.findFirst({
+    where: { id, organizationId: orgId },
     include: {
       owner: { select: { id: true, name: true, email: true } },
       _count: { select: { members: true } },
@@ -29,7 +29,10 @@ export default async function ListDetailPage({
 
   const [candidates, availableTags, sourceOptions, seniorityOptions] = await Promise.all([
     prisma.candidate.findMany({
-      where: { listMemberships: { some: { listId: id } } },
+      where: {
+        organizationId: orgId,
+        listMemberships: { some: { listId: id } },
+      },
       orderBy: { createdAt: "desc" },
       include: {
         tags: { select: { id: true, name: true, color: true } },
@@ -51,11 +54,12 @@ export default async function ListDetailPage({
       take: 500,
     }),
     prisma.tag.findMany({
+      where: { organizationId: orgId },
       orderBy: { name: "asc" },
       select: { id: true, name: true, color: true },
     }),
-    loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
-    loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
+    loadChoiceOptions(CHOICE_FIELDS.candidateSource.key, orgId),
+    loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
   ]);
 
   const rows: CandidateRow[] = candidates.map((c) => ({

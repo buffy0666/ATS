@@ -1,14 +1,14 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { createTask } from "../actions";
 import { TaskFormFields } from "../TaskFormFields";
 
 export default async function NewTaskPage() {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
 
   const assignableUsers = await prisma.user.findMany({
-    where: { active: true },
+    where: { active: true, organizationId: orgId },
     orderBy: [{ name: "asc" }, { email: "asc" }],
     select: { id: true, name: true, email: true },
   });

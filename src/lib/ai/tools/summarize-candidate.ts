@@ -12,9 +12,9 @@ export const summarizeCandidateTool = defineTool({
   parameters: z.object({
     candidateId: z.string().min(1).max(40),
   }),
-  async execute(args) {
-    const c = await prisma.candidate.findUnique({
-      where: { id: args.candidateId },
+  async execute(args, ctx) {
+    const c = await prisma.candidate.findFirst({
+      where: { id: args.candidateId, organizationId: ctx.organizationId },
       select: {
         firstName: true,
         lastName: true,

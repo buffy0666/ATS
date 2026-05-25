@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import {
   EnrollmentStatus,
@@ -17,7 +17,7 @@ const STEP_TYPE_LABEL: Record<SequenceStepType, string> = {
 };
 
 export default async function SequenceTasksDuePage() {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const userId = session.user.id;
 
   // Pending, due-today-or-earlier, manual step runs on enrollments the current
@@ -32,7 +32,13 @@ export default async function SequenceTasksDuePage() {
       status: StepRunStatus.PENDING,
       scheduledFor: { lte: dueCutoff },
       step: { type: { not: SequenceStepType.EMAIL } },
-      enrollment: { enrolledById: userId, status: EnrollmentStatus.ACTIVE },
+      // Scope through the enrollment's sequence (which has organizationId)
+      // and the enrolling user — both are required to surface this row.
+      enrollment: {
+        enrolledById: userId,
+        status: EnrollmentStatus.ACTIVE,
+        sequence: { organizationId: orgId },
+      },
     },
     orderBy: { scheduledFor: "asc" },
     include: {

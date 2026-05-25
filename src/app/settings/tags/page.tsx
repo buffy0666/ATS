@@ -1,8 +1,12 @@
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { TagsTable, type TagRow } from "./TagsTable";
 
 export default async function TagsSettingsPage() {
+  const { orgId } = await requireSessionWithOrg();
+
   const tags = await prisma.tag.findMany({
+    where: { organizationId: orgId },
     orderBy: { name: "asc" },
     include: {
       _count: { select: { candidates: true, clients: true, contacts: true } },

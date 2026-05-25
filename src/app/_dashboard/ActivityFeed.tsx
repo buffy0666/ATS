@@ -20,9 +20,10 @@ export type ActivityFeedData = {
 const PER_SOURCE = 15;
 const TOTAL = 20;
 
-export async function loadActivityFeed(): Promise<ActivityFeedData> {
+export async function loadActivityFeed(orgId: string): Promise<ActivityFeedData> {
   const [emails, notes, stageMoves, interviews, enrollments] = await Promise.all([
     prisma.emailLog.findMany({
+      where: { organizationId: orgId },
       orderBy: { sentAt: "desc" },
       take: PER_SOURCE,
       select: {
@@ -36,6 +37,7 @@ export async function loadActivityFeed(): Promise<ActivityFeedData> {
       },
     }),
     prisma.note.findMany({
+      where: { organizationId: orgId },
       orderBy: { createdAt: "desc" },
       take: PER_SOURCE,
       select: {
@@ -55,6 +57,7 @@ export async function loadActivityFeed(): Promise<ActivityFeedData> {
       },
     }),
     prisma.application.findMany({
+      where: { organizationId: orgId },
       orderBy: { updatedAt: "desc" },
       take: PER_SOURCE,
       select: {
@@ -66,6 +69,7 @@ export async function loadActivityFeed(): Promise<ActivityFeedData> {
       },
     }),
     prisma.interview.findMany({
+      where: { organizationId: orgId },
       orderBy: { createdAt: "desc" },
       take: PER_SOURCE,
       select: {
@@ -77,6 +81,7 @@ export async function loadActivityFeed(): Promise<ActivityFeedData> {
       },
     }),
     prisma.sequenceEnrollment.findMany({
+      where: { sequence: { organizationId: orgId } },
       orderBy: { startedAt: "desc" },
       take: PER_SOURCE,
       select: {

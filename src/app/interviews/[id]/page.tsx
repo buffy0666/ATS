@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { InterviewStatus, InterviewType } from "@/generated/prisma";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { DeleteInterviewButton } from "./DeleteInterviewButton";
 import { InterviewStatusSelect } from "./InterviewStatusSelect";
@@ -28,11 +28,11 @@ export default async function InterviewDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
   const { id } = await params;
 
-  const interview = await prisma.interview.findUnique({
-    where: { id },
+  const interview = await prisma.interview.findFirst({
+    where: { id, organizationId: orgId },
     include: {
       candidate: { select: { id: true, firstName: true, lastName: true, email: true } },
       organizer: { select: { id: true, name: true, email: true } },

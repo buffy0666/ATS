@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret, maskKey } from "@/lib/crypto";
 import { complete, invalidateAIProviderCache } from "@/lib/ai";
@@ -24,8 +24,12 @@ export type SaveAIConfigResult =
   | { ok: true }
   | { ok: false; error: string };
 
+/**
+ * AIConfig is per-organization (unique on organizationId). Each tenant
+ * brings their own provider + key in Settings → AI provider.
+ */
 export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResult> {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
 
   const parsed = saveSchema.safeParse({
     provider: formData.get("provider"),
@@ -40,15 +44,9 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
   const data = parsed.data;
   const meta = PROVIDERS[data.provider];
 
-  // Determine apiKey behavior:
-  //  - empty string => clear the stored key (only meaningful for providers
-  //    that don't require it, e.g. Ollama).
-  //  - KEY_UNCHANGED sentinel => keep what's in the DB (the UI sends this
-  //    when the admin didn't touch the field).
-  //  - any other value => encrypt and store.
   let apiKeyEncrypted: string | null | undefined;
   if (data.apiKey === KEY_UNCHANGED || data.apiKey === undefined) {
-    apiKeyEncrypted = undefined; // leave alone
+    apiKeyEncrypted = undefined;
   } else if (data.apiKey === "") {
     if (meta.requiresApiKey) {
       return { ok: false, error: `${meta.label} requires an API key.` };
@@ -62,11 +60,9 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
     return { ok: false, error: `${meta.label} requires an API key.` };
   }
 
-  // For providers that require a key, ensure something is set (either new or
-  // already in the DB).
   if (meta.requiresApiKey && apiKeyEncrypted === undefined) {
     const existing = await prisma.aIConfig.findUnique({
-      where: { id: "default" },
+      where: { organizationId: orgId },
       select: { apiKeyEncrypted: true },
     });
     if (!existing?.apiKeyEncrypted) {
@@ -74,8 +70,9 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
     }
   }
 
+  // Upsert by organizationId — each org has at most one AIConfig row.
   await prisma.aIConfig.upsert({
-    where: { id: "default" },
+    where: { organizationId: orgId },
     update: {
       provider: data.provider,
       model: data.model,
@@ -84,7 +81,7 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
       timeoutMs: data.timeoutMs ?? null,
     },
     create: {
-      id: "default",
+      organizationId: orgId,
       provider: data.provider,
       model: data.model,
       baseUrl: data.baseUrl ?? null,
@@ -93,7 +90,7 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
     },
   });
 
-  invalidateAIProviderCache();
+  invalidateAIProviderCache(orgId);
   revalidatePath("/settings/ai");
   return { ok: true };
 }
@@ -102,20 +99,19 @@ export type TestAIConfigResult =
   | { ok: true; provider: string; model: string; sample: string }
   | { ok: false; error: string };
 
-/**
- * Round-trip a tiny prompt to verify the current configuration works.
- * Uses the live cached provider so we test exactly what the app will use.
- */
 export async function testAIConfig(): Promise<TestAIConfigResult> {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
 
   try {
-    const response = await complete({
-      prompt: "Reply with the single word OK and nothing else.",
-      maxTokens: 16,
-      temperature: 0,
-      timeoutMs: 30000,
-    });
+    const response = await complete(
+      {
+        prompt: "Reply with the single word OK and nothing else.",
+        maxTokens: 16,
+        temperature: 0,
+        timeoutMs: 30000,
+      },
+      orgId,
+    );
     return {
       ok: true,
       provider: response.provider,
@@ -149,12 +145,8 @@ export type ListOllamaModelsResult =
   | { ok: true; models: { name: string; size?: number }[] }
   | { ok: false; error: string };
 
-/**
- * Query a user's Ollama server for installed models. Caller passes the same
- * base URL they'd use for completions; we strip `/v1` to get the native API.
- */
 export async function listOllamaModels(baseUrl: string): Promise<ListOllamaModelsResult> {
-  await requireAdmin();
+  await requireAdminWithOrg();
 
   const trimmed = baseUrl.trim();
   if (!trimmed) {
@@ -197,14 +189,10 @@ export async function listOllamaModels(baseUrl: string): Promise<ListOllamaModel
   }
 }
 
-/**
- * Server-side helper for the settings page to safely present the current
- * key — never returns the plaintext, just a masked preview.
- */
 export async function getCurrentKeyPreview(): Promise<string | null> {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
   const row = await prisma.aIConfig.findUnique({
-    where: { id: "default" },
+    where: { organizationId: orgId },
     select: { apiKeyEncrypted: true },
   });
   if (!row?.apiKeyEncrypted) return null;
@@ -214,4 +202,3 @@ export async function getCurrentKeyPreview(): Promise<string | null> {
     return "(undecryptable — re-save the key)";
   }
 }
-

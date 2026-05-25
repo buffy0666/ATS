@@ -11,10 +11,15 @@ export default async function NewCandidatePage() {
   // Lazy-seed default options so the form's dropdowns always have something
   // selectable, even on a fresh database.
   await Promise.all([
-    ensureChoiceDefaults(CHOICE_FIELDS.candidateSource.key, CHOICE_FIELDS.candidateSource.defaults),
+    ensureChoiceDefaults(
+      CHOICE_FIELDS.candidateSource.key,
+      CHOICE_FIELDS.candidateSource.defaults,
+      orgId,
+    ),
     ensureChoiceDefaults(
       CHOICE_FIELDS.candidateSeniority.key,
       CHOICE_FIELDS.candidateSeniority.defaults,
+      orgId,
     ),
   ]);
 
@@ -41,8 +46,8 @@ export default async function NewCandidatePage() {
         orderBy: { name: "asc" },
         select: { id: true, name: true, color: true },
       }),
-      loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
-      loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
+      loadChoiceOptions(CHOICE_FIELDS.candidateSource.key, orgId),
+      loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
       loadCustomFields(CustomFieldEntity.CANDIDATE, orgId),
     ]);
 

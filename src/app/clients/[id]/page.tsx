@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { ClientHeader } from "./ClientHeader";
 import { ContactsSection } from "./ContactsSection";
@@ -10,10 +11,11 @@ export default async function ClientDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const { orgId } = await requireSessionWithOrg();
 
   const [client, owners, allTags] = await Promise.all([
-    prisma.client.findUnique({
-      where: { id },
+    prisma.client.findFirst({
+      where: { id, organizationId: orgId },
       include: {
         contacts: {
           orderBy: { lastName: "asc" },
@@ -33,10 +35,12 @@ export default async function ClientDetailPage({
       },
     }),
     prisma.user.findMany({
+      where: { organizationId: orgId },
       orderBy: [{ name: "asc" }, { email: "asc" }],
       select: { id: true, name: true, email: true },
     }),
     prisma.tag.findMany({
+      where: { organizationId: orgId },
       orderBy: { name: "asc" },
       select: { id: true, name: true, color: true },
     }),

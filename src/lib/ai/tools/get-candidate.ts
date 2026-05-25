@@ -12,9 +12,9 @@ export const getCandidateTool = defineTool({
   parameters: z.object({
     candidateId: z.string().min(1).max(40),
   }),
-  async execute(args) {
-    const candidate = await prisma.candidate.findUnique({
-      where: { id: args.candidateId },
+  async execute(args, ctx) {
+    const candidate = await prisma.candidate.findFirst({
+      where: { id: args.candidateId, organizationId: ctx.organizationId },
       include: {
         tags: { select: { id: true, name: true } },
         applications: {

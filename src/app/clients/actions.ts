@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { auth } from "@/auth";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import {
   ContactRole,
@@ -13,12 +13,6 @@ import {
   RevenueBand,
 } from "@/generated/prisma";
 import { tagColorForName } from "@/lib/tag-colors";
-
-async function requireUser() {
-  const session = await auth();
-  if (!session?.user) throw new Error("Unauthorized");
-  return session;
-}
 
 const optionalString = (max: number) =>
   z.preprocess(
@@ -67,8 +61,9 @@ const clientSchema = z.object({
 /**
  * Upsert tags by name (creating any new ones with a deterministic color),
  * then return the list of tag IDs ready to be `set` on a Client or Contact.
+ * Phase 6 will swap the Tag.name unique to a per-org compound.
  */
-async function syncTagNamesToIds(rawNames: string[]): Promise<string[]> {
+async function syncTagNamesToIds(rawNames: string[], orgId: string): Promise<string[]> {
   const names = Array.from(
     new Set(rawNames.map((n) => n.trim()).filter((n) => n.length > 0 && n.length <= 60)),
   );
@@ -78,7 +73,7 @@ async function syncTagNamesToIds(rawNames: string[]): Promise<string[]> {
     names.map((name) =>
       prisma.tag.upsert({
         where: { name },
-        create: { name, color: tagColorForName(name) },
+        create: { name, color: tagColorForName(name), organizationId: orgId },
         update: {},
       }),
     ),
@@ -104,13 +99,14 @@ function clientPayload(formData: FormData) {
 }
 
 export async function createClient(formData: FormData) {
-  await requireUser();
+  const { orgId } = await requireSessionWithOrg();
   const data = clientPayload(formData);
-  const tagIds = await syncTagNamesToIds(formData.getAll("tags").map(String));
+  const tagIds = await syncTagNamesToIds(formData.getAll("tags").map(String), orgId);
 
   const client = await prisma.client.create({
     data: {
       ...data,
+      organizationId: orgId,
       tags: tagIds.length ? { connect: tagIds.map((id) => ({ id })) } : undefined,
     },
   });
@@ -119,9 +115,15 @@ export async function createClient(formData: FormData) {
 }
 
 export async function updateClient(clientId: string, formData: FormData) {
-  await requireUser();
+  const { orgId } = await requireSessionWithOrg();
   const data = clientPayload(formData);
-  const tagIds = await syncTagNamesToIds(formData.getAll("tags").map(String));
+  const tagIds = await syncTagNamesToIds(formData.getAll("tags").map(String), orgId);
+
+  const existing = await prisma.client.findFirst({
+    where: { id: clientId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!existing) throw new Error("Client not found.");
 
   await prisma.client.update({
     where: { id: clientId },
@@ -135,8 +137,14 @@ export async function updateClient(clientId: string, formData: FormData) {
 }
 
 export async function deleteClient(clientId: string) {
-  await requireUser();
-  const linkedJobs = await prisma.job.count({ where: { clientId } });
+  const { orgId } = await requireSessionWithOrg();
+  const existing = await prisma.client.findFirst({
+    where: { id: clientId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!existing) throw new Error("Client not found.");
+
+  const linkedJobs = await prisma.job.count({ where: { clientId, organizationId: orgId } });
   if (linkedJobs > 0) {
     throw new Error(
       `Cannot delete this client — ${linkedJobs} job(s) are still attached. Reassign or delete those jobs first.`,
@@ -187,13 +195,21 @@ function contactPayload(formData: FormData) {
 }
 
 export async function addContact(clientId: string, formData: FormData) {
-  await requireUser();
+  const { orgId } = await requireSessionWithOrg();
   const data = contactPayload(formData);
-  const tagIds = await syncTagNamesToIds(formData.getAll("tags").map(String));
+  const tagIds = await syncTagNamesToIds(formData.getAll("tags").map(String), orgId);
+
+  // Verify the client belongs to this org before linking.
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!client) throw new Error("Client not found.");
 
   await prisma.clientContact.create({
     data: {
       clientId,
+      organizationId: orgId,
       ...data,
       tags: tagIds.length ? { connect: tagIds.map((id) => ({ id })) } : undefined,
     },
@@ -202,9 +218,15 @@ export async function addContact(clientId: string, formData: FormData) {
 }
 
 export async function updateContact(contactId: string, formData: FormData) {
-  await requireUser();
+  const { orgId } = await requireSessionWithOrg();
   const data = contactPayload(formData);
-  const tagIds = await syncTagNamesToIds(formData.getAll("tags").map(String));
+  const tagIds = await syncTagNamesToIds(formData.getAll("tags").map(String), orgId);
+
+  const existing = await prisma.clientContact.findFirst({
+    where: { id: contactId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!existing) throw new Error("Contact not found.");
 
   const contact = await prisma.clientContact.update({
     where: { id: contactId },
@@ -218,20 +240,28 @@ export async function updateContact(contactId: string, formData: FormData) {
 }
 
 export async function deleteContact(contactId: string) {
-  await requireUser();
-  const contact = await prisma.clientContact.delete({
-    where: { id: contactId },
-    select: { clientId: true },
+  const { orgId } = await requireSessionWithOrg();
+  const contact = await prisma.clientContact.findFirst({
+    where: { id: contactId, organizationId: orgId },
+    select: { id: true, clientId: true },
   });
+  if (!contact) throw new Error("Contact not found.");
+
+  await prisma.clientContact.delete({ where: { id: contactId } });
   revalidatePath(`/clients/${contact.clientId}`);
 }
 
 export async function markContactContacted(contactId: string) {
-  await requireUser();
-  const contact = await prisma.clientContact.update({
+  const { orgId } = await requireSessionWithOrg();
+  const existing = await prisma.clientContact.findFirst({
+    where: { id: contactId, organizationId: orgId },
+    select: { id: true, clientId: true },
+  });
+  if (!existing) throw new Error("Contact not found.");
+
+  await prisma.clientContact.update({
     where: { id: contactId },
     data: { lastContactedAt: new Date() },
-    select: { clientId: true },
   });
-  revalidatePath(`/clients/${contact.clientId}`);
+  revalidatePath(`/clients/${existing.clientId}`);
 }

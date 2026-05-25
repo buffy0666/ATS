@@ -28,8 +28,8 @@ export const emailCandidateTool = defineTool({
   }),
   async execute(args, ctx) {
     const [candidate, sender] = await Promise.all([
-      prisma.candidate.findUnique({
-        where: { id: args.candidateId },
+      prisma.candidate.findFirst({
+        where: { id: args.candidateId, organizationId: ctx.organizationId },
         select: {
           id: true,
           email: true,

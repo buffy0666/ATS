@@ -43,10 +43,15 @@ export default async function CandidatesPage({
   // Seed default options on first load so the filter dropdowns always have
   // something selectable — this is cheap and idempotent.
   await Promise.all([
-    ensureChoiceDefaults(CHOICE_FIELDS.candidateSource.key, CHOICE_FIELDS.candidateSource.defaults),
+    ensureChoiceDefaults(
+      CHOICE_FIELDS.candidateSource.key,
+      CHOICE_FIELDS.candidateSource.defaults,
+      orgId,
+    ),
     ensureChoiceDefaults(
       CHOICE_FIELDS.candidateSeniority.key,
       CHOICE_FIELDS.candidateSeniority.defaults,
+      orgId,
     ),
   ]);
 
@@ -71,8 +76,8 @@ export default async function CandidatesPage({
           orderBy: { name: "asc" },
           select: { id: true, name: true, color: true },
         }),
-        loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
-        loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
+        loadChoiceOptions(CHOICE_FIELDS.candidateSource.key, orgId),
+        loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
       ]);
       return (
         <CandidatesView
@@ -123,8 +128,8 @@ export default async function CandidatesPage({
         select: { id: true, name: true, color: true },
       }),
       loadSavedSearches(session.user.id, orgId),
-      loadChoiceOptions(CHOICE_FIELDS.candidateSource.key),
-      loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key),
+      loadChoiceOptions(CHOICE_FIELDS.candidateSource.key, orgId),
+      loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
     ]);
 
   // If we ran FTS, re-sort by relevance order (the IDs come back ranked from

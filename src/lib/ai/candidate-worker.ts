@@ -196,6 +196,9 @@ export async function processOneCandidate(): Promise<WorkerResult | null> {
       locationCountry: true,
       summary: true,
       resumeText: true,
+      // Used to pick the right tenant's AIConfig — every pass below runs
+      // against that org's provider/model/api key.
+      organizationId: true,
     },
   });
 
@@ -211,66 +214,79 @@ export async function processOneCandidate(): Promise<WorkerResult | null> {
   }
 
   const rawText = candidate.resumeText.slice(0, MAX_INPUT_CHARS);
+  // Resolve every pass against this candidate's tenant. Falls back to env
+  // vars if the candidate predates the org-aware backfill (Phase 6 makes
+  // org_id NOT NULL and removes this fallback).
+  const orgId = candidate.organizationId ?? null;
 
   try {
-    const extract = await completeJson({
-      system: EXTRACT_SYSTEM,
-      prompt: `Extract structured candidate data from this LinkedIn profile scrape.\n\nSource text:\n${rawText}`,
-      schema: ExtractSchema,
-      maxTokens: 4000,
-      timeoutMs: PASS_TIMEOUT_MS,
-    });
+    const extract = await completeJson(
+      {
+        system: EXTRACT_SYSTEM,
+        prompt: `Extract structured candidate data from this LinkedIn profile scrape.\n\nSource text:\n${rawText}`,
+        schema: ExtractSchema,
+        maxTokens: 4000,
+        timeoutMs: PASS_TIMEOUT_MS,
+      },
+      orgId,
+    );
 
     // Resume facsimile builds on the extracted data + raw text so the AI
     // can still consult the original wording for bullet phrasing.
-    const facsimile = await completeJson({
-      system: FACSIMILE_SYSTEM,
-      prompt: [
-        "Build a polished recruiter-friendly resume from this candidate.",
-        "Use the structured extraction as the spine; consult the raw text for bullet phrasing.",
-        "",
-        "Candidate name: " + `${candidate.firstName} ${candidate.lastName}`.trim(),
-        "Email: " + (candidate.email.endsWith("@unknown.local") ? "(unknown)" : candidate.email),
-        "Phone: " + (candidate.phone ?? "(unknown)"),
-        "LinkedIn: " + (candidate.linkedinUrl ?? "(unknown)"),
-        "",
-        "Structured extraction:",
-        JSON.stringify({
-          summary: extract.data.summary,
-          skills: extract.data.skills,
-          workHistory: extract.data.workHistory,
-          education: extract.data.education,
-        }),
-        "",
-        "Raw LinkedIn text:",
-        rawText,
-      ].join("\n"),
-      schema: FacsimileSchema,
-      maxTokens: 4000,
-      timeoutMs: PASS_TIMEOUT_MS,
-    });
+    const facsimile = await completeJson(
+      {
+        system: FACSIMILE_SYSTEM,
+        prompt: [
+          "Build a polished recruiter-friendly resume from this candidate.",
+          "Use the structured extraction as the spine; consult the raw text for bullet phrasing.",
+          "",
+          "Candidate name: " + `${candidate.firstName} ${candidate.lastName}`.trim(),
+          "Email: " + (candidate.email.endsWith("@unknown.local") ? "(unknown)" : candidate.email),
+          "Phone: " + (candidate.phone ?? "(unknown)"),
+          "LinkedIn: " + (candidate.linkedinUrl ?? "(unknown)"),
+          "",
+          "Structured extraction:",
+          JSON.stringify({
+            summary: extract.data.summary,
+            skills: extract.data.skills,
+            workHistory: extract.data.workHistory,
+            education: extract.data.education,
+          }),
+          "",
+          "Raw LinkedIn text:",
+          rawText,
+        ].join("\n"),
+        schema: FacsimileSchema,
+        maxTokens: 4000,
+        timeoutMs: PASS_TIMEOUT_MS,
+      },
+      orgId,
+    );
 
-    const outreach = await completeJson({
-      system: OUTREACH_SYSTEM,
-      prompt: [
-        "Surface personalization hooks for outreach to this candidate.",
-        "",
-        "Recent activity (most useful for hooks):",
-        JSON.stringify(extract.data.recentActivity),
-        "",
-        "Recent work history (also useful — recent role changes, promotions):",
-        JSON.stringify(extract.data.workHistory?.slice(0, 5)),
-        "",
-        "Education (only use if it's notable or recent):",
-        JSON.stringify(extract.data.education?.slice(0, 3)),
-        "",
-        "Candidate summary line:",
-        extract.data.summary ?? "(none)",
-      ].join("\n"),
-      schema: OutreachSchema,
-      maxTokens: 2000,
-      timeoutMs: PASS_TIMEOUT_MS,
-    });
+    const outreach = await completeJson(
+      {
+        system: OUTREACH_SYSTEM,
+        prompt: [
+          "Surface personalization hooks for outreach to this candidate.",
+          "",
+          "Recent activity (most useful for hooks):",
+          JSON.stringify(extract.data.recentActivity),
+          "",
+          "Recent work history (also useful — recent role changes, promotions):",
+          JSON.stringify(extract.data.workHistory?.slice(0, 5)),
+          "",
+          "Education (only use if it's notable or recent):",
+          JSON.stringify(extract.data.education?.slice(0, 3)),
+          "",
+          "Candidate summary line:",
+          extract.data.summary ?? "(none)",
+        ].join("\n"),
+        schema: OutreachSchema,
+        maxTokens: 2000,
+        timeoutMs: PASS_TIMEOUT_MS,
+      },
+      orgId,
+    );
 
     await prisma.candidate.update({
       where: { id: pending.id },

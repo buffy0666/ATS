@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { InterviewStatus, type Prisma } from "@/generated/prisma";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { getOrCreateICalToken } from "@/lib/ical-token";
 import { prisma } from "@/lib/prisma";
 import { SubscribeBlock } from "./SubscribeBlock";
@@ -20,20 +20,23 @@ export default async function InterviewsPage({
 }: {
   searchParams: Promise<{ filter?: string }>;
 }) {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const sp = await searchParams;
 
   const filter: FilterMode = sp.filter === "all" ? "all" : "mine";
 
+  // Every interview query is org-scoped; the "mine" filter further narrows
+  // to interviews the current user is organizer or attendee on.
   const mineClause: Prisma.InterviewWhereInput =
     filter === "mine"
       ? {
+          organizationId: orgId,
           OR: [
             { organizerId: session.user.id },
             { attendees: { some: { userId: session.user.id } } },
           ],
         }
-      : {};
+      : { organizationId: orgId };
 
   const now = new Date();
   const startOfToday = new Date(now);

@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 
 export default async function ListsPage() {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
 
   const lists = await prisma.candidateList.findMany({
     where: {
+      organizationId: orgId,
       OR: [{ ownerId: session.user.id }, { scope: "SHARED" }],
     },
     orderBy: [{ updatedAt: "desc" }],

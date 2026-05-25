@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { EnrollmentStatus, StepRunStatus } from "@/generated/prisma";
 import { EnrollmentControls } from "./EnrollmentControls";
@@ -18,10 +18,10 @@ export default async function SequenceEnrollmentsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
 
-  const sequence = await prisma.sequence.findUnique({
-    where: { id },
+  const sequence = await prisma.sequence.findFirst({
+    where: { id, organizationId: orgId },
     include: {
       _count: { select: { steps: true } },
       enrollments: {

@@ -18,22 +18,25 @@ import {
 } from "./provider";
 
 /**
- * AI provider resolution.
+ * AI provider resolution — per-organization in the multi-tenant era.
  *
  * Order of precedence:
- *  1. DB-backed AIConfig row (set via /settings/ai by an admin).
- *  2. Env vars (legacy path — still works for self-hosted dev where editing
- *     .env is faster than clicking through the UI).
+ *  1. DB-backed AIConfig row scoped to the caller's org.
+ *  2. Env vars (only used when no org is provided — legacy/dev fallback).
  *
- * The resolved provider is cached for the lifetime of the process. Admins
- * invalidate the cache by calling `invalidateAIProviderCache()` after they
- * save new settings.
+ * The resolved provider is cached per-org for the lifetime of the
+ * process. Admins invalidate after saving by passing their orgId.
  */
 
-let cached: AIProvider | null = null;
+const providerCache = new Map<string, AIProvider>();
+const ENV_CACHE_KEY = "__env__";
 
-export function invalidateAIProviderCache() {
-  cached = null;
+export function invalidateAIProviderCache(orgId?: string) {
+  if (orgId) {
+    providerCache.delete(orgId);
+  } else {
+    providerCache.clear();
+  }
 }
 
 type CompleteJsonInput<TSchema extends z.ZodType> = AICompletionRequest & {
@@ -54,8 +57,10 @@ export type ResolvedAIConfig = {
   timeoutMs: number;
 };
 
-async function loadConfig(): Promise<ResolvedAIConfig> {
-  const fromDb = await prisma.aIConfig.findUnique({ where: { id: "default" } }).catch(() => null);
+async function loadConfig(orgId: string | null): Promise<ResolvedAIConfig> {
+  const fromDb = orgId
+    ? await prisma.aIConfig.findUnique({ where: { organizationId: orgId } }).catch(() => null)
+    : null;
   const envProvider = (process.env.AI_PROVIDER ?? "").toLowerCase();
   const envTimeout = parsePositiveInt(process.env.AI_TIMEOUT_MS, 60000);
 
@@ -94,8 +99,8 @@ async function loadConfig(): Promise<ResolvedAIConfig> {
   };
 }
 
-export async function getResolvedAIConfig(): Promise<ResolvedAIConfig> {
-  return loadConfig();
+export async function getResolvedAIConfig(orgId: string | null = null): Promise<ResolvedAIConfig> {
+  return loadConfig(orgId);
 }
 
 function buildProvider(config: ResolvedAIConfig): AIProvider {
@@ -133,16 +138,28 @@ function requireModel(config: ResolvedAIConfig): string {
   return config.model;
 }
 
-async function getProvider(): Promise<AIProvider> {
+async function getProvider(orgId: string | null): Promise<AIProvider> {
+  const cacheKey = orgId ?? ENV_CACHE_KEY;
+  const cached = providerCache.get(cacheKey);
   if (cached) return cached;
-  const config = await loadConfig();
-  cached = buildProvider(config);
-  return cached;
+  const config = await loadConfig(orgId);
+  const provider = buildProvider(config);
+  providerCache.set(cacheKey, provider);
+  return provider;
 }
 
-export async function complete(input: AICompletionRequest): Promise<AICompletionResponse> {
+/**
+ * Run a completion using the org's configured AI provider. orgId is
+ * required for tenant isolation; omit (pass null) only from contexts that
+ * legitimately have no org (e.g. env-var-driven dev runs of one-off
+ * scripts).
+ */
+export async function complete(
+  input: AICompletionRequest,
+  orgId: string | null = null,
+): Promise<AICompletionResponse> {
   const payload = aiCompletionRequestSchema.parse(input);
-  const provider = await getProvider();
+  const provider = await getProvider(orgId);
   return provider.complete(payload);
 }
 
@@ -151,47 +168,57 @@ export async function complete(input: AICompletionRequest): Promise<AICompletion
  * The orchestrator handles multi-turn tool loops; this is the bare provider
  * call for a single round.
  */
-export async function* chat(input: ChatInput): AsyncIterable<ChatChunk> {
-  const provider = await getProvider();
+export async function* chat(
+  input: ChatInput,
+  orgId: string | null = null,
+): AsyncIterable<ChatChunk> {
+  const provider = await getProvider(orgId);
   yield* provider.chat(input);
 }
 
 export async function completeJson<TSchema extends z.ZodType>(
   input: CompleteJsonInput<TSchema>,
+  orgId: string | null = null,
 ): Promise<AIJsonCompletionResult<z.infer<TSchema>>> {
   const schemaJson = JSON.stringify(z.toJSONSchema(input.schema), null, 2);
   const firstPrompt = withJsonInstructions(input.prompt, schemaJson);
-  const first = await complete({
-    ...input,
-    prompt: firstPrompt,
-    responseFormat: "json",
-  });
+  const first = await complete(
+    {
+      ...input,
+      prompt: firstPrompt,
+      responseFormat: "json",
+    },
+    orgId,
+  );
 
   const firstParsed = parseAndValidateJson(input.schema, first.text);
   if (firstParsed.success) {
     return { ...first, data: firstParsed.data, raw: first.text };
   }
 
-  const fix = await complete({
-    ...input,
-    prompt: [
-      "The previous response did not parse as valid JSON for the requested schema.",
-      "Return only corrected JSON. Do not include markdown fences, comments, or explanation.",
-      "",
-      "JSON schema:",
-      schemaJson,
-      "",
-      "Original task:",
-      input.prompt,
-      "",
-      "Invalid response:",
-      first.text,
-      "",
-      "Validation error:",
-      firstParsed.error,
-    ].join("\n"),
-    responseFormat: "json",
-  });
+  const fix = await complete(
+    {
+      ...input,
+      prompt: [
+        "The previous response did not parse as valid JSON for the requested schema.",
+        "Return only corrected JSON. Do not include markdown fences, comments, or explanation.",
+        "",
+        "JSON schema:",
+        schemaJson,
+        "",
+        "Original task:",
+        input.prompt,
+        "",
+        "Invalid response:",
+        first.text,
+        "",
+        "Validation error:",
+        firstParsed.error,
+      ].join("\n"),
+      responseFormat: "json",
+    },
+    orgId,
+  );
 
   const fixedParsed = parseAndValidateJson(input.schema, fix.text);
   if (!fixedParsed.success) {
@@ -208,12 +235,12 @@ export async function completeJson<TSchema extends z.ZodType>(
   return { ...fix, data: fixedParsed.data, raw: fix.text };
 }
 
-export async function getAIProviderName(): Promise<string> {
-  return (await getProvider()).name;
+export async function getAIProviderName(orgId: string | null = null): Promise<string> {
+  return (await getProvider(orgId)).name;
 }
 
 export function _resetAIProviderForTests() {
-  cached = null;
+  providerCache.clear();
 }
 
 function withJsonInstructions(prompt: string, schemaJson: string): string {

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { Stage } from "@/generated/prisma";
 import { Pipeline } from "./Pipeline";
@@ -21,9 +22,10 @@ export default async function JobDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const { orgId } = await requireSessionWithOrg();
 
-  const job = await prisma.job.findUnique({
-    where: { id },
+  const job = await prisma.job.findFirst({
+    where: { id, organizationId: orgId },
     include: {
       applications: {
         include: { candidate: true },
@@ -36,6 +38,7 @@ export default async function JobDetailPage({
   if (!job) notFound();
 
   const candidates = await prisma.candidate.findMany({
+    where: { organizationId: orgId },
     orderBy: { lastName: "asc" },
     select: { id: true, firstName: true, lastName: true, email: true },
   });

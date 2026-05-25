@@ -17,8 +17,8 @@ export const deactivateUserTool = defineTool({
     if (args.userId === ctx.userId && args.deactivate) {
       return { ok: false, error: "You can't deactivate yourself." };
     }
-    const user = await prisma.user.findUnique({
-      where: { id: args.userId },
+    const user = await prisma.user.findFirst({
+      where: { id: args.userId, organizationId: ctx.organizationId },
       select: { id: true, email: true, active: true },
     });
     if (!user) return { ok: false, error: "User not found." };

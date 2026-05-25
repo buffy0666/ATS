@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { updateInterview } from "../../actions";
 import { InterviewForm } from "../../InterviewForm";
@@ -11,11 +11,11 @@ export default async function EditInterviewPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
   const { id } = await params;
 
-  const interview = await prisma.interview.findUnique({
-    where: { id },
+  const interview = await prisma.interview.findFirst({
+    where: { id, organizationId: orgId },
     include: {
       attendees: {
         orderBy: { email: "asc" },
@@ -25,7 +25,7 @@ export default async function EditInterviewPage({
   });
   if (!interview) notFound();
 
-  const { candidates, teamUsers, applicationsByCandidate } = await loadFormOptions();
+  const { candidates, teamUsers, applicationsByCandidate } = await loadFormOptions(orgId);
 
   return (
     <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-10">

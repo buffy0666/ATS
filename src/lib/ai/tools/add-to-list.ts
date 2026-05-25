@@ -14,8 +14,8 @@ export const addToListTool = defineTool({
     candidateIds: z.array(z.string().min(1).max(40)).min(1),
   }),
   async execute(args, ctx) {
-    const list = await prisma.candidateList.findUnique({
-      where: { id: args.listId },
+    const list = await prisma.candidateList.findFirst({
+      where: { id: args.listId, organizationId: ctx.organizationId },
       select: { id: true, name: true, scope: true, ownerId: true },
     });
     if (!list) return { ok: false, error: "List not found." };
@@ -23,7 +23,13 @@ export const addToListTool = defineTool({
       return { ok: false, error: "Cannot modify someone else's personal list." };
     }
 
-    const ids = Array.from(new Set(args.candidateIds)).slice(0, 500);
+    const rawIds = Array.from(new Set(args.candidateIds)).slice(0, 500);
+    // Defense-in-depth: only add candidates that belong to this org.
+    const allowed = await prisma.candidate.findMany({
+      where: { id: { in: rawIds }, organizationId: ctx.organizationId },
+      select: { id: true },
+    });
+    const ids = allowed.map((c) => c.id);
     const result = await prisma.candidateListMember.createMany({
       data: ids.map((candidateId) => ({
         listId: list.id,

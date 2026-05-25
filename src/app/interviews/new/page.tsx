@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { requireSession } from "@/lib/auth-utils";
-import { prisma } from "@/lib/prisma";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { createInterview } from "../actions";
 import { InterviewForm } from "../InterviewForm";
 import { loadFormOptions } from "../form-data";
@@ -10,10 +9,10 @@ export default async function NewInterviewPage({
 }: {
   searchParams: Promise<{ candidateId?: string; applicationId?: string }>;
 }) {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
   const sp = await searchParams;
 
-  const { candidates, teamUsers, applicationsByCandidate } = await loadFormOptions();
+  const { candidates, teamUsers, applicationsByCandidate } = await loadFormOptions(orgId);
 
   const preselectedCandidate = sp.candidateId
     ? candidates.find((c) => c.id === sp.candidateId)

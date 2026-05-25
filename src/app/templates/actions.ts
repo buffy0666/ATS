@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 
 const templateSchema = z.object({
@@ -13,7 +13,7 @@ const templateSchema = z.object({
 });
 
 export async function createTemplate(formData: FormData) {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const data = templateSchema.parse({
     name: formData.get("name"),
     subject: formData.get("subject"),
@@ -21,7 +21,7 @@ export async function createTemplate(formData: FormData) {
   });
 
   const tpl = await prisma.emailTemplate.create({
-    data: { ...data, createdById: session.user.id },
+    data: { ...data, createdById: session.user.id, organizationId: orgId },
   });
 
   revalidatePath("/templates");
@@ -29,20 +29,26 @@ export async function createTemplate(formData: FormData) {
 }
 
 export async function updateTemplate(templateId: string, formData: FormData) {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
   const data = templateSchema.parse({
     name: formData.get("name"),
     subject: formData.get("subject"),
     body: formData.get("body"),
   });
-  await prisma.emailTemplate.update({ where: { id: templateId }, data });
+  const result = await prisma.emailTemplate.updateMany({
+    where: { id: templateId, organizationId: orgId },
+    data,
+  });
+  if (result.count === 0) throw new Error("Template not found.");
   revalidatePath("/templates");
   revalidatePath(`/templates/${templateId}`);
 }
 
 export async function deleteTemplate(templateId: string) {
-  await requireSession();
-  await prisma.emailTemplate.delete({ where: { id: templateId } });
+  const { orgId } = await requireSessionWithOrg();
+  await prisma.emailTemplate.deleteMany({
+    where: { id: templateId, organizationId: orgId },
+  });
   revalidatePath("/templates");
   redirect("/templates");
 }

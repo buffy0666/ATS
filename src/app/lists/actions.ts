@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { ListScope } from "@/generated/prisma";
 
@@ -20,14 +20,14 @@ const listSchema = z.object({
 });
 
 export async function createList(formData: FormData) {
-  const session = await requireSession();
+  const { session, orgId } = await requireSessionWithOrg();
   const data = listSchema.parse({
     name: formData.get("name"),
     description: formData.get("description"),
     scope: formData.get("scope"),
   });
   const list = await prisma.candidateList.create({
-    data: { ...data, ownerId: session.user.id },
+    data: { ...data, ownerId: session.user.id, organizationId: orgId },
     select: { id: true },
   });
   revalidatePath("/lists");
@@ -35,9 +35,9 @@ export async function createList(formData: FormData) {
 }
 
 export async function updateList(listId: string, formData: FormData) {
-  const session = await requireSession();
-  const existing = await prisma.candidateList.findUnique({
-    where: { id: listId },
+  const { session, orgId } = await requireSessionWithOrg();
+  const existing = await prisma.candidateList.findFirst({
+    where: { id: listId, organizationId: orgId },
     select: { ownerId: true },
   });
   if (!existing) throw new Error("List not found");
@@ -55,9 +55,9 @@ export async function updateList(listId: string, formData: FormData) {
 }
 
 export async function deleteList(listId: string) {
-  const session = await requireSession();
-  const existing = await prisma.candidateList.findUnique({
-    where: { id: listId },
+  const { session, orgId } = await requireSessionWithOrg();
+  const existing = await prisma.candidateList.findFirst({
+    where: { id: listId, organizationId: orgId },
     select: { ownerId: true },
   });
   if (!existing) throw new Error("List not found");

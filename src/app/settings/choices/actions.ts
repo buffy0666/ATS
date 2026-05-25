@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSession } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { CHOICE_FIELDS } from "@/lib/choices";
 
@@ -12,32 +12,46 @@ export type ChoiceActionResult =
   | { ok: false; message: string };
 
 type FieldHandler = {
-  count: (name: string) => Promise<number>;
-  rename: (oldName: string, newName: string) => Promise<{ count: number }>;
-  nullify: (name: string) => Promise<{ count: number }>;
+  count: (orgId: string, name: string) => Promise<number>;
+  rename: (orgId: string, oldName: string, newName: string) => Promise<{ count: number }>;
+  nullify: (orgId: string, name: string) => Promise<{ count: number }>;
   invalidate: () => void;
 };
 
+// Mutations are scoped by organizationId so renaming "LinkedIn" in one tenant
+// can't silently rewrite candidates in another. The ChoiceOption rows
+// themselves are also org-scoped (see ChoiceOption.organizationId).
 const FIELD_HANDLERS: Record<string, FieldHandler> = {
   [CHOICE_FIELDS.candidateSource.key]: {
-    count: (name) => prisma.candidate.count({ where: { source: name } }),
-    rename: (oldName, newName) =>
-      prisma.candidate.updateMany({ where: { source: oldName }, data: { source: newName } }),
-    nullify: (name) =>
-      prisma.candidate.updateMany({ where: { source: name }, data: { source: null } }),
+    count: (orgId, name) =>
+      prisma.candidate.count({ where: { source: name, organizationId: orgId } }),
+    rename: (orgId, oldName, newName) =>
+      prisma.candidate.updateMany({
+        where: { source: oldName, organizationId: orgId },
+        data: { source: newName },
+      }),
+    nullify: (orgId, name) =>
+      prisma.candidate.updateMany({
+        where: { source: name, organizationId: orgId },
+        data: { source: null },
+      }),
     invalidate: () => {
       revalidatePath("/candidates");
     },
   },
   [CHOICE_FIELDS.candidateSeniority.key]: {
-    count: (name) => prisma.candidate.count({ where: { seniority: name } }),
-    rename: (oldName, newName) =>
+    count: (orgId, name) =>
+      prisma.candidate.count({ where: { seniority: name, organizationId: orgId } }),
+    rename: (orgId, oldName, newName) =>
       prisma.candidate.updateMany({
-        where: { seniority: oldName },
+        where: { seniority: oldName, organizationId: orgId },
         data: { seniority: newName },
       }),
-    nullify: (name) =>
-      prisma.candidate.updateMany({ where: { seniority: name }, data: { seniority: null } }),
+    nullify: (orgId, name) =>
+      prisma.candidate.updateMany({
+        where: { seniority: name, organizationId: orgId },
+        data: { seniority: null },
+      }),
     invalidate: () => {
       revalidatePath("/candidates");
     },
@@ -55,30 +69,39 @@ function clean(name: string): string {
 }
 
 export async function usageCountForChoice(field: string, name: string): Promise<number> {
-  await requireSession();
-  return getHandler(field).count(name);
+  const { orgId } = await requireSessionWithOrg();
+  return getHandler(field).count(orgId, name);
 }
 
 export async function createChoiceOption(
   field: string,
   rawName: string,
 ): Promise<ChoiceActionResult> {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
   const name = clean(rawName);
   if (!name) return { ok: false, message: "Name is required." };
   if (name.length > MAX_NAME) return { ok: false, message: `Name too long (max ${MAX_NAME}).` };
   getHandler(field); // validates the field key
 
-  // Place new options at the end of the list.
+  // Place new options at the end of the list (per-org sort).
   const max = await prisma.choiceOption.findFirst({
-    where: { field },
+    where: { field, organizationId: orgId },
     orderBy: { sortOrder: "desc" },
     select: { sortOrder: true },
   });
 
+  // ChoiceOption still has a global @@unique([field, name]) until Phase 6
+  // swaps it for [organizationId, field, name]. Until then two orgs can't
+  // both name an option "LinkedIn" — that's a known limitation we'll fix
+  // in lockdown.
   try {
     await prisma.choiceOption.create({
-      data: { field, name, sortOrder: (max?.sortOrder ?? -1) + 1 },
+      data: {
+        field,
+        name,
+        sortOrder: (max?.sortOrder ?? -1) + 1,
+        organizationId: orgId,
+      },
     });
   } catch {
     return { ok: false, message: `"${name}" already exists for this field.` };
@@ -91,13 +114,15 @@ export async function renameChoiceOption(
   optionId: string,
   rawNewName: string,
 ): Promise<ChoiceActionResult> {
-  await requireSession();
+  const { orgId } = await requireSessionWithOrg();
   const newName = clean(rawNewName);
   if (!newName) return { ok: false, message: "Name is required." };
   if (newName.length > MAX_NAME) return { ok: false, message: `Name too long (max ${MAX_NAME}).` };
 
-  const existing = await prisma.choiceOption.findUnique({
-    where: { id: optionId },
+  // findFirst (not findUnique by id) so a guessed id from another org
+  // can't be renamed via this endpoint.
+  const existing = await prisma.choiceOption.findFirst({
+    where: { id: optionId, organizationId: orgId },
     select: { field: true, name: true },
   });
   if (!existing) return { ok: false, message: "Option not found." };
@@ -105,23 +130,27 @@ export async function renameChoiceOption(
 
   const handler = getHandler(existing.field);
 
-  // Block duplicate name within the same field.
+  // Block duplicate name within the same field. Until Phase 6 the unique
+  // index is global; we still check it explicitly so the user gets a clean
+  // error rather than a P2002.
   const dup = await prisma.choiceOption.findUnique({
     where: { field_name: { field: existing.field, name: newName } },
     select: { id: true },
   });
   if (dup) return { ok: false, message: `"${newName}" already exists for this field.` };
 
-  // Rename in a transaction so the option row and the affected records stay
-  // in sync — if either side fails, neither commits.
+  // Rename in a transaction so the option row and the affected candidate
+  // records stay in sync. Candidate updates are scoped to this org.
   const result = await prisma.$transaction(async (tx) => {
     const renamed = await tx.candidate.updateMany({
-      where: existing.field === CHOICE_FIELDS.candidateSource.key
-        ? { source: existing.name }
-        : { seniority: existing.name },
-      data: existing.field === CHOICE_FIELDS.candidateSource.key
-        ? { source: newName }
-        : { seniority: newName },
+      where:
+        existing.field === CHOICE_FIELDS.candidateSource.key
+          ? { source: existing.name, organizationId: orgId }
+          : { seniority: existing.name, organizationId: orgId },
+      data:
+        existing.field === CHOICE_FIELDS.candidateSource.key
+          ? { source: newName }
+          : { seniority: newName },
     });
     await tx.choiceOption.update({
       where: { id: optionId },
@@ -143,9 +172,9 @@ export async function renameChoiceOption(
 }
 
 export async function deleteChoiceOption(optionId: string): Promise<ChoiceActionResult> {
-  await requireSession();
-  const existing = await prisma.choiceOption.findUnique({
-    where: { id: optionId },
+  const { orgId } = await requireSessionWithOrg();
+  const existing = await prisma.choiceOption.findFirst({
+    where: { id: optionId, organizationId: orgId },
     select: { field: true, name: true },
   });
   if (!existing) return { ok: false, message: "Option not found." };
@@ -155,11 +184,11 @@ export async function deleteChoiceOption(optionId: string): Promise<ChoiceAction
     const nulled =
       existing.field === CHOICE_FIELDS.candidateSource.key
         ? await tx.candidate.updateMany({
-            where: { source: existing.name },
+            where: { source: existing.name, organizationId: orgId },
             data: { source: null },
           })
         : await tx.candidate.updateMany({
-            where: { seniority: existing.name },
+            where: { seniority: existing.name, organizationId: orgId },
             data: { seniority: null },
           });
     await tx.choiceOption.delete({ where: { id: optionId } });

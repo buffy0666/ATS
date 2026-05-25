@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { createJob } from "../actions";
 import { SalaryFeeFields } from "../SalaryFeeFields";
@@ -9,7 +10,9 @@ export default async function NewJobPage({
   searchParams: Promise<{ clientId?: string }>;
 }) {
   const { clientId: preselectedClientId } = await searchParams;
+  const { orgId } = await requireSessionWithOrg();
   const clients = await prisma.client.findMany({
+    where: { organizationId: orgId },
     orderBy: { name: "asc" },
     select: { id: true, name: true },
   });
