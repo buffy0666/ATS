@@ -18,6 +18,10 @@ export type CreateTenantResult =
       organizationName: string;
       email: string;
       inviteUrl: string;
+      // Lets the form show different copy when delivery failed vs.
+      // succeeded — previously it always said "Already emailed" even
+      // when the catch block had fired.
+      emailSent: boolean;
     }
   | { ok: false; error: string };
 
@@ -112,8 +116,8 @@ export async function createTenantAction(
     ok: true,
     organizationName,
     email: ownerEmail,
-    inviteUrl:
-      (emailSent ? "" : "(email delivery failed) ") + inviteUrl,
+    inviteUrl,
+    emailSent,
   };
 }
 

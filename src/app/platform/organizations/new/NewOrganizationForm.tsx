@@ -14,9 +14,25 @@ export function NewOrganizationForm() {
   if (state.ok) {
     return (
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-          Tenant created and invitation sent.
+        <h3
+          className={`text-sm font-semibold ${
+            state.emailSent
+              ? "text-emerald-700 dark:text-emerald-400"
+              : "text-amber-700 dark:text-amber-400"
+          }`}
+        >
+          {state.emailSent
+            ? "Tenant created and invitation emailed."
+            : "Tenant created. Email delivery failed — send the link manually."}
         </h3>
+        {!state.emailSent && (
+          <p className="text-xs text-zinc-600 dark:text-zinc-400">
+            Email isn&apos;t configured for this deployment, or the provider
+            rejected the send. Set <code>RESEND_API_KEY</code> +{" "}
+            <code>EMAIL_FROM</code> (or the Mailgun equivalents) in Vercel
+            env, then redeploy. The link below is still valid for 7 days.
+          </p>
+        )}
         <dl className="space-y-2 text-sm">
           <div>
             <dt className="text-zinc-500">Organization</dt>
@@ -28,12 +44,13 @@ export function NewOrganizationForm() {
           </div>
           <div>
             <dt className="text-zinc-500">Magic link</dt>
-            <dd className="font-mono text-xs break-all text-zinc-700 dark:text-zinc-300">
+            <dd className="font-mono text-xs break-all text-zinc-700 dark:text-zinc-300 select-all">
               {state.inviteUrl}
             </dd>
             <p className="mt-1 text-xs text-zinc-500">
-              Already emailed. Shown here so you can copy/paste it into another
-              channel if email delivery fails.
+              {state.emailSent
+                ? "Already emailed. Copy/paste here if you want to also share via Slack or another channel."
+                : "Send this link to the owner manually — open it in their browser, an incognito window, or via Slack/DM."}
             </p>
           </div>
         </dl>
