@@ -1,109 +1,51 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import Link from "next/link";
+import type { ActivityItem, EducationItem, WorkHistoryItem } from "@/lib/resume-parser";
+import { ResumeViewerTabs } from "./ResumeViewerTabs";
 
 /**
- * Renders the candidate's resume inline at letter (8.5 × 11) aspect.
+ * Server-side wrapper around the tabbed viewer. We do the filesystem
+ * reachability check for /uploads/* PDFs here (server-only) and then hand
+ * the resolved props down to a client component that owns the tab UI.
  *
- * The viewer is *not* given a parent-height-flex hack — instead the inner
- * box uses CSS aspect-ratio so its height is derived from its rendered
- * width. That way the iframe naturally fills exactly one letter page, the
- * surrounding pane has no black void below short resumes, and the
- * containing page just flows around it. Multi-page PDFs can be scrolled
- * internally via the PDF.js toolbar.
- *
- * Reachability: a /uploads/* file is fs.access-checked before letting the
- * iframe load — otherwise a missing file would 404 and Next would serve
- * its layout-wrapped error page, embedding the ATS sidebar inside the
- * resume pane. Vercel Blob URLs are trusted (cross-origin CDN).
+ * Why this design:
+ *   - Path checks need fs.access, which can't run in a client component.
+ *   - Tab switching needs useState, which can't run in a server component.
+ *   - Splitting at this boundary keeps both happy.
  */
-export async function ResumeViewer({ url }: { url: string | null }) {
-  const reachable = await checkResume(url);
 
-  if (!reachable.ok) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 p-10 text-center min-h-[280px]">
-        <div className="text-sm text-zinc-500">
-          {reachable.reason === "missing"
-            ? "No resume uploaded yet."
-            : reachable.reason === "lost"
-              ? "The resume file is no longer available."
-              : "Resume URL is invalid."}
-        </div>
-        <div className="text-xs text-zinc-400 max-w-sm">
-          {reachable.reason === "lost"
-            ? "Earlier uploads weren't persisted (Vercel ephemeral disk). Upload again — Blob storage is now configured so the new file will stick."
-            : "Use the “Add/Replace resume” button above."}
-        </div>
-      </div>
-    );
-  }
+export type CandidateResumeData = {
+  /** PDF / DOCX upload — null if no file was attached. */
+  resumeUrl: string | null;
+  /** Raw text scraped from the LinkedIn profile by the Chrome extension. */
+  resumeText: string | null;
+  /** Long-form summary the AI parser produced. */
+  summary: string | null;
+  /** AI-extracted skills (canonical names). */
+  skills: string[];
+  /** AI-extracted work history. */
+  workHistory: WorkHistoryItem[];
+  /** AI-extracted education. */
+  education: EducationItem[];
+  /** LinkedIn recent activity (only for candidates added via extension). */
+  recentActivity: ActivityItem[];
+  /** Candidate name for the synthesized resume facsimile header. */
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string | null;
+  linkedinUrl: string | null;
+  locationCity: string | null;
+  locationState: string | null;
+  locationCountry: string | null;
+};
 
-  const safeUrl = reachable.url;
-
-  if (!reachable.isPdf) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 p-10 text-center min-h-[280px]">
-        <p className="text-sm text-zinc-500 max-w-xs">
-          Resume isn&apos;t a PDF, so it can&apos;t be previewed inline. Download it to view.
-        </p>
-        <Link
-          href={safeUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-1.5 text-sm font-medium hover:opacity-90"
-        >
-          Download resume
-        </Link>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 px-3 py-1.5 text-xs">
-        <span className="text-zinc-500">Resume preview</span>
-        <Link
-          href={safeUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-zinc-600 dark:text-zinc-300 hover:underline"
-        >
-          Open in new tab ↗
-        </Link>
-      </div>
-      {/*
-        Why this is sized the way it is:
-        - Chrome's native PDF viewer (used for cross-origin URLs like our
-          Vercel Blob URLs) reserves ~40-50px for its own toolbar inside
-          the iframe, then renders the page below. With a strict 8.5/11
-          aspect ratio the toolbar steals from the visible page height
-          and the bottom inch gets clipped → "PDF is cut off".
-        - To avoid that we use a slightly taller aspect ratio (8.5/12.2)
-          so a letter-sized page fits even after the browser's toolbar
-          and a small bottom margin.
-        - Multiple hash hints are passed because each browser respects
-          a different subset: `view=FitH` is PDF.js, `zoom=page-fit`
-          works in Chrome + Firefox, `pagemode=none` hides the side
-          panel in Chrome.
-      */}
-      <div className="bg-zinc-100 dark:bg-zinc-950 p-3">
-        <div
-          className="mx-auto bg-white shadow-sm rounded-sm"
-          style={{ aspectRatio: "8.5 / 12.2", maxWidth: "100%" }}
-        >
-          <iframe
-            src={`${safeUrl}#view=FitH&zoom=page-fit&pagemode=none&toolbar=1&navpanes=0`}
-            title="Resume"
-            className="block w-full h-full border-0 rounded-sm"
-          />
-        </div>
-      </div>
-    </div>
-  );
+export async function ResumeViewer({ data }: { data: CandidateResumeData }) {
+  const reachable = await checkResume(data.resumeUrl);
+  return <ResumeViewerTabs data={data} resumeReachable={reachable} />;
 }
 
-type Reachability =
+export type Reachability =
   | { ok: true; url: string; isPdf: boolean }
   | { ok: false; reason: "missing" | "lost" | "invalid" };
 

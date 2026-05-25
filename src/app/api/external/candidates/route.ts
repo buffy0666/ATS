@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { Prisma } from "@/generated/prisma";
+import { AIProcessingStatus, Prisma } from "@/generated/prisma";
 import { authenticateApiToken } from "@/lib/api-tokens";
 import { prisma } from "@/lib/prisma";
 
@@ -11,9 +11,15 @@ import { prisma } from "@/lib/prisma";
  * Used by the Chrome extension to push LinkedIn profile data into the ATS.
  *
  * Behavior:
- *  - If a candidate with the same email or linkedinUrl already exists, returns
- *    409 with the existing candidate's id so the client can show "already in ATS".
- *  - Otherwise creates the candidate and returns 201 with the new id.
+ *  - Duplicates by linkedinUrl/email → 409 with the existing candidate.
+ *  - Otherwise creates the candidate and returns 201 in ~200ms.
+ *  - When `pageText` is provided, it's stored verbatim and the candidate is
+ *    flagged `aiStatus = PENDING`. A separate background worker
+ *    (`scripts/process-ai-queue.ts`) running on the user's network picks
+ *    these up and runs three Ollama passes: (1) extract structured fields,
+ *    (2) generate a resume facsimile, (3) extract outreach hooks. This
+ *    keeps the Chrome click sub-second instead of blocking on a 20-40s
+ *    AI call.
  */
 
 const workItemSchema = z.object({
@@ -34,7 +40,9 @@ const educationItemSchema = z.object({
 
 const bodySchema = z.object({
   firstName: z.string().trim().min(1).max(80),
-  lastName: z.string().trim().min(1).max(80),
+  // LinkedIn often only exposes a single-name display. Allow an empty
+  // lastName rather than 422'ing the whole import.
+  lastName: z.string().trim().max(80).optional().default(""),
   // Email is technically optional from LinkedIn — many profiles don't expose it.
   // If absent, we synthesize a placeholder so unique constraint holds; recruiter fixes later.
   email: z.string().trim().email().optional(),
@@ -49,6 +57,11 @@ const bodySchema = z.object({
   workHistory: z.array(workItemSchema).max(40).optional(),
   education: z.array(educationItemSchema).max(20).optional(),
   source: z.string().trim().max(60).optional(),
+  // New: full visible text from the LinkedIn profile page. The server runs
+  // its AI parser on this to extract structured fields + recent activity.
+  // Capped at 100KB; anything past that is almost certainly UI chrome /
+  // activity feed noise we don't want to feed into the model.
+  pageText: z.string().max(100_000).optional(),
 });
 
 function corsHeaders(origin: string | null): Record<string, string> {
@@ -151,10 +164,18 @@ export async function POST(request: NextRequest) {
     data.email?.toLowerCase() ??
     `linkedin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@unknown.local`;
 
+  // AI parsing happens in a background worker (scripts/process-ai-queue.ts
+  // or /api/internal/process-ai-queue). We save the candidate immediately
+  // with what the extension provided and flag it PENDING — the worker will
+  // pick it up shortly and fill in workHistory, education, summary, skills,
+  // recentActivity, resume facsimile, and outreach insights.
+  const willQueueAI =
+    typeof data.pageText === "string" && data.pageText.length >= 40;
+
   const created = await prisma.candidate.create({
     data: {
       firstName: data.firstName,
-      lastName: data.lastName,
+      lastName: data.lastName || "",
       email,
       phone: data.phone ?? null,
       linkedinUrl: data.linkedinUrl,
@@ -164,10 +185,16 @@ export async function POST(request: NextRequest) {
       locationState: data.locationState ?? null,
       locationCountry: data.locationCountry ?? null,
       summary: data.summary ?? null,
-      workHistory: data.workHistory ?? Prisma.DbNull,
-      education: data.education ?? Prisma.DbNull,
+      workHistory: data.workHistory
+        ? (data.workHistory as unknown as Prisma.InputJsonValue)
+        : Prisma.JsonNull,
+      education: data.education
+        ? (data.education as unknown as Prisma.InputJsonValue)
+        : Prisma.JsonNull,
+      resumeText: data.pageText ?? null,
       source: data.source ?? "LinkedIn",
       sourcedById: auth.userId,
+      aiStatus: willQueueAI ? AIProcessingStatus.PENDING : AIProcessingStatus.NONE,
     },
     select: { id: true, firstName: true, lastName: true },
   });
@@ -181,6 +208,9 @@ export async function POST(request: NextRequest) {
         lastName: created.lastName,
         url: `${process.env.APP_URL ?? ""}/candidates/${created.id}`,
       },
+      // Tells the extension whether we'll be enriching this candidate
+      // asynchronously, so the toast can say "queued for AI processing".
+      aiQueued: willQueueAI,
     }),
     { status: 201, headers: { ...cors, "Content-Type": "application/json" } },
   );

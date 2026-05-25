@@ -18,6 +18,45 @@ export const WorkHistoryItemSchema = z
   })
   .describe("One role from the candidate's work history.");
 
+export const ActivityItemSchema = z
+  .object({
+    kind: z
+      .enum(["post", "comment", "reaction", "repost", "article"])
+      .describe(
+        "What kind of activity. 'post' = something the candidate authored. " +
+          "'comment' = a reply they wrote on someone else's content. " +
+          "'reaction' = a like/celebrate without commentary. " +
+          "'repost' = shared someone else's content. 'article' = long-form they published.",
+      ),
+    text: z
+      .string()
+      .min(1)
+      .max(1500)
+      .describe(
+        "Verbatim or near-verbatim snippet of what was posted/commented. " +
+          "Trim aggressively if longer than ~3 sentences — capture the gist.",
+      ),
+    categories: z
+      .array(z.string().min(1).max(40))
+      .max(4)
+      .default([])
+      .describe(
+        "1-3 short topic tags describing what the post is about. " +
+          "Pick from common themes like: technology, leadership, hiring, " +
+          "industry-news, career-advice, personal, company-update, education, " +
+          "promotion, fundraising, product-launch, opinion. Add new ones if " +
+          "none fit — keep them lowercase-hyphenated.",
+      ),
+    when: z
+      .string()
+      .max(40)
+      .optional()
+      .describe(
+        "Relative or absolute time the activity happened, if shown — e.g. '2d', '3 weeks ago', '2026-04-12'.",
+      ),
+  })
+  .describe("One LinkedIn activity item — a post, comment, reaction, repost, or article.");
+
 export const EducationItemSchema = z
   .object({
     school: z.string().min(1).max(180).describe("School, university, or training provider."),
@@ -69,8 +108,13 @@ export const ParsedResumeSchema = z.object({
   skills: z.array(z.string().min(1).max(80)).default([]),
   workHistory: z.array(WorkHistoryItemSchema).default([]),
   education: z.array(EducationItemSchema).default([]),
+  // Populated from LinkedIn pageText scrapes (Chrome extension). Empty for
+  // PDF/DOCX resume uploads since traditional resumes don't contain
+  // post/comment activity.
+  recentActivity: z.array(ActivityItemSchema).max(20).default([]),
 });
 
 export type WorkHistoryItem = z.infer<typeof WorkHistoryItemSchema>;
 export type EducationItem = z.infer<typeof EducationItemSchema>;
+export type ActivityItem = z.infer<typeof ActivityItemSchema>;
 export type ParsedResume = z.infer<typeof ParsedResumeSchema>;

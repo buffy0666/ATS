@@ -10,7 +10,9 @@ export const authConfig = {
       const isPublicApply = nextUrl.pathname.startsWith("/apply");
       // /api/external is gated by Bearer token, not session — middleware must not redirect.
       const isExternalApi = nextUrl.pathname.startsWith("/api/external");
-      if (isPublicApi || isPublicApply || isExternalApi) return true;
+      // /api/internal is gated by CRON_SECRET / x-vercel-cron header.
+      const isInternalApi = nextUrl.pathname.startsWith("/api/internal");
+      if (isPublicApi || isPublicApply || isExternalApi || isInternalApi) return true;
       if (isOnLogin) {
         if (isLoggedIn) return Response.redirect(new URL("/", nextUrl));
         return true;

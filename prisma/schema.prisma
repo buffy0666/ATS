@@ -28,6 +28,20 @@ enum Stage {
   REJECTED
 }
 
+/// Status of the AI batch processing for a candidate.
+/// Chrome-extension imports start as PENDING. A background worker
+/// (scripts/process-ai-queue.ts) picks them up and walks them through
+/// PROCESSING → READY (or FAILED). Candidates added via PDF resume
+/// upload run the AI synchronously and never enter the queue, so their
+/// status stays NONE.
+enum AIProcessingStatus {
+  NONE
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
 enum ContactRole {
   DECISION_MAKER
   INFLUENCER
@@ -181,6 +195,13 @@ enum TaskStatus {
   COMPLETE
 }
 
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
 enum ListScope {
   PERSONAL
   SHARED
@@ -270,6 +291,7 @@ model User {
   documentsUploaded      CandidateDocument[]
   activities             CandidateActivity[]
   tasksCreated           Task[]                  @relation("TaskCreator")
+  tasksAssigned          Task[]                  @relation("TaskAssignee")
   taskAttachments        TaskAttachment[]        @relation("TaskAttachmentUploader")
   lists                  CandidateList[]
   listMembersAdded       CandidateListMember[]   @relation("ListMemberAdder")
@@ -315,7 +337,7 @@ model ApiToken {
 /// this database is handed off to external clients who set their own keys.
 model AIConfig {
   id              String   @id @default("default")
-  provider        String   // "ollama" | "openai" | "anthropic" | "grok"
+  provider        String // "ollama" | "openai" | "anthropic" | "grok"
   model           String
   baseUrl         String?
   apiKeyEncrypted String?
@@ -486,6 +508,22 @@ model Candidate {
   education     Json?
   parsedAt      DateTime?
   parserVersion String?
+
+  // LinkedIn activity captured by the Chrome extension (recent posts,
+  // comments, reactions). Each item: { kind, text, categories[], when }.
+  // Empty for candidates added via PDF resume upload.
+  recentActivity Json?
+
+  // Batch AI processing — see AIProcessingStatus comment.
+  aiStatus       AIProcessingStatus @default(NONE)
+  aiProcessedAt  DateTime?
+  aiError        String?
+  // Polished resume produced by the AI worker. Shape:
+  // { header: {...}, summary, skills, experience: [...], education: [...] }
+  aiResumeFacsimile Json?
+  // AI-suggested personalization hooks for crafting outreach. Shape:
+  // [{ hook: string, source: string, suggestedOpener: string, tone: string }]
+  outreachInsights Json?
 
   // Plain text extracted from the resume; backs the FTS searchVector column
   // (added via raw SQL migration — Prisma cannot describe generated tsvector).
@@ -683,18 +721,24 @@ model CandidateActivity {
 // Shared admin task list. Description stores raw HTML — writers and readers
 // are both admins (gated in the route), so the trust boundary makes this safe.
 model Task {
-  id          String     @id @default(cuid())
-  name        String
-  description String?
-  status      TaskStatus @default(NOT_STARTED)
-  createdById String?
-  createdBy   User?      @relation("TaskCreator", fields: [createdById], references: [id])
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id           String        @id @default(cuid())
+  name         String
+  description  String?
+  status       TaskStatus    @default(NOT_STARTED)
+  priority     TaskPriority?
+  dueDate      DateTime?
+  createdById  String?
+  createdBy    User?         @relation("TaskCreator", fields: [createdById], references: [id])
+  assignedToId String?
+  assignedTo   User?         @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   attachments TaskAttachment[]
 
   @@index([status])
+  @@index([assignedToId])
+  @@index([dueDate])
   @@index([updatedAt])
   @@index([createdAt])
 }

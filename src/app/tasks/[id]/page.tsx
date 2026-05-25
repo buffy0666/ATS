@@ -24,13 +24,21 @@ export default async function TaskDetailPage({
   await requireAdmin();
   const { id } = await params;
 
-  const task = await prisma.task.findUnique({
-    where: { id },
-    include: {
-      createdBy: { select: { name: true, email: true } },
-      attachments: { orderBy: { uploadedAt: "desc" } },
-    },
-  });
+  const [task, assignableUsers] = await Promise.all([
+    prisma.task.findUnique({
+      where: { id },
+      include: {
+        createdBy: { select: { name: true, email: true } },
+        assignedTo: { select: { id: true, name: true, email: true } },
+        attachments: { orderBy: { uploadedAt: "desc" } },
+      },
+    }),
+    prisma.user.findMany({
+      where: { active: true },
+      orderBy: [{ name: "asc" }, { email: "asc" }],
+      select: { id: true, name: true, email: true },
+    }),
+  ]);
 
   if (!task) notFound();
 
@@ -76,6 +84,10 @@ export default async function TaskDetailPage({
             defaultName={task.name}
             defaultDescription={task.description ?? undefined}
             defaultStatus={task.status}
+            defaultPriority={task.priority}
+            defaultDueDate={task.dueDate}
+            defaultAssignedToId={task.assignedToId}
+            assignableUsers={assignableUsers}
           />
           <button
             type="submit"

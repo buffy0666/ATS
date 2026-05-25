@@ -1,10 +1,17 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth-utils";
+import { prisma } from "@/lib/prisma";
 import { createTask } from "../actions";
 import { TaskFormFields } from "../TaskFormFields";
 
 export default async function NewTaskPage() {
   await requireAdmin();
+
+  const assignableUsers = await prisma.user.findMany({
+    where: { active: true },
+    orderBy: [{ name: "asc" }, { email: "asc" }],
+    select: { id: true, name: true, email: true },
+  });
 
   return (
     <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-10">
@@ -18,7 +25,7 @@ export default async function NewTaskPage() {
         encType="multipart/form-data"
         className="space-y-6 rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
       >
-        <TaskFormFields />
+        <TaskFormFields assignableUsers={assignableUsers} />
 
         <div>
           <label className="mb-1 block text-sm font-medium" htmlFor="attachments">

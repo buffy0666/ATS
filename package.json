@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
+    "process-ai-queue": "tsx --env-file=.env scripts/process-ai-queue.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

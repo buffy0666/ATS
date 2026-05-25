@@ -10,13 +10,22 @@ const PARSER_VERSION = "resume-parser-v1";
 
 export async function parseResume(file: File | { url: string }): Promise<ParsedResume> {
   const resumeText = await extractResumeText(file);
-  if (resumeText.length < 40) {
-    throw new Error("Could not extract enough text from this resume to parse it.");
+  return parseResumeFromText(resumeText);
+}
+
+/**
+ * Same AI parse, but starting from already-extracted text. Used by the
+ * Chrome extension flow where the content script has already grabbed the
+ * full visible text of the LinkedIn profile — no PDF to OCR.
+ */
+export async function parseResumeFromText(rawText: string): Promise<ParsedResume> {
+  if (rawText.length < 40) {
+    throw new Error("Not enough text to parse.");
   }
 
   const result = await completeJson({
     system: RESUME_PARSE_SYSTEM_PROMPT,
-    prompt: buildResumeParsePrompt(resumeText.slice(0, MAX_RESUME_TEXT_CHARS)),
+    prompt: buildResumeParsePrompt(rawText.slice(0, MAX_RESUME_TEXT_CHARS)),
     schema: ParsedResumeSchema,
     maxTokens: 4000,
   });
@@ -37,5 +46,15 @@ export function getResumeParserVersion(): string {
   return `${PARSER_VERSION}:${provider}:${model}`;
 }
 
-export type { ParsedResume, WorkHistoryItem, EducationItem } from "./schema";
-export { ParsedResumeSchema, WorkHistoryItemSchema, EducationItemSchema } from "./schema";
+export type {
+  ActivityItem,
+  EducationItem,
+  ParsedResume,
+  WorkHistoryItem,
+} from "./schema";
+export {
+  ActivityItemSchema,
+  EducationItemSchema,
+  ParsedResumeSchema,
+  WorkHistoryItemSchema,
+} from "./schema";
