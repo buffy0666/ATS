@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Add to ATS</title>
+    <!-- Office.js — must load from Microsoft's CDN. -->
+    <script src="https://appsforoffice.microsoft.com/lib/1.1/hosted/office.js"></script>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        font-size: 14px;
+        margin: 0;
+        padding: 16px;
+        color: #111;
+        background: #fff;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #1b1a19; color: #f3f2f1; }
+        input { background: #292827; color: #f3f2f1; border-color: #484644 !important; }
+      }
+      h1 { font-size: 16px; margin: 0 0 4px; }
+      .sub { font-size: 12px; color: #888; margin: 0 0 16px; }
+      label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #888; margin: 12px 0 4px; }
+      input {
+        width: 100%; padding: 8px 10px; font-size: 14px;
+        border: 1px solid #d1d1d1; border-radius: 4px; background: #fff;
+      }
+      button {
+        margin-top: 16px; width: 100%; padding: 10px;
+        font-size: 14px; font-weight: 600; border: 0; border-radius: 4px;
+        cursor: pointer; background: #d97706; color: #fff;
+      }
+      button:disabled { opacity: .55; cursor: not-allowed; }
+      button.secondary { background: transparent; color: #888; font-weight: 400; margin-top: 8px; text-decoration: underline; }
+      .hidden { display: none; }
+      .preview { border: 1px solid #e1dfdd; border-radius: 4px; padding: 12px; margin-top: 12px; font-size: 13px; }
+      .preview .row { margin-bottom: 4px; }
+      .preview .k { color: #888; }
+      .status { margin-top: 14px; font-size: 13px; padding: 10px 12px; border-radius: 4px; min-height: 18px; }
+      .status.ok { background: #dff6dd; color: #0b6a0b; }
+      .status.info { background: #eff6fc; color: #0b4f8a; }
+      .status.err { background: #fde7e9; color: #a4262c; }
+      a { color: #0b4f8a; }
+      .hint { font-size: 11px; color: #999; margin-top: 4px; }
+    </style>
+  </head>
+  <body>
+    <!-- Capture view: shown when configured -->
+    <div id="capture-view" class="hidden">
+      <h1>Add to ATS</h1>
+      <p class="sub">Capture this email onto the matching candidate.</p>
+      <div id="preview" class="preview"></div>
+      <button id="capture-btn">Capture to ATS</button>
+      <div id="status" class="status"></div>
+      <button id="settings-link" class="secondary">Connection settings</button>
+    </div>
+
+    <!-- Settings view: shown when not configured (or via the link) -->
+    <div id="settings-view" class="hidden">
+      <h1>Connect to your ATS</h1>
+      <p class="sub">One-time setup. Stored privately for your mailbox.</p>
+      <label for="atsUrl">ATS URL</label>
+      <input id="atsUrl" type="url" placeholder="https://ats-one-chi.vercel.app" />
+      <div class="hint">No trailing slash.</div>
+      <label for="apiToken">API token</label>
+      <input id="apiToken" type="password" placeholder="ats_…" />
+      <div class="hint">Generate in your ATS under Settings → API tokens.</div>
+      <button id="save-btn">Save</button>
+      <div id="settings-status" class="status"></div>
+      <button id="back-link" class="secondary hidden">Back</button>
+    </div>
+
+    <script src="taskpane.js"></script>
+  </body>
+</html>

@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Outlook Add-in manifest for "Add to ATS".
+
+  Adds a button to the message-read ribbon in Outlook (new Outlook for
+  Windows, classic desktop, web, and mobile). Clicking it opens a task
+  pane that reads the open email via Office.js and POSTs it to the ATS
+  /api/external/emails endpoint — no DOM scraping.
+
+  All resource URLs point at the production ATS on Vercel. If you move
+  to a custom domain, update every https://ats-one-chi.vercel.app
+  reference below and re-sideload / re-deploy.
+
+  Sideload for testing:
+    Outlook web → Settings (gear) → "Manage add-ins" / "Get add-ins" →
+    "My add-ins" → "Add a custom add-in" → "Add from URL" →
+    https://ats-one-chi.vercel.app/outlook-addin/manifest.xml
+
+  Deploy to your whole team:
+    Microsoft 365 admin center → Settings → Integrated apps →
+    Upload custom apps → provide the manifest URL above.
+-->
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
+  xsi:type="MailApp">
+
+  <!-- Stable identifier for this add-in. Generated once; keep it constant
+       across versions so Outlook treats updates as the same add-in. -->
+  <Id>a7b3c1d2-4e5f-6a7b-8c9d-0e1f2a3b4c5d</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>BBAGC / Hikinex</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Add to ATS" />
+  <Description DefaultValue="Capture the open email into your ATS as a candidate communication." />
+  <IconUrl DefaultValue="https://ats-one-chi.vercel.app/outlook-addin/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://ats-one-chi.vercel.app/outlook-addin/icon-80.png" />
+  <SupportUrl DefaultValue="https://ats-one-chi.vercel.app/" />
+
+  <!-- Domains the task pane is allowed to navigate to / fetch from. -->
+  <AppDomains>
+    <AppDomain>https://ats-one-chi.vercel.app</AppDomain>
+  </AppDomains>
+
+  <Hosts>
+    <Host Name="Mailbox" />
+  </Hosts>
+
+  <Requirements>
+    <Sets>
+      <!-- 1.3 is broadly supported and gives us item.from/to/body/etc. -->
+      <Set Name="Mailbox" MinVersion="1.3" />
+    </Sets>
+  </Requirements>
+
+  <!-- Fallback task pane for older clients that ignore VersionOverrides. -->
+  <FormSettings>
+    <Form xsi:type="ItemRead">
+      <DesktopSettings>
+        <SourceLocation DefaultValue="https://ats-one-chi.vercel.app/outlook-addin/taskpane.html" />
+        <RequestedHeight>320</RequestedHeight>
+      </DesktopSettings>
+    </Form>
+  </FormSettings>
+
+  <!-- We only ever READ the open message. -->
+  <Permissions>ReadItem</Permissions>
+
+  <Rule xsi:type="RuleCollection" Mode="Or">
+    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read" />
+  </Rule>
+
+  <DisableEntityHighlighting>false</DisableEntityHighlighting>
+
+  <!-- Modern ribbon button definition. -->
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Requirements>
+      <bt:Sets DefaultMinVersion="1.3">
+        <bt:Set Name="Mailbox" />
+      </bt:Sets>
+    </Requirements>
+
+    <Hosts>
+      <Host xsi:type="MailHost">
+        <DesktopFormFactor>
+          <!-- Surface shown when reading a message. -->
+          <ExtensionPoint xsi:type="MessageReadCommandSurface">
+            <OfficeTab id="TabDefault">
+              <Group id="atsGroup">
+                <Label resid="atsGroupLabel" />
+                <Control xsi:type="Button" id="atsAddButton">
+                  <Label resid="atsButtonLabel" />
+                  <Supertip>
+                    <Title resid="atsButtonLabel" />
+                    <Description resid="atsButtonTip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="atsIcon16" />
+                    <bt:Image size="32" resid="atsIcon32" />
+                    <bt:Image size="80" resid="atsIcon80" />
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <SourceLocation resid="atsTaskpaneUrl" />
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <Resources>
+      <bt:Images>
+        <bt:Image id="atsIcon16" DefaultValue="https://ats-one-chi.vercel.app/outlook-addin/icon-16.png" />
+        <bt:Image id="atsIcon32" DefaultValue="https://ats-one-chi.vercel.app/outlook-addin/icon-32.png" />
+        <bt:Image id="atsIcon80" DefaultValue="https://ats-one-chi.vercel.app/outlook-addin/icon-80.png" />
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="atsTaskpaneUrl" DefaultValue="https://ats-one-chi.vercel.app/outlook-addin/taskpane.html" />
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="atsGroupLabel" DefaultValue="ATS" />
+        <bt:String id="atsButtonLabel" DefaultValue="Add to ATS" />
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="atsButtonTip" DefaultValue="Capture this email into your ATS, attached to the matching candidate." />
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

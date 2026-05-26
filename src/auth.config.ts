@@ -19,7 +19,15 @@ export const authConfig = {
       const isExternalApi = nextUrl.pathname.startsWith("/api/external");
       // /api/internal is gated by CRON_SECRET / x-vercel-cron header.
       const isInternalApi = nextUrl.pathname.startsWith("/api/internal");
-      if (isPublicApi || isPublicApply || isExternalApi || isInternalApi) return true;
+      // /outlook-addin/* are the static Office Add-in files (manifest.xml,
+      // taskpane.html/js). Office fetches them with no ATS session, so they
+      // must be public. The task pane itself authenticates to /api/external
+      // with the user's API token, not a cookie. (.png icons are already
+      // excluded by the middleware matcher; .html/.js/.xml are not, hence
+      // this explicit allow.)
+      const isOutlookAddin = nextUrl.pathname.startsWith("/outlook-addin");
+      if (isPublicApi || isPublicApply || isExternalApi || isInternalApi || isOutlookAddin)
+        return true;
       if (isOnLogin || isOnSignup || isOnInvite) {
         // Signed-in users get bounced home — no point re-signing-up.
         if (isLoggedIn) return Response.redirect(new URL("/", nextUrl));
