@@ -14,58 +14,34 @@
 (function () {
   "use strict";
 
+  console.log("[ATS extension] Outlook content script loaded on", window.location.href);
+
   const BUTTON_ID = "ats-outlook-add-button";
   const TOAST_ID = "ats-toast";
 
   // -------------------------------------------------------------------------
   // Button injection
   // -------------------------------------------------------------------------
-
-  /**
-   * Find the container where the open email's subject line + sender info
-   * lives — that's where we want to anchor our button. Outlook wraps the
-   * reading pane in an aria-label="Message body" region; the subject row
-   * is a heading inside it. We use the H1/H2/[role="heading"] convention
-   * so we don't depend on class names that rotate.
-   */
-  function findReadingPaneHeader() {
-    const candidates = [
-      // The reading pane region usually has role="region" with this label.
-      document.querySelector('[aria-label="Message body"]'),
-      // Some Outlook variants use this attribute on the wrapper.
-      document.querySelector('div[data-app-section="ReadingPane"]'),
-      // The subject heading itself.
-      document.querySelector('[role="heading"][aria-level="2"]')?.parentElement,
-      document.querySelector('div[role="main"] h1, div[role="main"] h2'),
-    ].filter(Boolean);
-    return candidates[0] || null;
-  }
-
-  function isMessageOpen() {
-    // The reading pane is only mounted when an email is open. If we can't
-    // find a header anchor, the user is in the inbox list — no email open.
-    return findReadingPaneHeader() != null;
-  }
+  //
+  // We ALWAYS show the button once the script is on an Outlook page. We do
+  // NOT gate it on detecting an open email — that detection relies on DOM
+  // selectors that vary across Outlook versions, and gating the button on
+  // it meant the button silently never appeared (the bug we're fixing).
+  // Instead, the "is an email actually open?" check happens at CLICK time:
+  // if scraping finds nothing, we toast "Open an email first".
 
   function injectButton() {
-    if (!isMessageOpen()) {
-      removeButton();
-      return;
-    }
     if (document.getElementById(BUTTON_ID)) return;
+    if (!document.body) return;
 
     const btn = document.createElement("button");
     btn.id = BUTTON_ID;
     btn.type = "button";
     btn.textContent = "+ Add to ATS";
-    btn.title = "Capture this email (and the rest of the thread) into the ATS";
+    btn.title = "Capture the open email (and its thread) into the ATS";
     btn.addEventListener("click", onClick);
     document.body.appendChild(btn);
-  }
-
-  function removeButton() {
-    const btn = document.getElementById(BUTTON_ID);
-    if (btn) btn.remove();
+    console.log("[ATS extension] Add-to-ATS button injected.");
   }
 
   // -------------------------------------------------------------------------
@@ -255,9 +231,13 @@
     }
     const subject = scrapeSubject();
     const bubbles = findMessageBubbles();
+    console.log(
+      `[ATS extension] myEmail=${myEmail}, subject="${subject}", bubbles found=${bubbles.length}`,
+    );
     if (bubbles.length === 0) {
       return {
-        error: "Couldn't find any messages in the open thread.",
+        error:
+          "No open email detected. Open an email (not just the inbox list) and try again.",
       };
     }
     const messages = [];
