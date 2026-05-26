@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { redirect } from "next/navigation";
 import { Role } from "@/generated/prisma";
 import { auth, updateSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -6,7 +6,7 @@ import { requirePlatformAdmin } from "@/lib/auth-utils";
 import { startImpersonation } from "@/lib/impersonation";
 
 /**
- * Quick-impersonate-by-role route. Reached via:
+ * Quick-impersonate-by-role entry point. Reached via:
  *   /platform/impersonate-as?orgId=<id>&role=ADMIN
  *   /platform/impersonate-as?orgId=<id>&role=RECRUITER
  *
@@ -15,48 +15,45 @@ import { startImpersonation } from "@/lib/impersonation";
  * the new tab lands on the tenant's dashboard already wearing the user's
  * identity.
  *
- * Why a GET route handler instead of a server action: server actions are
- * processed via fetch in the current document, so <form target="_blank">
- * doesn't open them in a new tab. A plain GET route works with
- * <a target="_blank"> and gets the browser's cookie automatically — so
- * the platform admin's session reaches the handler, updateSession()
- * rewrites the JWT, and the new tab navigates to the impersonated view.
+ * Why a Server Component page instead of a Route Handler: NextAuth's
+ * updateSession() writes the new JWT via cookies().set(). When a Route
+ * Handler returns NextResponse.redirect, that response is constructed
+ * directly and doesn't carry the cookie mutation through — so the new
+ * tab would load with the OLD (platform-admin) session and no
+ * impersonation overlay. A Server Component page invokes redirect() from
+ * next/navigation, which throws an exception that Next.js intercepts and
+ * turns into a redirect response WITH any cookies set during render.
+ * That's the path updateSession is designed for.
  *
- * Caveat (inherent to cookie-based auth): the JWT cookie is browser-wide,
- * not per-tab. After this request, ALL tabs of the same browser profile
- * are impersonated. The original /platform tab keeps its cached HTML
- * looking like platform-admin until it navigates or refreshes. Click
- * "Exit" in any tab to return everywhere to normal.
+ * This component never actually renders — every code path ends in
+ * redirect(), which throws a NEXT_REDIRECT control-flow exception.
  */
-export async function GET(request: NextRequest) {
+export default async function ImpersonateAsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ orgId?: string; role?: string }>;
+}) {
   const platformAdmin = await requirePlatformAdmin();
 
   // Refuse nested impersonation. If they're already wearing a tenant
   // hat, starting another would clobber the audit chain.
   const currentSession = await auth();
   if (currentSession?.impersonation) {
-    return NextResponse.redirect(
-      new URL("/platform/organizations?error=already-impersonating", request.url),
-    );
+    redirect("/platform/organizations?error=already-impersonating");
   }
 
-  const orgId = request.nextUrl.searchParams.get("orgId");
-  const roleParam = request.nextUrl.searchParams.get("role");
+  const { orgId, role: roleParam } = await searchParams;
 
   if (!orgId || !roleParam) {
-    return NextResponse.redirect(
-      new URL("/platform/organizations?error=missing-params", request.url),
-    );
+    redirect("/platform/organizations?error=missing-params");
   }
   if (!Object.values(Role).includes(roleParam as Role)) {
-    return NextResponse.redirect(
-      new URL("/platform/organizations?error=invalid-role", request.url),
-    );
+    redirect("/platform/organizations?error=invalid-role");
   }
 
   // Find first active non-platform-admin user with the role. Oldest
-  // first — typically the org owner / founding admin for ADMIN, and
-  // the first hired recruiter for RECRUITER.
+  // first — typically the org owner / founding admin for ADMIN, and the
+  // first hired recruiter for RECRUITER.
   const target = await prisma.user.findFirst({
     where: {
       organizationId: orgId,
@@ -70,13 +67,10 @@ export async function GET(request: NextRequest) {
 
   if (!target) {
     const label = roleParam === Role.ADMIN ? "admin" : "recruiter";
-    return NextResponse.redirect(
-      new URL(
-        `/platform/organizations/${orgId}?error=${encodeURIComponent(
-          `No active ${label} in that org to sign in as.`,
-        )}`,
-        request.url,
-      ),
+    redirect(
+      `/platform/organizations/${orgId}?error=${encodeURIComponent(
+        `No active ${label} in that org to sign in as.`,
+      )}`,
     );
   }
 
@@ -86,14 +80,14 @@ export async function GET(request: NextRequest) {
   });
 
   if (!result.ok) {
-    return NextResponse.redirect(
-      new URL(
-        `/platform/organizations/${orgId}?error=${encodeURIComponent(result.error)}`,
-        request.url,
-      ),
+    redirect(
+      `/platform/organizations/${orgId}?error=${encodeURIComponent(result.error)}`,
     );
   }
 
+  // Push the overlay into the JWT. Because we're in a Server Component
+  // page (not a Route Handler), Next.js will propagate the cookie write
+  // through the redirect response that follows.
   await updateSession({
     impersonation: {
       sessionId: result.session.id,
@@ -110,5 +104,5 @@ export async function GET(request: NextRequest) {
 
   // Land on the tenant's dashboard with the new identity active. The
   // impersonation banner renders across the top of every page.
-  return NextResponse.redirect(new URL("/", request.url));
+  redirect("/");
 }
