@@ -1,9 +1,18 @@
-import "server-only";
-
 /**
  * Per-entity audit metadata: the allowlist of Prisma models the extension
  * captures CREATE/UPDATE/DELETE for, plus a human-readable label
  * generator so the audit table reads as "Sarah Chen" instead of "c0xyz...".
+ *
+ * Intentionally NOT marked "server-only" — this module is pure metadata
+ * (sets, label maps, a string function) and is imported by both server
+ * code (the audit write extension) and client code (the AuditTable
+ * component). The previous "server-only" import made the production
+ * build fail with "'server-only' cannot be imported from a Client
+ * Component module".
+ *
+ * If anything in here ever starts touching the DB or env vars, MOVE
+ * that piece into a server-only file (lib/audit/write.ts is the right
+ * home) and keep this module shared.
  */
 
 export const AUDITED_MODELS = new Set<string>([
