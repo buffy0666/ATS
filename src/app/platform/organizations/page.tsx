@@ -85,7 +85,7 @@ export default async function PlatformOrgsPage({
               <th className="text-right px-4 py-2">Jobs</th>
               <th className="text-right px-4 py-2">Clients</th>
               <th className="text-left px-4 py-2">Created</th>
-              <th className="text-right px-4 py-2 w-32">Login</th>
+              <th className="text-right px-4 py-2 w-44">Login as</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -127,7 +127,7 @@ export default async function PlatformOrgsPage({
                     {o.createdAt.toLocaleDateString()}
                   </td>
                   <td className="px-4 py-2 text-right">
-                    <LoginDropdown orgId={o.id} />
+                    <LoginButtons orgId={o.id} />
                   </td>
                 </tr>
               ))
@@ -152,43 +152,37 @@ export default async function PlatformOrgsPage({
 }
 
 /**
- * Per-row Login dropdown. Uses native <details>/<summary> so it's
- * keyboard-accessible and JS-free. The two options are plain <a> tags
- * with target="_blank" pointing at /platform/impersonate-as — the route
- * handler picks the first active non-platform-admin user of the given
- * role, starts impersonation, and redirects to / in the new tab.
+ * Per-row login buttons — two inline pill buttons instead of a popover
+ * dropdown. We tried a <details>/<summary> dropdown initially but the
+ * table card uses `overflow-hidden` (needed for clean rounded corners)
+ * which clipped the popout. Inline buttons sidestep the problem without
+ * needing a JS portal or messing with the card's clipping.
+ *
+ * Each button is an <a target="_blank"> pointing at /platform/impersonate-as
+ * — the route handler picks the first active non-platform-admin user of
+ * the given role, starts impersonation, and redirects to / in the new tab.
  */
-function LoginDropdown({ orgId }: { orgId: string }) {
+function LoginButtons({ orgId }: { orgId: string }) {
   return (
-    <details className="relative inline-block text-left group">
-      <summary className="cursor-pointer list-none rounded-md bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 text-xs font-medium inline-flex items-center gap-1">
-        Login
-        <span className="text-[10px] opacity-80">▾</span>
-      </summary>
-      <div className="absolute right-0 top-full mt-1 w-56 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg z-20 py-1">
-        <a
-          href={`/platform/impersonate-as?orgId=${orgId}&role=ADMIN`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800"
-        >
-          <div className="font-medium">as Tenant Admin</div>
-          <div className="text-xs text-zinc-500">
-            First active ADMIN. Full settings access.
-          </div>
-        </a>
-        <a
-          href={`/platform/impersonate-as?orgId=${orgId}&role=RECRUITER`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block px-3 py-2 text-sm text-zinc-900 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 border-t border-zinc-100 dark:border-zinc-800"
-        >
-          <div className="font-medium">as Tenant User</div>
-          <div className="text-xs text-zinc-500">
-            First active RECRUITER. Standard user view.
-          </div>
-        </a>
-      </div>
-    </details>
+    <div className="flex justify-end gap-1">
+      <a
+        href={`/platform/impersonate-as?orgId=${orgId}&role=ADMIN`}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Sign in as this tenant's first active ADMIN. Opens in a new tab."
+        className="text-xs rounded-md bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 font-medium"
+      >
+        Admin
+      </a>
+      <a
+        href={`/platform/impersonate-as?orgId=${orgId}&role=RECRUITER`}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Sign in as this tenant's first active RECRUITER. Opens in a new tab."
+        className="text-xs rounded-md bg-zinc-200 hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-zinc-900 dark:text-zinc-100 px-2 py-1 font-medium"
+      >
+        User
+      </a>
+    </div>
   );
 }
