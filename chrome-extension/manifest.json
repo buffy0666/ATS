@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ATS — Add Candidate & Email from LinkedIn / Outlook",
   "description": "Adds an 'Add to ATS' button on LinkedIn profiles (capture candidate) and on Outlook web emails (capture conversation).",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "action": {
     "default_title": "ATS Settings",
     "default_popup": "popup.html"
@@ -17,6 +17,8 @@
     "https://outlook.office.com/*",
     "https://outlook.live.com/*",
     "https://outlook.office365.com/*",
+    "https://outlook.cloud.microsoft/*",
+    "https://*.cloud.microsoft/*",
     "http://localhost/*",
     "https://*.vercel.app/*"
   ],
@@ -31,7 +33,9 @@
       "matches": [
         "https://outlook.office.com/*",
         "https://outlook.live.com/*",
-        "https://outlook.office365.com/*"
+        "https://outlook.office365.com/*",
+        "https://outlook.cloud.microsoft/*",
+        "https://m365.cloud.microsoft/*"
       ],
       "js": ["outlook-content.js"],
       "css": ["styles.css"],
