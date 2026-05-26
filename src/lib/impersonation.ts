@@ -1,5 +1,6 @@
 import "server-only";
 
+import { auditEvent } from "@/lib/audit/write";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -94,6 +95,27 @@ export async function startImpersonation(
     select: { id: true, expiresAt: true },
   });
 
+  // Stamp the audit log against the TARGET's org so tenant admins can
+  // see when a platform admin took over an account in their tenant. The
+  // actor (platform admin id + email) is inherited from the request
+  // context that the calling route handler already set up via
+  // requireSession*.
+  await auditEvent({
+    action: "IMPERSONATE_START",
+    entityType: "User",
+    entityId: target.id,
+    entityLabel: target.email,
+    organizationId: target.organization.id,
+    metadata: {
+      sessionId: session.id,
+      expiresAt: session.expiresAt.toISOString(),
+      reason: input.reason?.trim() || null,
+      platformAdminUserId: input.platformAdminUserId,
+      targetUserId: target.id,
+      targetOrgId: target.organization.id,
+    },
+  });
+
   return {
     ok: true,
     session: {
@@ -116,6 +138,29 @@ export async function endImpersonation(args: {
   sessionId: string;
   platformAdminUserId: string;
 }) {
+  // Fetch the session first so we know who/what to audit — once endedAt
+  // is set the same row still works, but we want the targetUserId and
+  // targetOrgId to scope the audit row correctly. findFirst (not unique)
+  // because we filter by both id and platformAdminUserId for safety.
+  // Pull the platform admin's email too: at end-time the JWT overlay
+  // points the audit context at the *impersonated* user, so the auto-
+  // stamping would mis-attribute. We override the actor explicitly.
+  const session = await prisma.impersonationSession.findFirst({
+    where: {
+      id: args.sessionId,
+      platformAdminUserId: args.platformAdminUserId,
+      endedAt: null,
+    },
+    select: {
+      id: true,
+      targetUserId: true,
+      targetOrgId: true,
+      startedAt: true,
+      targetUser: { select: { email: true } },
+      platformAdmin: { select: { email: true } },
+    },
+  });
+
   // updateMany so a sessionId from another admin's session just no-ops
   // rather than throwing.
   await prisma.impersonationSession.updateMany({
@@ -126,6 +171,30 @@ export async function endImpersonation(args: {
     },
     data: { endedAt: new Date() },
   });
+
+  // Only audit if we actually had something to end. Re-calling on an
+  // already-ended session is a no-op for both the update and the audit.
+  if (session) {
+    const endedAt = new Date();
+    await auditEvent({
+      action: "IMPERSONATE_END",
+      entityType: "User",
+      entityId: session.targetUserId,
+      entityLabel: session.targetUser?.email ?? session.targetUserId,
+      organizationId: session.targetOrgId,
+      // Override actor — context here belongs to the impersonated user
+      // because the JWT overlay is still active when end is called.
+      actorUserId: args.platformAdminUserId,
+      actorEmail: session.platformAdmin?.email ?? null,
+      metadata: {
+        sessionId: session.id,
+        startedAt: session.startedAt.toISOString(),
+        endedAt: endedAt.toISOString(),
+        durationMs: endedAt.getTime() - session.startedAt.getTime(),
+        platformAdminUserId: args.platformAdminUserId,
+      },
+    });
+  }
 }
 
 /**
