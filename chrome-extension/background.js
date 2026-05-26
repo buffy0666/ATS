@@ -13,19 +13,35 @@
 //   4. Return the result back to the content script for display.
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!message || message.type !== "ats:add-candidate") return;
+  if (!message) return;
 
   // sendResponse must be returned async, so return true to keep the channel
   // open until our promise resolves.
-  handleAddCandidate(message.payload)
-    .then(sendResponse)
-    .catch((err) => {
-      sendResponse({
-        ok: false,
-        error: err && err.message ? err.message : "Unknown background error.",
+  if (message.type === "ats:add-candidate") {
+    handleAddCandidate(message.payload)
+      .then(sendResponse)
+      .catch((err) => {
+        sendResponse({
+          ok: false,
+          error: err && err.message ? err.message : "Unknown background error.",
+        });
       });
-    });
-  return true;
+    return true;
+  }
+
+  if (message.type === "ats:add-emails") {
+    handleAddEmails(message.payload)
+      .then(sendResponse)
+      .catch((err) => {
+        sendResponse({
+          ok: false,
+          error: err && err.message ? err.message : "Unknown background error.",
+        });
+      });
+    return true;
+  }
+
+  return;
 });
 
 async function handleAddCandidate(payload) {
@@ -116,6 +132,84 @@ async function handleAddCandidate(payload) {
     };
   }
 
+  return {
+    ok: false,
+    error: `ATS returned HTTP ${response.status}${body?.error ? " — " + body.error : ""}`,
+  };
+}
+
+/**
+ * Email capture flow (from outlook-content.js). Mirrors handleAddCandidate
+ * but hits /api/external/emails and parses the different response shape:
+ *
+ *   { status: "captured", candidate: {...url}, captured, skipped }
+ *   { status: "no-candidate-matched", unmatched: { email, name }, createCandidateUrl }
+ */
+async function handleAddEmails(payload) {
+  const { atsUrl, apiToken } = await chrome.storage.local.get(["atsUrl", "apiToken"]);
+  if (!atsUrl || !apiToken) {
+    return {
+      ok: false,
+      error:
+        "Extension isn't configured — click the extension icon and set the ATS URL + API token.",
+    };
+  }
+
+  const endpoint = atsUrl.replace(/\/+$/, "") + "/api/external/emails";
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Could not reach ${endpoint}: ${err && err.message ? err.message : "fetch failed"}`,
+    };
+  }
+
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    // Non-JSON — fall through to status code handling below.
+  }
+
+  // Absolutize any URLs in the response so the toast click works no
+  // matter what APP_URL is set to (same trick as candidate capture).
+  const absolutize = (url) => {
+    if (!url) return url;
+    if (/^https?:\/\//i.test(url)) return url;
+    const base = atsUrl.replace(/\/+$/, "");
+    return base + (url.startsWith("/") ? url : "/" + url);
+  };
+  if (body?.candidate?.url) body.candidate.url = absolutize(body.candidate.url);
+  if (body?.createCandidateUrl)
+    body.createCandidateUrl = absolutize(body.createCandidateUrl);
+
+  if (response.status === 200 && body) {
+    return { ok: true, ...body };
+  }
+  if (response.status === 401) {
+    return {
+      ok: false,
+      error: "API token rejected. Generate a new one in Settings → API tokens.",
+    };
+  }
+  if (response.status === 422) {
+    const issues = Array.isArray(body?.issues)
+      ? body.issues.map((i) => `${i.path}: ${i.message}`).join("; ")
+      : "";
+    return {
+      ok: false,
+      error: `Validation error${issues ? " — " + issues : ""}`,
+    };
+  }
   return {
     ok: false,
     error: `ATS returned HTTP ${response.status}${body?.error ? " — " + body.error : ""}`,

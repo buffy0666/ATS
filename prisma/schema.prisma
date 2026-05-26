@@ -83,6 +83,28 @@ enum EmailStatus {
   FAILED
 }
 
+/// Direction of an EmailLog row relative to the ATS-side user. OUTBOUND
+/// = we sent it (composer or recruiter's own Outlook captured via the
+/// extension). INBOUND = we received it (candidate's reply captured via
+/// the extension or, future, an inbound webhook).
+enum EmailDirection {
+  OUTBOUND
+  INBOUND
+}
+
+/// How a given EmailLog row got into our database. Lets the timeline UI
+/// badge rows by provenance and gives the future webhook integration a
+/// clean way to dedupe against extension-captured copies.
+enum EmailSource {
+  COMPOSER          // sent via the ATS email composer (/candidates/[id])
+  EXTENSION_OUTLOOK // captured via the Chrome extension on Outlook web
+  EXTENSION_GMAIL   // captured via the Chrome extension on Gmail (future)
+  WEBHOOK           // inbound from Resend/Mailgun webhook (future)
+  OAUTH_GMAIL       // pulled from a connected Gmail account (future)
+  OAUTH_OUTLOOK     // pulled from a connected Outlook account (future)
+  MANUAL            // pasted in by hand (future)
+}
+
 enum WorkAuth {
   US_CITIZEN
   GREEN_CARD
@@ -883,7 +905,19 @@ model EmailLog {
   id            String  @id @default(cuid())
   candidateId   String?
   applicationId String?
+  // The recruiter ASSOCIATED with this email on our side:
+  //   - For OUTBOUND emails: the user who sent it (composer or whose
+  //     Outlook the extension captured from).
+  //   - For INBOUND emails: the user who clicked "Add to ATS" on the
+  //     received email (the "owning" recruiter for the conversation).
+  // The actual From: header lives in `fromEmail` below — for INBOUND
+  // that's the candidate, which is intentionally different.
   fromUserId    String
+
+  // Actual From: header of the email. Populated for extension captures
+  // and future webhook/OAuth captures. Nullable for backwards compat
+  // with COMPOSER rows that predate this field.
+  fromEmail     String?
 
   to       String
   cc       String[] @default([])
@@ -893,11 +927,29 @@ model EmailLog {
   bodyText String?
   bodyHtml String?
 
+  // Was this email sent from us or received by us? Defaults to OUTBOUND
+  // because that's what every existing composer-sent row is.
+  direction EmailDirection @default(OUTBOUND)
+
+  // Where the row came from. Defaults to COMPOSER for the same reason —
+  // every existing row was sent via /candidates/[id] composer.
+  source    EmailSource    @default(COMPOSER)
+
+  // RFC 5322 Message-ID header (looks like `<CAJ8x...@mail.gmail.com>`).
+  // Globally unique per email. Used to dedupe when the same email is
+  // captured via multiple paths (extension click + future webhook).
+  // Indexed so dedup lookups are fast.
+  messageId String?
+
   provider          String
   providerMessageId String?
   status            EmailStatus @default(SENT)
   errorMessage      String?
 
+  // Wall-clock time the original email was sent/received (from the
+  // email's own Date header, not when we ingested it). Falls back to
+  // ingestion time when the source can't tell us — e.g. composer rows
+  // where sentAt == ingestion time by definition.
   sentAt DateTime @default(now())
 
   candidate   Candidate?   @relation(fields: [candidateId], references: [id], onDelete: SetNull)
@@ -912,6 +964,8 @@ model EmailLog {
   @@index([applicationId, sentAt])
   @@index([fromUserId])
   @@index([organizationId])
+  @@index([messageId])
+  @@index([candidateId, direction, sentAt])
 }
 
 model CandidateReference {

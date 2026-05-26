@@ -5,8 +5,17 @@ import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/ch
 import { loadCustomFields } from "@/lib/custom-fields";
 import { CandidateForm } from "./CandidateForm";
 
-export default async function NewCandidatePage() {
+export default async function NewCandidatePage({
+  searchParams,
+}: {
+  // Used by the Chrome extension's "Create candidate" toast — when an
+  // email captured from Outlook didn't match a known candidate, the
+  // server returns a URL like /candidates/new?email=foo@bar.com&name=Foo+Bar
+  // and the form pre-fills.
+  searchParams: Promise<{ email?: string; name?: string }>;
+}) {
   const { session, orgId } = await requireSessionWithOrg();
+  const { email: prefillEmail, name: prefillName } = await searchParams;
 
   // Lazy-seed default options so the form's dropdowns always have something
   // selectable, even on a fresh database.
@@ -69,7 +78,37 @@ export default async function NewCandidatePage() {
         sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
         seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
         customFields={customFields}
+        prefill={splitPrefill(prefillEmail, prefillName)}
       />
     </main>
   );
+}
+
+/**
+ * Split a "Name <email>" or "Lastname, Firstname" or "Firstname Lastname"
+ * query-param into the form's first/last name fields. Best-effort —
+ * recruiter can always fix up afterwards.
+ */
+function splitPrefill(
+  email: string | undefined,
+  name: string | undefined,
+): { email?: string; firstName?: string; lastName?: string } | undefined {
+  if (!email && !name) return undefined;
+  let firstName: string | undefined;
+  let lastName: string | undefined;
+  const trimmed = (name ?? "").trim();
+  if (trimmed) {
+    if (trimmed.includes(",")) {
+      // "Lastname, Firstname"
+      const [last, first] = trimmed.split(",").map((s) => s.trim());
+      lastName = last || undefined;
+      firstName = first || undefined;
+    } else {
+      // "Firstname Lastname" — first token is first name, rest is last.
+      const parts = trimmed.split(/\s+/);
+      firstName = parts[0];
+      lastName = parts.slice(1).join(" ") || undefined;
+    }
+  }
+  return { email, firstName, lastName };
 }

@@ -81,6 +81,7 @@ export function CandidateForm({
   sourceOptions,
   seniorityOptions,
   customFields,
+  prefill,
 }: {
   users: UserOption[];
   contacts: ContactOption[];
@@ -89,9 +90,21 @@ export function CandidateForm({
   sourceOptions: ChoiceOption[];
   seniorityOptions: ChoiceOption[];
   customFields: CustomFieldRow[];
+  // Optional initial values, populated from URL search params. Used by
+  // the Chrome extension's "Create candidate" toast which lands here
+  // with ?email=foo@bar.com&name=Foo+Bar when the captured email's
+  // sender isn't yet in the ATS. firstName/lastName are split on the
+  // first space in the page (a Name header can be "Sarah Lee" or
+  // "Sarah", or even "Lee, Sarah" — best effort).
+  prefill?: { email?: string; firstName?: string; lastName?: string };
 }) {
   const formRef = useRef<HTMLFormElement>(null);
-  const [fields, setFields] = useState<CandidateFieldValues>(emptyCandidateFieldValues);
+  const [fields, setFields] = useState<CandidateFieldValues>(() => ({
+    ...emptyCandidateFieldValues,
+    email: prefill?.email ?? emptyCandidateFieldValues.email,
+    firstName: prefill?.firstName ?? emptyCandidateFieldValues.firstName,
+    lastName: prefill?.lastName ?? emptyCandidateFieldValues.lastName,
+  }));
   const [summary, setSummary] = useState("");
   const [skills, setSkills] = useState<string[]>([]);
   const [workHistory, setWorkHistory] = useState<WorkHistoryItem[]>([]);
