@@ -203,7 +203,9 @@ export async function POST(request: NextRequest) {
       education: data.education
         ? (data.education as unknown as Prisma.InputJsonValue)
         : Prisma.JsonNull,
-      resumeText: data.pageText ?? null,
+      // LinkedIn page text lives in its own column so a later PDF resume
+      // upload (which writes to resumeText) can't clobber it.
+      linkedinPageText: data.pageText ?? null,
       source: data.source ?? "LinkedIn",
       sourcedById: auth.userId,
       organizationId: auth.organizationId,

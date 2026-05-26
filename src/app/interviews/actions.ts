@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { auditCreate, auditDelete } from "@/lib/audit/write";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { InterviewStatus, InterviewType } from "@/generated/prisma";
@@ -129,6 +130,7 @@ export async function createInterview(formData: FormData) {
       organizer: { select: { name: true, email: true } },
     },
   });
+  await auditCreate("Interview", interview as unknown as Record<string, unknown>);
 
   if (data.sendInvites) {
     await sendInviteEmails(interview, session.user);
@@ -224,10 +226,10 @@ export async function deleteInterview(interviewId: string) {
   const { orgId } = await requireSessionWithOrg();
   const iv = await prisma.interview.findFirst({
     where: { id: interviewId, organizationId: orgId },
-    select: { candidateId: true },
   });
   if (!iv) throw new Error("Interview not found.");
   await prisma.interview.delete({ where: { id: interviewId } });
+  await auditDelete("Interview", iv as unknown as Record<string, unknown>);
   revalidatePath("/interviews");
   revalidatePath(`/candidates/${iv.candidateId}`);
   redirect("/interviews");

@@ -7,6 +7,7 @@ import { EmailHistory } from "./EmailHistory";
 import { NotesSection } from "./NotesSection";
 import { CandidateJobsSection } from "./CandidateJobsSection";
 import { CandidateNavigator } from "./CandidateNavigator";
+import { DeleteCandidateButton } from "../DeleteCandidateButton";
 import { OutreachInsights, type ActivityItem, type OutreachInsight } from "./OutreachInsights";
 import { ResumeUploadButton } from "./ResumeUploadButton";
 import { ResumeViewer } from "./ResumeViewer";
@@ -269,7 +270,14 @@ export default async function CandidateDetailPage({
           <Link href="/candidates" className="text-xs text-zinc-500 hover:underline">
             ← All candidates
           </Link>
-          <CandidateNavigator currentId={candidate.id} />
+          <div className="flex items-center gap-2">
+            <CandidateNavigator currentId={candidate.id} />
+            <DeleteCandidateButton
+              candidateId={candidate.id}
+              candidateName={`${candidate.firstName} ${candidate.lastName}`}
+              applicationCount={candidate.applications.length}
+            />
+          </div>
         </div>
         <div className="mt-1 flex flex-wrap items-baseline gap-3">
           <h1 className="text-2xl font-semibold">
@@ -337,6 +345,7 @@ export default async function CandidateDetailPage({
               data={{
                 resumeUrl: candidate.resumeUrl,
                 resumeText: candidate.resumeText,
+                linkedinPageText: candidate.linkedinPageText,
                 summary: candidate.summary,
                 skills: candidate.skills,
                 workHistory: (candidate.workHistory ?? []) as never,

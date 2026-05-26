@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { auditCreate, auditDelete, auditUpdate } from "@/lib/audit/write";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { JobStatus, Stage } from "@/generated/prisma";
@@ -57,6 +58,7 @@ export async function createJob(formData: FormData) {
   const job = await prisma.job.create({
     data: { ...data, createdById: session.user.id, organizationId: orgId },
   });
+  await auditCreate("Job", job as unknown as Record<string, unknown>);
 
   revalidatePath("/jobs");
   revalidatePath("/clients");
@@ -120,10 +122,16 @@ export async function updateJob(jobId: string, formData: FormData) {
     if (!client) data.clientId = null;
   }
 
+  const before = await prisma.job.findUnique({ where: { id: jobId } });
   const job = await prisma.job.update({
     where: { id: jobId },
     data,
   });
+  await auditUpdate(
+    "Job",
+    before as unknown as Record<string, unknown> | null,
+    job as unknown as Record<string, unknown>,
+  );
 
   revalidatePath("/jobs");
   revalidatePath(`/jobs/${jobId}`);
@@ -134,14 +142,15 @@ export async function updateJob(jobId: string, formData: FormData) {
 export async function deleteJob(jobId: string) {
   const { orgId } = await requireSessionWithOrg();
 
+  // Read the full row so the audit has the snapshot to display.
   const job = await prisma.job.findFirst({
     where: { id: jobId, organizationId: orgId },
-    select: { id: true, clientId: true },
   });
   if (!job) throw new Error("Job not found.");
 
   // Application has onDelete: Cascade so all applications + their notes/emails get cleaned up.
   await prisma.job.delete({ where: { id: jobId } });
+  await auditDelete("Job", job as unknown as Record<string, unknown>);
 
   revalidatePath("/jobs");
   if (job.clientId) revalidatePath(`/clients/${job.clientId}`);

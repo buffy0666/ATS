@@ -22,6 +22,7 @@ const PRIMARY_ITEMS: NavItem[] = [
 const ADMIN_ITEMS: NavItem[] = [
   { href: "/tasks", label: "Tasks" },
   { href: "/users", label: "Users" },
+  { href: "/audit", label: "Audit history" },
   { href: "/settings", label: "Settings" },
 ];
 
@@ -30,6 +31,8 @@ const ADMIN_ITEMS: NavItem[] = [
 const PLATFORM_ITEMS: NavItem[] = [
   { href: "/platform", label: "Overview" },
   { href: "/platform/organizations", label: "Organizations" },
+  { href: "/platform/announcements", label: "Announcements" },
+  { href: "/platform/audit", label: "Audit history" },
 ];
 
 const COLLAPSE_STORAGE_KEY = "ats.sidebar.collapsed.v1";
@@ -46,6 +49,7 @@ export function SidebarClient({
   isAdmin,
   isPlatformAdmin,
   organizationName,
+  organizationLogoUrl,
 }: {
   email: string;
   role: string;
@@ -58,6 +62,9 @@ export function SidebarClient({
   // they're operating in. Null during the staged migration if the user
   // somehow has no org (Phase 4 onboarding flow catches them earlier).
   organizationName: string | null;
+  // Workspace logo. When set, replaces the "ATS" wordmark in the sidebar.
+  // Null = fall back to wordmark + org name.
+  organizationLogoUrl: string | null;
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -104,16 +111,34 @@ export function SidebarClient({
             type="button"
             onClick={() => setCollapsed(false)}
             aria-label="Expand sidebar"
-            title="Expand sidebar"
-            className="h-8 w-8 flex items-center justify-center text-sm rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            title={organizationName ? `Expand sidebar (${organizationName})` : "Expand sidebar"}
+            className="h-8 w-8 flex items-center justify-center text-sm rounded-md border border-zinc-200 dark:border-zinc-700 text-zinc-500 hover:text-zinc-900 dark:hover:text-white hover:bg-zinc-100 dark:hover:bg-zinc-800 overflow-hidden"
           >
-            ›
+            {organizationLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={organizationLogoUrl}
+                alt={organizationName ?? "Workspace logo"}
+                className="max-h-full max-w-full object-contain"
+              />
+            ) : (
+              "›"
+            )}
           </button>
         ) : (
           <>
             <div className="flex items-center justify-between gap-2">
-              <Link href="/" className="font-semibold tracking-tight text-lg block min-w-0 flex-1 truncate">
-                ATS
+              <Link href="/" className="block min-w-0 flex-1 truncate">
+                {organizationLogoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={organizationLogoUrl}
+                    alt={organizationName ?? "Workspace logo"}
+                    className="h-9 w-auto max-w-full object-contain"
+                  />
+                ) : (
+                  <span className="font-semibold tracking-tight text-lg">ATS</span>
+                )}
               </Link>
               <button
                 type="button"

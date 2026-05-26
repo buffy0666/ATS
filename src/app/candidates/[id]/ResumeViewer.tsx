@@ -17,8 +17,10 @@ import { ResumeViewerTabs } from "./ResumeViewerTabs";
 export type CandidateResumeData = {
   /** PDF / DOCX upload — null if no file was attached. */
   resumeUrl: string | null;
-  /** Raw text scraped from the LinkedIn profile by the Chrome extension. */
+  /** Plain text extracted from the uploaded resume PDF/DOCX. */
   resumeText: string | null;
+  /** Raw text scraped from the LinkedIn profile by the Chrome extension. */
+  linkedinPageText: string | null;
   /** Long-form summary the AI parser produced. */
   summary: string | null;
   /** AI-extracted skills (canonical names). */

@@ -163,9 +163,14 @@ export type WorkerResult =
  * keep going.
  */
 export async function processOneCandidate(): Promise<WorkerResult | null> {
-  // Reserve the oldest PENDING row.
+  // Reserve the oldest PENDING row. Either column carries the source text:
+  // linkedinPageText (Chrome ext, new path) or resumeText (legacy in-flight
+  // rows captured before the columns were split).
   const pending = await prisma.candidate.findFirst({
-    where: { aiStatus: AIProcessingStatus.PENDING, resumeText: { not: null } },
+    where: {
+      aiStatus: AIProcessingStatus.PENDING,
+      OR: [{ linkedinPageText: { not: null } }, { resumeText: { not: null } }],
+    },
     orderBy: { createdAt: "asc" },
     select: { id: true },
   });
@@ -195,6 +200,7 @@ export async function processOneCandidate(): Promise<WorkerResult | null> {
       locationState: true,
       locationCountry: true,
       summary: true,
+      linkedinPageText: true,
       resumeText: true,
       // Used to pick the right tenant's AIConfig — every pass below runs
       // against that org's provider/model/api key.
@@ -202,18 +208,20 @@ export async function processOneCandidate(): Promise<WorkerResult | null> {
     },
   });
 
-  if (!candidate || !candidate.resumeText) {
+  const sourceText = candidate?.linkedinPageText ?? candidate?.resumeText ?? null;
+
+  if (!candidate || !sourceText) {
     await prisma.candidate.update({
       where: { id: pending.id },
       data: {
         aiStatus: AIProcessingStatus.FAILED,
-        aiError: "Candidate or resumeText vanished between claim and read.",
+        aiError: "Candidate or source text vanished between claim and read.",
       },
     });
     return { ok: false, candidateId: pending.id, error: "missing text" };
   }
 
-  const rawText = candidate.resumeText.slice(0, MAX_INPUT_CHARS);
+  const rawText = sourceText.slice(0, MAX_INPUT_CHARS);
   // Resolve every pass against this candidate's tenant. Falls back to env
   // vars if the candidate predates the org-aware backfill (Phase 6 makes
   // org_id NOT NULL and removes this fallback).

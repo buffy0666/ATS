@@ -1,3 +1,4 @@
+import { type NextRequest } from "next/server";
 import { redirect } from "next/navigation";
 import { Role } from "@/generated/prisma";
 import { auth, updateSession } from "@/auth";
@@ -12,38 +13,31 @@ import { findOrCreateDefaultUser } from "@/lib/platform-default-users";
  *   /platform/impersonate-as?orgId=<id>&role=RECRUITER
  *
  * Picks the first active non-platform-admin user with the requested role
- * in that org, starts an impersonation session, and redirects to "/" so
- * the new tab lands on the tenant's dashboard already wearing the user's
- * identity.
+ * in that org (or auto-provisions a Default Admin / Default User if none
+ * exists). Starts an impersonation session and redirects to "/".
  *
- * Why a Server Component page instead of a Route Handler: NextAuth's
- * updateSession() writes the new JWT via cookies().set(). When a Route
- * Handler returns NextResponse.redirect, that response is constructed
- * directly and doesn't carry the cookie mutation through — so the new
- * tab would load with the OLD (platform-admin) session and no
- * impersonation overlay. A Server Component page invokes redirect() from
- * next/navigation, which throws an exception that Next.js intercepts and
- * turns into a redirect response WITH any cookies set during render.
- * That's the path updateSession is designed for.
- *
- * This component never actually renders — every code path ends in
- * redirect(), which throws a NEXT_REDIRECT control-flow exception.
+ * THIS IS A ROUTE HANDLER FOR A REASON. Earlier attempts:
+ *   - Server Component page: throws "Cookies can only be modified in a
+ *     Server Action or Route Handler" because updateSession calls
+ *     cookies().set() during render, which the framework forbids.
+ *   - Route Handler with NextResponse.redirect: the explicit Response
+ *     object doesn't carry the cookies that updateSession set.
+ * The working combination is Route Handler + redirect() from
+ * next/navigation. redirect() throws NEXT_REDIRECT, which Next.js's
+ * Route Handler runtime catches and converts to a 307 response that
+ * INCLUDES any Set-Cookie headers buffered during the request.
  */
-export default async function ImpersonateAsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ orgId?: string; role?: string }>;
-}) {
+export async function GET(request: NextRequest) {
   const platformAdmin = await requirePlatformAdmin();
 
-  // Refuse nested impersonation. If they're already wearing a tenant
-  // hat, starting another would clobber the audit chain.
+  // Refuse nested impersonation.
   const currentSession = await auth();
   if (currentSession?.impersonation) {
     redirect("/platform/organizations?error=already-impersonating");
   }
 
-  const { orgId, role: roleParam } = await searchParams;
+  const orgId = request.nextUrl.searchParams.get("orgId");
+  const roleParam = request.nextUrl.searchParams.get("role");
 
   if (!orgId || !roleParam) {
     redirect("/platform/organizations?error=missing-params");
@@ -52,9 +46,7 @@ export default async function ImpersonateAsPage({
     redirect("/platform/organizations?error=invalid-role");
   }
 
-  // Find first active non-platform-admin user with the role. Oldest
-  // first — typically the org owner / founding admin for ADMIN, and the
-  // first hired recruiter for RECRUITER.
+  // First try: a real active user with the role.
   let target: { id: string; name: string | null } | null =
     await prisma.user.findFirst({
       where: {
@@ -67,11 +59,7 @@ export default async function ImpersonateAsPage({
       select: { id: true, name: true },
     });
 
-  // Fallback: no real user of this role yet (e.g. a brand-new tenant has
-  // only the founding ADMIN, so clicking "User" finds zero recruiters).
-  // Find-or-create a synthetic Default Admin / Default User in that org
-  // so the platform admin can always log in — useful for QA, demos, and
-  // poking around an empty workspace.
+  // Fallback: auto-provision a Default Admin / Default User in the org.
   if (!target) {
     const fallback = await findOrCreateDefaultUser(orgId, roleParam as Role);
     if (!fallback) {
@@ -95,9 +83,12 @@ export default async function ImpersonateAsPage({
     );
   }
 
-  // Push the overlay into the JWT. Because we're in a Server Component
-  // page (not a Route Handler), Next.js will propagate the cookie write
-  // through the redirect response that follows.
+  // Push the impersonation overlay into the JWT. updateSession() calls
+  // cookies().set() under the hood. The redirect() call below throws
+  // NEXT_REDIRECT, which the Route Handler runtime catches AFTER the
+  // request finishes its body — so the cookies are still buffered and
+  // included in the redirect response. This is the only combination
+  // that actually works for "open in a new tab with new session".
   await updateSession({
     impersonation: {
       sessionId: result.session.id,
@@ -112,7 +103,5 @@ export default async function ImpersonateAsPage({
     },
   });
 
-  // Land on the tenant's dashboard with the new identity active. The
-  // impersonation banner renders across the top of every page.
   redirect("/");
 }

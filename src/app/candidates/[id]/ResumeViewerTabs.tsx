@@ -26,7 +26,13 @@ export function ResumeViewerTabs({
   resumeReachable: Reachability;
 }) {
   const hasUploaded = resumeReachable.ok;
-  const hasLinkedinText = Boolean(data.resumeText && data.resumeText.length > 40);
+  // LinkedIn text now lives in its own column. Fall back to resumeText for
+  // legacy rows captured before the split (they had pageText stored under
+  // resumeText) — we detect "legacy" as: no upload AND no PDF text.
+  const linkedinText =
+    (data as unknown as { linkedinPageText?: string | null }).linkedinPageText ??
+    (!hasUploaded ? data.resumeText : null);
+  const hasLinkedinText = Boolean(linkedinText && linkedinText.length > 40);
   const hasFacsimile = Boolean(
     // CandidateResumeData carries the raw shape; we narrow inside the panel.
     (data as unknown as { aiResumeFacsimile?: unknown }).aiResumeFacsimile,
@@ -69,7 +75,7 @@ export function ResumeViewerTabs({
       </div>
 
       {active === "uploaded" && <UploadedPane data={data} reachable={resumeReachable} />}
-      {active === "linkedin" && <LinkedinTextPane text={data.resumeText} />}
+      {active === "linkedin" && <LinkedinTextPane text={linkedinText} />}
       {active === "facsimile" && <FacsimilePane data={data} />}
     </div>
   );

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { requireSession } from "@/lib/auth-utils";
 
 const TABS = [
+  { href: "/settings/branding", label: "Branding" },
+  { href: "/settings/announcements", label: "Announcements" },
   { href: "/settings/tags", label: "Tags" },
   { href: "/settings/choices", label: "Choices" },
   { href: "/settings/custom-fields", label: "Custom fields" },

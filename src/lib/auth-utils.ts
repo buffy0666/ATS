@@ -1,10 +1,42 @@
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { setAuditContext } from "@/lib/audit/context";
 import { Role } from "@/generated/prisma";
+
+/**
+ * Reads the request fingerprint (IP + user agent) from the incoming
+ * headers so the audit context can stamp it on every audited write.
+ * Best-effort — missing headers just yield null values.
+ */
+async function captureRequestFingerprint(): Promise<{ ip: string | null; userAgent: string | null }> {
+  try {
+    const h = await headers();
+    const ip =
+      h.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      h.get("x-real-ip") ??
+      null;
+    const userAgent = h.get("user-agent") ?? null;
+    return { ip, userAgent };
+  } catch {
+    return { ip: null, userAgent: null };
+  }
+}
 
 export async function requireSession() {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  // Stamp the audit context once at the top of every request — every
+  // subsequent Prisma write within this async scope inherits it via
+  // AsyncLocalStorage and the audit extension picks it up automatically.
+  const { ip, userAgent } = await captureRequestFingerprint();
+  setAuditContext({
+    actorUserId: session.user.id ?? null,
+    actorEmail: session.user.email ?? null,
+    organizationId: session.user.organizationId ?? null,
+    ip,
+    userAgent,
+  });
   return session;
 }
 

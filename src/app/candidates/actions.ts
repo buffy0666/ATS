@@ -15,6 +15,7 @@ import {
   type ParsedResume,
   WorkHistoryItemSchema,
 } from "@/lib/resume-parser";
+import { auditCreate, auditUpdate } from "@/lib/audit/write";
 import { saveCustomFieldValues } from "@/lib/custom-fields";
 import { extractResumeText } from "@/lib/resume-parser/extract";
 import { saveResume } from "@/lib/uploads";
@@ -339,6 +340,7 @@ export async function createCandidate(formData: FormData) {
   });
 
   await saveCustomFieldValues(CustomFieldEntity.CANDIDATE, candidate.id, orgId, formData);
+  await auditCreate("Candidate", candidate as unknown as Record<string, unknown>);
 
   revalidatePath("/candidates");
   redirect(`/candidates/${candidate.id}`);
@@ -386,7 +388,10 @@ export async function updateCandidateResume(
     const resumeUrl = await saveResume(file);
     const resumeText = await extractResumeTextSafely(file);
 
-    await prisma.candidate.update({
+    const before = await prisma.candidate.findFirst({
+      where: { id: candidateId, organizationId: orgId },
+    });
+    const after = await prisma.candidate.update({
       where: { id: candidateId },
       data: {
         resumeUrl,
@@ -397,6 +402,11 @@ export async function updateCandidateResume(
         parserVersion: null,
       },
     });
+    await auditUpdate(
+      "Candidate",
+      before as unknown as Record<string, unknown> | null,
+      after as unknown as Record<string, unknown>,
+    );
 
     revalidatePath(`/candidates/${candidateId}`);
     revalidatePath("/candidates");

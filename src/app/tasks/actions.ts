@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { TaskPriority, TaskStatus } from "@/generated/prisma";
+import { auditCreate, auditDelete, auditUpdate } from "@/lib/audit/write";
 import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { removeAttachmentFile, saveAttachment } from "@/lib/uploads";
@@ -80,6 +81,7 @@ export async function createTask(formData: FormData) {
   const task = await prisma.task.create({
     data: { ...data, createdById: session.user.id, organizationId: orgId },
   });
+  await auditCreate("Task", task as unknown as Record<string, unknown>);
 
   const files = formData.getAll("attachments").filter((f): f is File => f instanceof File);
   await saveTaskAttachments(task.id, files, session.user.id);
@@ -92,13 +94,17 @@ export async function updateTask(taskId: string, formData: FormData) {
   const { orgId } = await requireAdminWithOrg();
   const data = parseTaskInput(formData);
 
-  const existing = await prisma.task.findFirst({
+  const before = await prisma.task.findFirst({
     where: { id: taskId, organizationId: orgId },
-    select: { id: true },
   });
-  if (!existing) throw new Error("Task not found.");
+  if (!before) throw new Error("Task not found.");
 
-  await prisma.task.update({ where: { id: taskId }, data });
+  const after = await prisma.task.update({ where: { id: taskId }, data });
+  await auditUpdate(
+    "Task",
+    before as unknown as Record<string, unknown>,
+    after as unknown as Record<string, unknown>,
+  );
 
   revalidatePath("/tasks");
   revalidatePath(`/tasks/${taskId}`);
@@ -109,7 +115,6 @@ export async function deleteTask(taskId: string) {
 
   const task = await prisma.task.findFirst({
     where: { id: taskId, organizationId: orgId },
-    select: { id: true },
   });
   if (!task) throw new Error("Task not found.");
 
@@ -118,6 +123,7 @@ export async function deleteTask(taskId: string) {
     select: { url: true },
   });
   await prisma.task.delete({ where: { id: taskId } });
+  await auditDelete("Task", task as unknown as Record<string, unknown>);
   await Promise.all(attachments.map((a) => removeAttachmentFile(a.url)));
 
   revalidatePath("/tasks");

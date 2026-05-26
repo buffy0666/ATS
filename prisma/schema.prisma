@@ -261,6 +261,27 @@ enum InterviewStatus {
   RESCHEDULED
 }
 
+/// Catalog of events captured in AuditLog. CREATE/UPDATE/DELETE are emitted
+/// automatically by the Prisma audit extension for allowlisted models;
+/// everything else is recorded explicitly by lib/audit/log.ts callers.
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  ROLE_CHANGE
+  IMPERSONATE_START
+  IMPERSONATE_END
+  TOKEN_MINT
+  TOKEN_REVOKE
+  USER_INVITE
+  USER_DEACTIVATE
+  USER_REACTIVATE
+  AI_CONFIG_CHANGE
+  EXPORT
+}
+
 /// A tenant in the multi-tenant SaaS sense — every business object (Client,
 /// Candidate, Job, ...) belongs to exactly one Organization. A user belongs
 /// to exactly one Organization too (1:1) for now; we can M:N later if a
@@ -273,6 +294,9 @@ model Organization {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
+  // Workspace logo — public URL (Vercel Blob in prod, /uploads/... in dev).
+  // Optional; sidebar + dashboard fall back to the org name when null.
+  logoUrl   String?
   // Demo tenant flag. The /api/cron/cleanup-demo-orgs job hard-deletes
   // demo orgs older than 14 days; cascade wipes every scoped child.
   isDemo    Boolean  @default(false)
@@ -311,7 +335,10 @@ model Organization {
   assistantConversations AssistantConversation[]
   customFields           CustomField[]
   invitations            Invitation[]
-  impersonationSessions  ImpersonationSession[] @relation("ImpersonationTargetOrg")
+  impersonationSessions  ImpersonationSession[]  @relation("ImpersonationTargetOrg")
+  auditLogs              AuditLog[]
+  announcements          Announcement[]
+  announcementTargets    AnnouncementTarget[]
 }
 
 model Tag {
@@ -336,26 +363,26 @@ model Tag {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String?
-  passwordHash  String
+  id              String    @id @default(cuid())
+  email           String    @unique
+  name            String?
+  passwordHash    String
   // Within-tenant role: ADMIN can configure settings, manage users, view
   // tasks; RECRUITER is the regular recruiter. Orthogonal to
   // `isPlatformAdmin` below — a single user can be both (e.g. the SaaS
   // operator dogfooding their own tenant).
-  role          Role      @default(RECRUITER)
+  role            Role      @default(RECRUITER)
   // Platform admin tier — sees /platform/* routes that span all orgs.
   // Used by the SaaS operator to manage tenants. Bootstrapped from the
   // PLATFORM_ADMIN_EMAILS env var on every sign-in so a typo in the DB
   // can't lock you out. See requirePlatformAdmin() in lib/auth-utils.ts.
-  isPlatformAdmin Boolean @default(false)
+  isPlatformAdmin Boolean   @default(false)
   // Soft-delete / disable flag — preserves audit trail on existing rows
   // while preventing sign-in. Set by the assistant's deactivate_user tool.
-  active        Boolean   @default(true)
-  deactivatedAt DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  active          Boolean   @default(true)
+  deactivatedAt   DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   jobsCreated            Job[]                   @relation("JobCreator")
   notes                  Note[]
@@ -379,6 +406,8 @@ model User {
   stepRunsCompleted      StepRun[]               @relation("StepRunCompleter")
   assistantConversations AssistantConversation[] @relation("AssistantUser")
   assistantToolCalls     AssistantToolCall[]     @relation("AssistantToolCaller")
+  auditEvents            AuditLog[]              @relation("AuditActor")
+  announcementsCreated   Announcement[]          @relation("AnnouncementAuthor")
 
   // Calendar
   iCalToken            String?             @unique
@@ -397,7 +426,7 @@ model User {
   // was the target (so support engagements show up in my own audit
   // history). The target relation should usually be unused — you don't
   // sign in as platform admins to "support" them.
-  impersonationsStarted ImpersonationSession[] @relation("ImpersonationPlatformAdmin")
+  impersonationsStarted  ImpersonationSession[] @relation("ImpersonationPlatformAdmin")
   impersonationsTargeted ImpersonationSession[] @relation("ImpersonationTarget")
 
   // Multi-tenant: every user belongs to exactly one Organization. Nullable
@@ -421,33 +450,33 @@ model User {
 /// (acceptedAt flips on accept, after which lookups by tokenHash return a
 /// "this invitation has already been used" error).
 model Invitation {
-  id              String       @id @default(cuid())
-  email           String
-  tokenHash       String       @unique
-  tokenPrefix     String       // first 12 chars of the token for UI display
-  role            Role         @default(RECRUITER)
+  id          String @id @default(cuid())
+  email       String
+  tokenHash   String @unique
+  tokenPrefix String // first 12 chars of the token for UI display
+  role        Role   @default(RECRUITER)
 
-  organizationId  String
-  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   // Whoever clicked the "send invite" button. Null for invites the
   // platform admin sends to brand-new orgs (the inviter is a different
   // tenant from the invitee).
   invitedByUserId String?
-  invitedBy       User?        @relation("InvitationCreator", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  invitedBy       User?   @relation("InvitationCreator", fields: [invitedByUserId], references: [id], onDelete: SetNull)
 
   // True when the invite is for the org's first user → they become both
   // the founding ADMIN and the Organization.ownerUserId on accept. Set by
   // the platform-admin "create new tenant" flow.
-  asOwner         Boolean      @default(false)
+  asOwner Boolean @default(false)
 
-  expiresAt       DateTime
-  acceptedAt      DateTime?
-  acceptedUserId  String?
-  acceptedUser    User?        @relation("InvitationAcceptor", fields: [acceptedUserId], references: [id], onDelete: SetNull)
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  acceptedUserId String?
+  acceptedUser   User?     @relation("InvitationAcceptor", fields: [acceptedUserId], references: [id], onDelete: SetNull)
 
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([organizationId])
   @@index([email])
@@ -464,21 +493,21 @@ model Invitation {
 /// dangerous routes (delete org, change billing, etc.) so even a logged-in
 /// impersonator can't act on the platform side.
 model ImpersonationSession {
-  id                  String   @id @default(cuid())
+  id                  String       @id @default(cuid())
   platformAdminUserId String
-  platformAdmin       User     @relation("ImpersonationPlatformAdmin", fields: [platformAdminUserId], references: [id])
+  platformAdmin       User         @relation("ImpersonationPlatformAdmin", fields: [platformAdminUserId], references: [id])
   targetUserId        String
-  targetUser          User     @relation("ImpersonationTarget", fields: [targetUserId], references: [id])
+  targetUser          User         @relation("ImpersonationTarget", fields: [targetUserId], references: [id])
   targetOrgId         String
   targetOrg           Organization @relation("ImpersonationTargetOrg", fields: [targetOrgId], references: [id], onDelete: Cascade)
-  reason              String?  // optional free-text from the platform admin
+  reason              String? // optional free-text from the platform admin
 
-  startedAt  DateTime  @default(now())
-  endedAt    DateTime?
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
   // Hard cap regardless of whether endedAt is set — sessions older than
   // this are treated as inactive even if endedAt is null (the user closed
   // the tab without clicking exit).
-  expiresAt  DateTime
+  expiresAt DateTime
 
   @@index([platformAdminUserId, endedAt])
   @@index([targetUserId])
@@ -1360,4 +1389,114 @@ model CustomFieldValue {
 
   @@unique([fieldId, entityId])
   @@index([entityId])
+}
+
+/// Append-only audit trail. Captured automatically for allowlisted models
+/// via the Prisma extension in `src/lib/audit/extension.ts`, plus explicit
+/// `recordAuditEvent(...)` calls for non-CRUD events (login, role change,
+/// token mint, AI config change, ...).
+///
+/// `organizationId` is null for platform-scope events (e.g. an org getting
+/// created, a platform admin doing cross-tenant work). Otherwise it carries
+/// the same tenant scope as the entity being audited so per-tenant queries
+/// can filter on a single column + the (organizationId, createdAt) index.
+///
+/// `actorUserId` is nullable so we can log events triggered without a
+/// human (cron jobs, system processes). `actorEmail` is a snapshot so
+/// deleted/deactivated users still show in historical logs.
+///
+/// Field-level skips: `passwordHash` and any field whose name is on the
+/// SKIP list in the extension are dropped from the diff. The whole
+/// `CandidateEEO` model is excluded — EEO data is legally gated separately.
+model AuditLog {
+  id             String        @id @default(cuid())
+  createdAt      DateTime      @default(now())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  actorUserId String?
+  actorUser   User?   @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorEmail  String?
+
+  action AuditAction
+
+  // For CRUD events: the model name (e.g. "Candidate") and primary key.
+  // Null for non-CRUD events like LOGIN.
+  entityType  String?
+  entityId    String?
+  // Human-friendly snapshot of the entity at the time of the event — name,
+  // title, or short body — so deleted entities still read nicely in logs.
+  entityLabel String?
+
+  // List of field names that changed in an UPDATE, in their canonical
+  // model-field naming. Empty for CREATE/DELETE/non-CRUD events.
+  changedFields String[] @default([])
+
+  // Field-level diff for UPDATEs: { fieldName: { before, after } }.
+  // For DELETE the snapshot is in `before` per field. Each value is
+  // truncated to ~2 KB by the extension to keep the table sane.
+  diff Json?
+
+  // Free-form for non-CRUD events (e.g. `{ targetUserId, oldRole, newRole }`
+  // for a ROLE_CHANGE). Also carries the truncation marker when diff fields
+  // were dropped for size.
+  metadata Json?
+
+  // Request fingerprints — best-effort. Stored as snapshot strings.
+  ip        String?
+  userAgent String?
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@index([action])
+}
+
+// ----- Workspace announcements -----
+//
+// Admins and platform admins post short messages that surface on every
+// user's dashboard in a rotating banner. Three audiences:
+//   OWN_ORG          — tenant admin, visible only inside their org
+//   ALL_TENANTS      — platform admin, visible everywhere
+//   SELECTED_TENANTS — platform admin, visible only to specific orgs
+//
+// `active` is the kill-switch (the "decide what shows" toggle in the console)
+// so an announcement can be drafted, paused, or retired without deleting it.
+
+enum AnnouncementAudience {
+  OWN_ORG
+  ALL_TENANTS
+  SELECTED_TENANTS
+}
+
+model Announcement {
+  id          String               @id @default(cuid())
+  title       String?
+  body        String
+  audience    AnnouncementAudience
+  active      Boolean              @default(true)
+  createdById String
+  // Only set when audience = OWN_ORG. Null for the two platform scopes.
+  organizationId String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  createdBy    User                 @relation("AnnouncementAuthor", fields: [createdById], references: [id])
+  organization Organization?        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  targets      AnnouncementTarget[]
+
+  @@index([audience, active])
+  @@index([organizationId, active])
+}
+
+model AnnouncementTarget {
+  id             String @id @default(cuid())
+  announcementId String
+  organizationId String
+
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, organizationId])
+  @@index([organizationId])
 }

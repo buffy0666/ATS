@@ -1,43 +1,65 @@
 import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { prisma } from "@/lib/prisma";
 import { loadActivityFeed, ActivityFeed } from "./_dashboard/ActivityFeed";
 import { loadFollowUpsDue, FollowUpsDueCard } from "./_dashboard/FollowUpsDue";
+import { loadGreeting, Greeting } from "./_dashboard/Greeting";
 import {
   loadInterviewsToday,
   InterviewsTodayCard,
 } from "./_dashboard/InterviewsToday";
+import { loadKpiStrip, KpiStrip } from "./_dashboard/KpiStrip";
 import {
   loadPipelineFunnel,
   PipelineFunnel,
 } from "./_dashboard/PipelineFunnel";
+import { QuickActions } from "./_dashboard/QuickActions";
 import {
   loadStaleApplications,
   StaleApplicationsCard,
 } from "./_dashboard/StaleApplications";
 import { loadTasksDue, TasksDueCard } from "./_dashboard/TasksDue";
+import { AnnouncementsBanner } from "./_dashboard/AnnouncementsBanner";
+import { WorkspaceBanner } from "./_dashboard/WorkspaceBanner";
 
 export default async function Dashboard() {
   const { session, orgId } = await requireSessionWithOrg();
   const userId = session.user.id;
 
-  const [tasks, interviews, followUps, stale, funnel, activity] = await Promise.all([
-    loadTasksDue(userId, orgId),
-    loadInterviewsToday(userId, orgId),
-    loadFollowUpsDue(orgId),
-    loadStaleApplications(orgId),
-    loadPipelineFunnel(orgId),
-    loadActivityFeed(orgId),
-  ]);
-
-  const greeting = session.user.name
-    ? `Welcome back, ${session.user.name.split(/\s+/)[0]}.`
-    : "Welcome back.";
+  const [tasks, interviews, followUps, stale, funnel, activity, greeting, kpi, org] =
+    await Promise.all([
+      loadTasksDue(userId, orgId),
+      loadInterviewsToday(userId, orgId),
+      loadFollowUpsDue(orgId),
+      loadStaleApplications(orgId),
+      loadPipelineFunnel(orgId),
+      loadActivityFeed(orgId),
+      loadGreeting(userId, orgId),
+      loadKpiStrip(orgId),
+      prisma.organization.findUnique({
+        where: { id: orgId },
+        select: { name: true, logoUrl: true },
+      }),
+    ]);
 
   return (
-    <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="text-sm text-zinc-500 mt-1">{greeting}</p>
-      </div>
+    <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8 space-y-5">
+      {/* Rotating announcements (auto-advance every 10s; arrows + dots). */}
+      <AnnouncementsBanner orgId={orgId} />
+
+      {/* Workspace branding — only renders when a logo is uploaded. */}
+      <WorkspaceBanner
+        logoUrl={org?.logoUrl ?? null}
+        organizationName={org?.name ?? null}
+      />
+
+      {/* Hero: time-of-day greeting + "what's next" hook */}
+      <Greeting data={greeting} />
+
+      {/* Launchpad: four primary new-record shortcuts */}
+      <QuickActions />
+
+      {/* KPI strip: business-outcome numbers + 14-day sparklines */}
+      <KpiStrip data={kpi} />
 
       {/* Row 1: what needs my attention */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

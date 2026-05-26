@@ -8,7 +8,7 @@ export function CardHeader({ label, count }: { label: string; count: number }) {
     <div>
       <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
       <div
-        className={`mt-1 text-3xl font-semibold ${
+        className={`mt-1 text-3xl font-semibold tabular-nums ${
           count === 0 ? "text-zinc-400 dark:text-zinc-600" : ""
         }`}
       >
