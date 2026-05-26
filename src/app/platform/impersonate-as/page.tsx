@@ -4,6 +4,7 @@ import { auth, updateSession } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { requirePlatformAdmin } from "@/lib/auth-utils";
 import { startImpersonation } from "@/lib/impersonation";
+import { findOrCreateDefaultUser } from "@/lib/platform-default-users";
 
 /**
  * Quick-impersonate-by-role entry point. Reached via:
@@ -54,24 +55,33 @@ export default async function ImpersonateAsPage({
   // Find first active non-platform-admin user with the role. Oldest
   // first — typically the org owner / founding admin for ADMIN, and the
   // first hired recruiter for RECRUITER.
-  const target = await prisma.user.findFirst({
-    where: {
-      organizationId: orgId,
-      active: true,
-      isPlatformAdmin: false,
-      role: roleParam as Role,
-    },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, name: true },
-  });
+  let target: { id: string; name: string | null } | null =
+    await prisma.user.findFirst({
+      where: {
+        organizationId: orgId,
+        active: true,
+        isPlatformAdmin: false,
+        role: roleParam as Role,
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, name: true },
+    });
 
+  // Fallback: no real user of this role yet (e.g. a brand-new tenant has
+  // only the founding ADMIN, so clicking "User" finds zero recruiters).
+  // Find-or-create a synthetic Default Admin / Default User in that org
+  // so the platform admin can always log in — useful for QA, demos, and
+  // poking around an empty workspace.
   if (!target) {
-    const label = roleParam === Role.ADMIN ? "admin" : "recruiter";
-    redirect(
-      `/platform/organizations/${orgId}?error=${encodeURIComponent(
-        `No active ${label} in that org to sign in as.`,
-      )}`,
-    );
+    const fallback = await findOrCreateDefaultUser(orgId, roleParam as Role);
+    if (!fallback) {
+      redirect(
+        `/platform/organizations/${orgId}?error=${encodeURIComponent(
+          "Could not provision a default user for that org.",
+        )}`,
+      );
+    }
+    target = { id: fallback.id, name: fallback.name };
   }
 
   const result = await startImpersonation({

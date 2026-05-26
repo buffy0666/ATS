@@ -214,6 +214,14 @@ export default async function PlatformOrgDetailPage({
                       Platform
                     </span>
                   )}
+                  {u.email.endsWith(".platform-default.local") && (
+                    <span
+                      title="Synthetic placeholder user — auto-created by the Login quick-action when no real user of this role existed. Hidden from the tenant's own /users page."
+                      className="ml-2 inline-block rounded-full bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-200 px-2 py-0.5 text-[10px] uppercase tracking-wide"
+                    >
+                      Default
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-2 text-zinc-700 dark:text-zinc-300">
                   {u.name ?? "—"}

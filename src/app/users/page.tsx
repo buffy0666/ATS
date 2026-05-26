@@ -11,7 +11,13 @@ export default async function UsersPage() {
 
   const [users, pendingInvitations] = await Promise.all([
     prisma.user.findMany({
-      where: { organizationId: orgId },
+      where: {
+        organizationId: orgId,
+        // Hide synthetic Default Admin / Default User accounts that the
+        // platform admin's quick-login flow auto-provisions. They live
+        // at *.platform-default.local and are tooling, not real users.
+        email: { not: { endsWith: ".platform-default.local" } },
+      },
       orderBy: { createdAt: "asc" },
       select: { id: true, email: true, name: true, role: true, createdAt: true, active: true },
     }),
