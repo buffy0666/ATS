@@ -263,33 +263,99 @@
   }
 
   /**
+   * Find a section by anchor id. LinkedIn uses stable ids on the section
+   * containers (`#about`, `#experience`, `#education`, `#skills`, etc.) —
+   * way more reliable than scraping h2 text, which can be hidden inside
+   * nested spans / aria attributes / icons.
+   *
+   * The element with the id is usually an empty `<div>` placeholder right
+   * above the actual section content; we walk up to find the enclosing
+   * `<section>` (or settle for the parent element if not in a section).
+   */
+  function findSectionByAnchorId(main, anchorId) {
+    const anchor = main.querySelector(`#${anchorId}`);
+    if (!anchor) return null;
+    const section = anchor.closest("section") || anchor.parentElement;
+    return section || null;
+  }
+
+  /**
    * Walk every <section> child of <main> (LinkedIn nests profile cards
-   * one section per topic). Keep the ones with a wanted header text.
+   * one section per topic). Combined with anchor-id lookups so we don't
+   * miss sections whose h2 text is wrapped weirdly.
    */
   function scrapeWantedSections(main) {
+    const kept = new Map(); // key → text, so dedupe is automatic
+
+    // Pass 1: anchor IDs. These are LinkedIn's most stable hook.
+    const anchorIds = [
+      "about",
+      "featured",
+      "activity",
+      "experience",
+      "education",
+      "licenses_and_certifications",
+      "licenses-and-certifications",
+      "certifications",
+      "skills",
+      "projects",
+      "publications",
+      "patents",
+      "courses",
+      "honors_and_awards",
+      "honors-and-awards",
+      "test_scores",
+      "test-scores",
+      "languages",
+      "organizations",
+      "volunteering_experience",
+      "volunteer_experience",
+      "volunteering",
+      "interests",
+      "recommendations",
+    ];
+    for (const id of anchorIds) {
+      const section = findSectionByAnchorId(main, id);
+      if (!section) continue;
+      const text = (section.innerText || "").trim();
+      if (text.length < 10) continue;
+      const key = id.split(/[_-]/)[0]; // normalize for dedupe (skills/skills_endorsed)
+      if (!kept.has(key)) kept.set(key, text);
+    }
+
+    // Pass 2: header text fallback. Catches sections that don't have an
+    // anchor id (or where LinkedIn rotates the id naming).
     const sections = Array.from(main.querySelectorAll("section"));
-    const kept = [];
-    const seen = new Set();
     for (const section of sections) {
       const header =
         section.querySelector("h2")?.textContent ||
         section.querySelector("h3")?.textContent ||
+        section.querySelector('[role="heading"]')?.textContent ||
         "";
       if (!header.trim()) continue;
       if (matchesPrefix(header, NOISE_SECTION_HEADERS)) continue;
       if (!matchesPrefix(header, WANTED_SECTION_HEADERS)) continue;
-      // Dedupe — LinkedIn occasionally double-nests sections.
-      const key = header.trim().toLowerCase().split(/\s+/).slice(0, 2).join("-");
-      if (seen.has(key)) continue;
-      seen.add(key);
-      // section.innerText pulls all bullets, dates, descriptions, and
-      // already respects "see more" expansions because we clicked them.
+      const key = header.trim().toLowerCase().split(/\s+/)[0];
+      if (kept.has(key)) continue;
       const text = (section.innerText || "").trim();
       if (text.length < 10) continue;
-      kept.push(text);
+      kept.set(key, text);
     }
-    return kept;
+
+    return Array.from(kept.values());
   }
+
+  /**
+   * Threshold for the safety-net fallback. If our scoped scrape produces
+   * less than this many characters, append the full main.innerText too —
+   * better to send noisy text the AI can sift than to send a thin scrape
+   * that's missing Experience/Education entirely.
+   *
+   * A typical complete LinkedIn profile (About + Activity + Experience +
+   * Education + Skills) is 4-15KB of text. 2000 chars is well below the
+   * "definitely captured the meat" line.
+   */
+  const MIN_SCRAPE_THRESHOLD = 2000;
 
   /**
    * Build the final string we send to the server. Caps at ~80KB to keep
@@ -308,12 +374,33 @@
     const sections = scrapeWantedSections(main);
     chunks.push(...sections);
 
-    // If something went wrong and we couldn't isolate any sections, fall
-    // back to the old behavior so we still send *something*. The server's
-    // AI parser handles noisy input gracefully.
-    if (sections.length === 0) {
+    // Diagnostic — visible in DevTools console when you click "Add to ATS".
+    // Lets you (and us) see whether the scoped scrape actually grabbed
+    // Experience/Education/etc. without having to look at the DB.
+    const scopedLength = chunks.join("\n\n").length;
+    console.log(
+      `[ATS extension] Scoped scrape captured ${sections.length} sections, ${scopedLength} chars.`,
+      sections.length > 0
+        ? "Headers detected: " +
+            sections
+              .map((s) => s.split("\n")[0].slice(0, 40))
+              .join(" | ")
+        : "(no scoped sections found)",
+    );
+
+    // Safety net: if the scoped scrape is suspiciously thin (or empty),
+    // append the full main body text. The AI parser handles noise OK —
+    // missing data is the worse failure mode.
+    if (scopedLength < MIN_SCRAPE_THRESHOLD) {
       const fallback = (main.innerText || "").trim();
-      if (fallback) chunks.push(fallback);
+      if (fallback) {
+        chunks.push(
+          `--- FULL PAGE FALLBACK (scoped scrape was thin) ---\n${fallback}`,
+        );
+        console.log(
+          `[ATS extension] Scoped scrape was ${scopedLength} chars (< ${MIN_SCRAPE_THRESHOLD}), appending full body (${fallback.length} chars) as safety net.`,
+        );
+      }
     }
 
     const joined = chunks.join("\n\n");
@@ -325,7 +412,11 @@
       .map((l) => l.replace(/\s+/g, " ").trim())
       .filter(Boolean)
       .join("\n");
-    return cleaned.slice(0, 80_000);
+    const capped = cleaned.slice(0, 80_000);
+    console.log(
+      `[ATS extension] Final scrape: ${capped.length} chars sent to server.`,
+    );
+    return capped;
   }
 
   async function onClick(event) {

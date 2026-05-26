@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ATS — Add Candidate from LinkedIn",
   "description": "Adds an 'Add to ATS' button on LinkedIn profiles that pushes the candidate into your ATS.",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "action": {
     "default_title": "ATS Settings",
     "default_popup": "popup.html"
