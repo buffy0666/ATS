@@ -247,10 +247,20 @@ function renderPreview() {
 // ---- Capture -----------------------------------------------------------
 
 async function onCapture() {
+  await runCapture(false);
+}
+
+/**
+ * POST the open email to the ATS. When createIfMissing is true, the
+ * server creates a candidate from the sender if none matches, then
+ * captures the email onto it — that's the "Create candidate & save
+ * email" one-click path.
+ */
+async function runCapture(createIfMissing) {
   const btn = document.getElementById("capture-btn");
   const status = document.getElementById("status");
   btn.disabled = true;
-  btn.textContent = "Capturing…";
+  btn.textContent = createIfMissing ? "Creating & capturing…" : "Capturing…";
   status.className = "status";
   status.textContent = "";
 
@@ -263,7 +273,11 @@ async function onCapture() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${settings.apiToken}`,
       },
-      body: JSON.stringify({ source: "EXTENSION_OUTLOOK", messages: [message] }),
+      body: JSON.stringify({
+        source: "EXTENSION_OUTLOOK",
+        messages: [message],
+        createCandidateIfMissing: createIfMissing,
+      }),
     });
 
     let body = null;
@@ -288,9 +302,10 @@ async function onCapture() {
       const c = body.candidate;
       const url = absolutize(c.url);
       const skipped = body.skipped ? ` (${body.skipped} already on file)` : "";
+      const verb = body.createdCandidate ? "Created and captured" : "Captured";
       status.className = "status ok";
       status.innerHTML =
-        `Captured for <strong>${escapeHtml(c.firstName + " " + c.lastName)}</strong>${skipped}. ` +
+        `${verb} for <strong>${escapeHtml((c.firstName + " " + c.lastName).trim())}</strong>${skipped}. ` +
         `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">Open in ATS →</a>`;
       return;
     }
@@ -298,11 +313,17 @@ async function onCapture() {
     if (body.status === "no-candidate-matched") {
       const u = body.unmatched;
       if (u) {
-        const url = absolutize(body.createCandidateUrl);
+        // Offer a single-click "create candidate AND save this email"
+        // button — clicking re-runs the capture with createIfMissing.
         status.className = "status info";
         status.innerHTML =
-          `No candidate for <strong>${escapeHtml(u.email)}</strong>. ` +
-          `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">Create candidate →</a>`;
+          `No candidate yet for <strong>${escapeHtml(u.email)}</strong>.`;
+        const createBtn = document.createElement("button");
+        createBtn.textContent = "Create candidate & save email";
+        createBtn.style.marginTop = "8px";
+        createBtn.addEventListener("click", () => runCapture(true));
+        status.appendChild(document.createElement("br"));
+        status.appendChild(createBtn);
       } else {
         status.className = "status err";
         status.textContent = "Couldn't determine the external party in this email.";

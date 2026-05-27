@@ -64,6 +64,11 @@ const bodySchema = z.object({
   // server can persist it atomically. A single-message client (manual
   // paste, future webhook) can wrap a single message in `messages: [x]`.
   messages: z.array(messageSchema).min(1).max(50),
+  // When true and no candidate matches the external party, create a
+  // candidate on the fly (from the From: name + email) and capture the
+  // emails onto it — so the add-in's "Create candidate & save email" is
+  // a single round-trip instead of "create, then separately capture".
+  createCandidateIfMissing: z.boolean().optional().default(false),
 });
 
 function corsHeaders(origin: string | null): Record<string, string> {
@@ -129,7 +134,7 @@ export async function POST(request: NextRequest) {
       cors,
     );
   }
-  const { source, messages } = parsed.data;
+  const { source, messages, createCandidateIfMissing } = parsed.data;
   const orgId = auth.organizationId;
 
   // Pre-fetch any existing rows with these messageIds so we can dedupe
@@ -152,7 +157,7 @@ export async function POST(request: NextRequest) {
   const externalParty = inferExternalParty(messages);
 
   // Candidate match. Scoped to this org so two tenants don't cross-link.
-  const candidate = externalParty
+  let candidate = externalParty
     ? await prisma.candidate.findFirst({
         where: {
           organizationId: orgId,
@@ -165,10 +170,42 @@ export async function POST(request: NextRequest) {
       })
     : null;
 
-  // Capture rows. We capture even if no candidate matched — the rows go
-  // in with `candidateId: null` and the user can attach them later via
-  // the UI. Some users prefer this; for now we keep it simple and only
-  // create rows when there's a candidate to attach to.
+  // One-click "Create candidate & save email": if asked and no match,
+  // mint a candidate from the external party's From: name + email, then
+  // fall through to capture the emails onto it. Names are best-effort
+  // split ("James Blackwell" → first/last; bare email → email as first).
+  let createdCandidate = false;
+  if (!candidate && createCandidateIfMissing && externalParty) {
+    const { firstName, lastName } = splitName(externalParty.name, externalParty.email);
+    try {
+      candidate = await prisma.candidate.create({
+        data: {
+          email: externalParty.email,
+          firstName,
+          lastName,
+          organizationId: orgId,
+          sourcedById: auth.userId,
+          source: "Email capture",
+        },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      });
+      createdCandidate = true;
+    } catch (err) {
+      // Lost a race to another capture that created the same email —
+      // re-fetch and continue rather than failing.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+        candidate = await prisma.candidate.findFirst({
+          where: { organizationId: orgId, email: externalParty.email },
+          select: { id: true, firstName: true, lastName: true, email: true },
+        });
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // Capture rows. We only create EmailLog rows when there's a candidate
+  // to attach to (matched or just-created above).
   let captured = 0;
   let skipped = 0;
 
@@ -222,6 +259,7 @@ export async function POST(request: NextRequest) {
     return json(
       {
         status: "captured" as const,
+        createdCandidate,
         candidate: {
           id: candidate.id,
           firstName: candidate.firstName,
@@ -287,6 +325,30 @@ function inferExternalParty(
   }
   if (!best) return null;
   return { email: best.email, name: names.get(best.email) };
+}
+
+/**
+ * Best-effort split of a display name into first/last for a quick-created
+ * candidate. Handles "First Last", "Last, First", a single token, or no
+ * name at all (falls back to the email local-part as the first name so
+ * the candidate isn't blank-named).
+ */
+function splitName(
+  name: string | undefined,
+  email: string,
+): { firstName: string; lastName: string } {
+  const trimmed = (name ?? "").trim();
+  if (!trimmed) {
+    const local = email.split("@")[0] || email;
+    return { firstName: local, lastName: "" };
+  }
+  if (trimmed.includes(",")) {
+    const [last, first] = trimmed.split(",").map((s) => s.trim());
+    return { firstName: first || last || trimmed, lastName: first ? last : "" };
+  }
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
 }
 
 function sourceToProviderLabel(source: EmailSource): string {
