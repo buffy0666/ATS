@@ -48,9 +48,120 @@
     btn.id = BUTTON_ID;
     btn.type = "button";
     btn.textContent = "+ Add to ATS";
-    btn.title = "Capture this profile into the ATS";
+    btn.title = "Capture this profile into the ATS · drag to move";
     btn.addEventListener("click", onClick);
     document.body.appendChild(btn);
+    makeDraggable(btn);
+    restorePosition(btn);
+  }
+
+  // -------------------------------------------------------------------------
+  // Draggable button.
+  //
+  // The button doubles as a drag handle: press and drag to reposition it
+  // anywhere on screen, and the position is remembered (per browser, via
+  // chrome.storage.local) across page loads and profiles. A small movement
+  // threshold distinguishes a real drag from a normal click so dragging
+  // never accidentally fires a capture.
+  // -------------------------------------------------------------------------
+  const POS_KEY = "atsBtnPos";
+  const DRAG_THRESHOLD = 5; // px of movement before it counts as a drag
+
+  // Position the button using left/top (overriding the CSS right/bottom),
+  // clamped so it can never be dragged fully off-screen.
+  function applyPosition(btn, left, top) {
+    const w = btn.offsetWidth || 140;
+    const h = btn.offsetHeight || 44;
+    const maxLeft = Math.max(0, window.innerWidth - w);
+    const maxTop = Math.max(0, window.innerHeight - h);
+    const L = Math.min(Math.max(0, left), maxLeft);
+    const T = Math.min(Math.max(0, top), maxTop);
+    btn.style.setProperty("left", L + "px", "important");
+    btn.style.setProperty("top", T + "px", "important");
+    btn.style.setProperty("right", "auto", "important");
+    btn.style.setProperty("bottom", "auto", "important");
+  }
+
+  function restorePosition(btn) {
+    try {
+      chrome.storage.local.get([POS_KEY], (res) => {
+        const pos = res && res[POS_KEY];
+        if (pos && typeof pos.left === "number" && typeof pos.top === "number") {
+          applyPosition(btn, pos.left, pos.top);
+        }
+      });
+    } catch {
+      /* storage unavailable — leave the default bottom-right position */
+    }
+  }
+
+  function savePosition(left, top) {
+    try {
+      chrome.storage.local.set({ [POS_KEY]: { left, top } });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function makeDraggable(btn) {
+    let startX = 0;
+    let startY = 0;
+    let originLeft = 0;
+    let originTop = 0;
+    let dragging = false;
+    let moved = false;
+
+    btn.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return; // left button / primary touch only
+      dragging = true;
+      moved = false;
+      const rect = btn.getBoundingClientRect();
+      originLeft = rect.left;
+      originTop = rect.top;
+      startX = e.clientX;
+      startY = e.clientY;
+      try {
+        btn.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    });
+
+    btn.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      moved = true;
+      btn.dataset.dragging = "1";
+      applyPosition(btn, originLeft + dx, originTop + dy);
+    });
+
+    function end(e) {
+      if (!dragging) return;
+      dragging = false;
+      try {
+        btn.releasePointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      delete btn.dataset.dragging;
+      if (moved) {
+        const rect = btn.getBoundingClientRect();
+        savePosition(rect.left, rect.top);
+        // The browser fires a click right after a drag-release on the same
+        // element. Flag it so onClick() ignores that synthetic click and
+        // doesn't kick off a capture. Cleared by onClick, or after a beat
+        // in case no click is dispatched.
+        btn.dataset.justDragged = "1";
+        setTimeout(() => {
+          if (btn.dataset.justDragged === "1") delete btn.dataset.justDragged;
+        }, 400);
+      }
+    }
+
+    btn.addEventListener("pointerup", end);
+    btn.addEventListener("pointercancel", end);
   }
 
   /**
@@ -421,6 +532,11 @@
 
   async function onClick(event) {
     const btn = event.currentTarget;
+    // Ignore the synthetic click that follows a drag-to-move gesture.
+    if (btn.dataset.justDragged === "1") {
+      delete btn.dataset.justDragged;
+      return;
+    }
     if (btn.dataset.busy === "1") return;
     btn.dataset.busy = "1";
 
@@ -514,17 +630,52 @@
     }, ttl);
   }
 
-  // Initial inject + watch for SPA navigations (LinkedIn replaces the main
-  // content without firing a full page load when you navigate between
-  // profiles).
-  injectButton();
+  // ---------------------------------------------------------------------
+  // Robust injection.
+  //
+  // LinkedIn is a single-page app: it swaps profile content without a full
+  // page load, and the URL can settle a beat AFTER the content script runs
+  // at document_idle. A single injectButton() call therefore races the
+  // render and often bails (isProfilePage() false, or body not ready yet),
+  // leaving no button — the exact "button is missing" failure.
+  //
+  // Fix: poll for a few seconds after load and after every navigation, and
+  // re-assert the button if LinkedIn's re-render ever drops it. The
+  // injectButton() guard makes repeated calls cheap (it no-ops once the
+  // button exists).
+  // ---------------------------------------------------------------------
+
+  function pollInject(durationMs = 6000, intervalMs = 700) {
+    const deadline = Date.now() + durationMs;
+    injectButton();
+    const timer = setInterval(() => {
+      injectButton();
+      // Stop early once the button is in place AND we're past the first
+      // second (covers the case where LinkedIn briefly removes it).
+      if (Date.now() > deadline) clearInterval(timer);
+    }, intervalMs);
+  }
+
+  // Initial inject (poll, because the profile may still be rendering).
+  pollInject();
+
+  // Watch for SPA navigations (LinkedIn replaces the main content without
+  // firing a full page load when you navigate between profiles) AND for
+  // LinkedIn re-renders that drop our button from the DOM.
   let lastPath = window.location.pathname;
   const observer = new MutationObserver(() => {
     if (window.location.pathname !== lastPath) {
       lastPath = window.location.pathname;
-      // Give LinkedIn a moment to render the new profile before we look at it.
-      setTimeout(injectButton, 600);
+      // New profile — re-run the poll to catch the async render.
+      pollInject();
+    } else if (isProfilePage() && !document.getElementById(BUTTON_ID)) {
+      // Same page, but LinkedIn removed our button — put it back.
+      injectButton();
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });
+
+  // Belt-and-suspenders: the History API doesn't fire events on pushState,
+  // so also re-check on popstate (back/forward) and a periodic heartbeat.
+  window.addEventListener("popstate", () => pollInject(3000));
 })();

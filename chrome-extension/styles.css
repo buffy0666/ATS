@@ -21,17 +21,26 @@
   font: 600 14px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
     sans-serif !important;
   letter-spacing: 0.01em !important;
-  cursor: pointer !important;
+  cursor: grab !important;
+  /* Don't let a drag select page text or scroll the page on touch. */
+  user-select: none !important;
+  touch-action: none !important;
   box-shadow:
     0 4px 12px rgba(5, 150, 105, 0.35),
     0 1px 3px rgba(0, 0, 0, 0.15) !important;
   transition:
-    transform 120ms ease,
     box-shadow 120ms ease,
     opacity 120ms ease !important;
 }
 
-#ats-add-button:hover:not(:disabled) {
+/* While actively dragging, show the grabbing cursor and drop the hover
+   lift transform so the button tracks the pointer exactly. */
+#ats-add-button[data-dragging="1"] {
+  cursor: grabbing !important;
+  transition: none !important;
+}
+
+#ats-add-button:hover:not(:disabled):not([data-dragging="1"]) {
   transform: translateY(-1px) !important;
   box-shadow:
     0 6px 16px rgba(5, 150, 105, 0.45),

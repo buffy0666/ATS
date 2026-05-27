@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ATS — Add Candidate from LinkedIn",
   "description": "Adds an 'Add to ATS' button on LinkedIn profiles to capture candidates. (Outlook email capture is handled by the ATS Outlook Add-in, not this extension.)",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "action": {
     "default_title": "ATS Settings",
     "default_popup": "popup.html"
