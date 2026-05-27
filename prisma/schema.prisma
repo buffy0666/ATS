@@ -679,7 +679,13 @@ model ClientContact {
 
 model Candidate {
   id            String  @id @default(cuid())
-  email         String  @unique
+  // Email is unique PER ORGANIZATION, not globally — the same person can
+  // legitimately be a candidate at two different recruiting firms on the
+  // platform. Was `@unique` (global) pre-Phase-6, which blocked capturing
+  // an email/candidate into org B if it already existed in org A. The
+  // compound @@unique([organizationId, email]) at the bottom of this model
+  // enforces per-tenant uniqueness instead.
+  email         String
   firstName     String
   lastName      String
   preferredName String?
@@ -806,6 +812,12 @@ model Candidate {
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  // Per-tenant email uniqueness (replaces the old global @unique on email).
+  // Two orgs can each have a candidate with the same email; one org can't
+  // have two. organizationId is nullable during the staged migration, so
+  // Postgres treats NULL org rows as distinct — acceptable until Phase 6
+  // flips organizationId NOT NULL.
+  @@unique([organizationId, email])
   @@index([status])
   @@index([sourcedById])
   @@index([locationCity, locationState])

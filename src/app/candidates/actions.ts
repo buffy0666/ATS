@@ -24,6 +24,7 @@ import {
   CandidateStatus,
   CustomFieldEntity,
   EmploymentType,
+  Prisma,
   RemotePref,
   WorkAuth,
 } from "@/generated/prisma";
@@ -323,21 +324,38 @@ export async function createCandidate(formData: FormData) {
 
   const sourcedById = data.sourcedById ?? session.user.id ?? null;
 
-  const candidate = await prisma.candidate.create({
-    data: {
-      ...data,
-      sourcedById,
-      organizationId: orgId,
-      resumeUrl,
-      resumeText,
-      skills: structuredData.skills,
-      workHistory: structuredData.workHistory ?? undefined,
-      education: structuredData.education ?? undefined,
-      parsedAt: structuredData.parserVersion ? new Date() : null,
-      parserVersion: structuredData.parserVersion,
-      tags: tagIds.length ? { connect: tagIds.map((id) => ({ id })) } : undefined,
-    },
-  });
+  let candidate;
+  try {
+    candidate = await prisma.candidate.create({
+      data: {
+        ...data,
+        sourcedById,
+        organizationId: orgId,
+        resumeUrl,
+        resumeText,
+        skills: structuredData.skills,
+        workHistory: structuredData.workHistory ?? undefined,
+        education: structuredData.education ?? undefined,
+        parsedAt: structuredData.parserVersion ? new Date() : null,
+        parserVersion: structuredData.parserVersion,
+        tags: tagIds.length ? { connect: tagIds.map((id) => ({ id })) } : undefined,
+      },
+    });
+  } catch (err) {
+    // P2002 = unique violation. Email is unique PER ORG, so this means a
+    // candidate with this email already exists in THIS workspace. Rather
+    // than 500, send the user to the existing record — that's almost
+    // always what they wanted (e.g. they clicked "Create candidate" from
+    // the Outlook add-in on someone already on file).
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      const existing = await prisma.candidate.findFirst({
+        where: { organizationId: orgId, email: data.email },
+        select: { id: true },
+      });
+      if (existing) redirect(`/candidates/${existing.id}?exists=1`);
+    }
+    throw err;
+  }
 
   await saveCustomFieldValues(CustomFieldEntity.CANDIDATE, candidate.id, orgId, formData);
   await auditCreate("Candidate", candidate as unknown as Record<string, unknown>);
