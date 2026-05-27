@@ -1,13 +1,21 @@
 "use server";
 
+import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
+import { CustomFieldEntity, CustomFieldType, Role } from "@/generated/prisma";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { parseCsv, rowsToRecords } from "@/lib/csv";
 import { tagColorForName } from "@/lib/tag-colors";
 import { parseCandidateRow } from "./columns";
-import { REQUIRED_FIELD_KEYS, type FieldMapping } from "./field-catalog";
+import { REQUIRED_FIELD_KEYS, slugifyFieldKey, type FieldMapping } from "./field-catalog";
 import type { ImportResult, RowResult } from "./import-types";
+
+/** A header the user chose to capture as a brand-new custom field. */
+export type NewFieldSpec = { header: string; label: string; type: CustomFieldType };
+
+/** Resolved new field — its DB id plus the source header + type for value writes. */
+type ResolvedNewField = { fieldId: string; header: string; type: CustomFieldType };
 
 const MAX_CSV_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_ROWS_PER_IMPORT = 5000;
@@ -77,6 +85,14 @@ export async function importCandidatesWithMapping(formData: FormData): Promise<I
     return failure("Field mapping was malformed. Re-open the mapping editor and try again.");
   }
 
+  let newFields: NewFieldSpec[];
+  try {
+    newFields = JSON.parse(String(formData.get("newFields") ?? "[]")) as NewFieldSpec[];
+    if (!Array.isArray(newFields)) newFields = [];
+  } catch {
+    return failure("New-field selections were malformed. Re-open the mapping editor and try again.");
+  }
+
   const unmapped = REQUIRED_FIELD_KEYS.filter((k) => !mapping[k]);
   if (unmapped.length > 0) {
     return failure(
@@ -112,6 +128,25 @@ export async function importCandidatesWithMapping(formData: FormData): Promise<I
     );
   }
 
+  // Creating new fields is admin-gated: verify role + password, then create
+  // the CustomField definitions and resolve them to ids for value writes.
+  let resolvedNewFields: ResolvedNewField[] = [];
+  if (newFields.length > 0) {
+    const valid = newFields.filter((f) => f && headerSet.has(f.header));
+    if (valid.length > 0) {
+      const auth = await authorizeFieldCreation(
+        session.user.id ?? null,
+        String(formData.get("adminPassword") ?? ""),
+      );
+      if (!auth.ok) return failure(auth.error);
+      try {
+        resolvedNewFields = await ensureCustomFields(valid, orgId);
+      } catch (e) {
+        return failure(e instanceof Error ? e.message : "Could not create the new fields.");
+      }
+    }
+  }
+
   // Translate each input row into a canonical-keyed record.
   const canonicalRecords = records.map((rec) => {
     const out: Record<string, string> = {};
@@ -123,7 +158,92 @@ export async function importCandidatesWithMapping(formData: FormData): Promise<I
 
   // Keep the original rows + headers for the errored-row download so it
   // mirrors the user's actual file, not the remapped shape.
-  return runImport(canonicalRecords, headers, orgId, session.user.id ?? null, records);
+  return runImport(canonicalRecords, headers, orgId, session.user.id ?? null, records, resolvedNewFields);
+}
+
+/**
+ * Gate for creating new custom fields during import. The current user must
+ * be an admin and must re-enter their own login password (bcrypt-checked).
+ */
+async function authorizeFieldCreation(
+  userId: string | null,
+  password: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!userId) return { ok: false, error: "You must be signed in to create fields." };
+  if (!password) return { ok: false, error: "Enter your admin password to create new fields." };
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, passwordHash: true },
+  });
+  if (!user || user.role !== Role.ADMIN) {
+    return { ok: false, error: "Only admins can create new fields during import." };
+  }
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) return { ok: false, error: "That password is incorrect." };
+  return { ok: true };
+}
+
+/**
+ * Create (or reuse) a CustomField on the CANDIDATE entity for each chosen
+ * header. Keys are slugified from the header and de-duplicated; if a field
+ * with the key already exists for this org it's reused rather than failing.
+ */
+async function ensureCustomFields(
+  specs: NewFieldSpec[],
+  orgId: string,
+): Promise<ResolvedNewField[]> {
+  const resolved: ResolvedNewField[] = [];
+  const usedKeys = new Set<string>();
+
+  // Next free sort order so new fields append after existing ones.
+  const max = await prisma.customField.aggregate({
+    where: { entity: CustomFieldEntity.CANDIDATE, organizationId: orgId },
+    _max: { sortOrder: true },
+  });
+  let sortOrder = (max._max.sortOrder ?? -1) + 1;
+
+  for (const spec of specs) {
+    const label = (spec.label || spec.header).trim().slice(0, 120) || spec.header;
+    const type = Object.values(CustomFieldType).includes(spec.type)
+      ? spec.type
+      : CustomFieldType.TEXT;
+
+    // Find a free key (header slug, then -2, -3, …) not already taken this run.
+    const base = slugifyFieldKey(spec.header);
+    let key = base;
+    for (let n = 2; usedKeys.has(key); n++) key = `${base}_${n}`.slice(0, 60);
+
+    // Reuse an existing field with this key in the org; otherwise create.
+    const existing = await prisma.customField.findFirst({
+      where: { entity: CustomFieldEntity.CANDIDATE, organizationId: orgId, key },
+      select: { id: true, type: true },
+    });
+    if (existing) {
+      usedKeys.add(key);
+      resolved.push({ fieldId: existing.id, header: spec.header, type: existing.type });
+      continue;
+    }
+
+    const created = await prisma.customField.create({
+      data: {
+        entity: CustomFieldEntity.CANDIDATE,
+        key,
+        label,
+        type,
+        required: false,
+        options: [],
+        sortOrder: sortOrder++,
+        organizationId: orgId,
+      },
+      select: { id: true },
+    });
+    usedKeys.add(key);
+    resolved.push({ fieldId: created.id, header: spec.header, type });
+  }
+
+  revalidatePath("/settings/custom-fields");
+  return resolved;
 }
 
 /**
@@ -137,6 +257,7 @@ async function runImport(
   orgId: string,
   sourcedById: string | null,
   rawRecords?: Record<string, string>[],
+  newFields: ResolvedNewField[] = [],
 ): Promise<ImportResult> {
   const rowResults: RowResult[] = [];
   let created = 0;
@@ -191,6 +312,7 @@ async function runImport(
         },
         select: { id: true },
       });
+      await writeNewFieldValues(candidate.id, rawRecord, newFields);
       created++;
       rowResults.push({
         row: csvRow,
@@ -233,6 +355,60 @@ function failure(message: string): ImportResult {
     rows: [],
     headers: [],
   };
+}
+
+/**
+ * Persist the raw cell value for each newly-created custom field on one
+ * candidate. Coerces the string into the column shape the field's type
+ * expects; blank cells are skipped (no row written).
+ */
+async function writeNewFieldValues(
+  candidateId: string,
+  rawRecord: Record<string, string>,
+  newFields: ResolvedNewField[],
+): Promise<void> {
+  for (const f of newFields) {
+    const raw = (rawRecord[f.header] ?? "").trim();
+    if (!raw) continue;
+
+    const data: {
+      valueText?: string | null;
+      valueNumber?: number | null;
+      valueDate?: Date | null;
+      valueBoolean?: boolean | null;
+      valueStrings?: string[];
+    } = {};
+
+    switch (f.type) {
+      case CustomFieldType.NUMBER: {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) continue;
+        data.valueNumber = n;
+        break;
+      }
+      case CustomFieldType.DATE: {
+        const d = new Date(raw);
+        if (Number.isNaN(d.getTime())) continue;
+        data.valueDate = d;
+        break;
+      }
+      case CustomFieldType.BOOLEAN:
+        data.valueBoolean = /^(yes|true|1|y)$/i.test(raw);
+        break;
+      case CustomFieldType.MULTI_SELECT:
+        data.valueStrings = raw.split("|").map((s) => s.trim()).filter(Boolean);
+        break;
+      default:
+        // TEXT, LONG_TEXT, URL, EMAIL, SELECT
+        data.valueText = raw;
+    }
+
+    await prisma.customFieldValue.upsert({
+      where: { fieldId_entityId: { fieldId: f.fieldId, entityId: candidateId } },
+      create: { fieldId: f.fieldId, entityId: candidateId, ...data },
+      update: data,
+    });
+  }
 }
 
 async function syncTagNamesToIds(rawNames: string[], orgId: string): Promise<string[]> {

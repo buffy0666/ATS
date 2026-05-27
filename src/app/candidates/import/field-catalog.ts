@@ -74,6 +74,23 @@ function normalize(s: string): string {
 }
 
 /**
+ * Turn an arbitrary CSV header into a valid CustomField key:
+ * `^[a-z][a-z0-9_]*$`, lowercased, non-alphanumerics collapsed to `_`,
+ * leading digit prefixed with `f_`. Empty input falls back to "field".
+ */
+export function slugifyFieldKey(header: string): string {
+  let key = header
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 60);
+  if (!key) key = "field";
+  if (/^[0-9]/.test(key)) key = `f_${key}`.slice(0, 60);
+  return key;
+}
+
+/**
  * Best-effort auto-match of the input file's headers to canonical fields.
  *
  * Two passes, each consuming headers so one input column maps to at most

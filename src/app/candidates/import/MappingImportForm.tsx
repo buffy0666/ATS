@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { CustomFieldType } from "@/generated/prisma";
+import { CUSTOM_FIELD_TYPE_LABEL } from "@/lib/custom-fields-shared";
 import { parseCsv } from "@/lib/csv";
 import { importCandidatesWithMapping } from "./actions";
 import {
@@ -14,6 +16,20 @@ import { initialImportResult, type ImportResult } from "./import-types";
 
 const SKIP = "__skip__";
 const REQUIRED = new Set(REQUIRED_FIELD_KEYS);
+
+// Types offered for auto-created fields — single-value kinds only (SELECT /
+// MULTI_SELECT need a predefined option list, so they're set up in Settings).
+const NEW_FIELD_TYPES: CustomFieldType[] = [
+  CustomFieldType.TEXT,
+  CustomFieldType.LONG_TEXT,
+  CustomFieldType.NUMBER,
+  CustomFieldType.DATE,
+  CustomFieldType.BOOLEAN,
+  CustomFieldType.URL,
+  CustomFieldType.EMAIL,
+];
+
+type NewFieldDraft = { create: boolean; label: string; type: CustomFieldType };
 
 /**
  * Field-mapping flow:
@@ -29,6 +45,8 @@ export function MappingImportForm() {
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewRow, setPreviewRow] = useState<Record<string, string>>({});
   const [mapping, setMapping] = useState<FieldMapping>({});
+  const [newFieldDrafts, setNewFieldDrafts] = useState<Record<string, NewFieldDraft>>({});
+  const [adminPassword, setAdminPassword] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult>(initialImportResult);
   const [pending, startTransition] = useTransition();
@@ -40,6 +58,8 @@ export function MappingImportForm() {
     setFile(f);
     setHeaders([]);
     setMapping({});
+    setNewFieldDrafts({});
+    setAdminPassword("");
     setPreviewRow({});
     if (!f) return;
 
@@ -79,11 +99,42 @@ export function MappingImportForm() {
     [mapping],
   );
 
+  // File columns not associated with any candidate field — candidates for
+  // becoming brand-new custom fields.
+  const mappedColumns = useMemo(
+    () => new Set(Object.values(mapping).filter(Boolean) as string[]),
+    [mapping],
+  );
+  const unmatchedHeaders = useMemo(
+    () => headers.filter((h) => !mappedColumns.has(h)),
+    [headers, mappedColumns],
+  );
+
+  function draftFor(h: string): NewFieldDraft {
+    return newFieldDrafts[h] ?? { create: false, label: h, type: CustomFieldType.TEXT };
+  }
+  function updateDraft(h: string, patch: Partial<NewFieldDraft>) {
+    setNewFieldDrafts((prev) => ({ ...prev, [h]: { ...draftFor(h), ...patch } }));
+  }
+
+  const selectedNewHeaders = useMemo(
+    () => unmatchedHeaders.filter((h) => newFieldDrafts[h]?.create),
+    [unmatchedHeaders, newFieldDrafts],
+  );
+  const needsPassword = selectedNewHeaders.length > 0;
+  const passwordMissing = needsPassword && !adminPassword.trim();
+
   function handleImport() {
     if (!file) return;
+    const newFields = selectedNewHeaders.map((h) => {
+      const d = draftFor(h);
+      return { header: h, label: d.label.trim() || h, type: d.type };
+    });
     const fd = new FormData();
     fd.set("file", file);
     fd.set("mapping", JSON.stringify(mapping));
+    fd.set("newFields", JSON.stringify(newFields));
+    if (newFields.length > 0) fd.set("adminPassword", adminPassword);
     startTransition(async () => {
       try {
         const next = await importCandidatesWithMapping(fd);
@@ -196,6 +247,82 @@ export function MappingImportForm() {
             </tbody>
           </table>
 
+          {unmatchedHeaders.length > 0 && (
+            <div className="border-t border-zinc-200 dark:border-zinc-800 px-4 py-3">
+              <h3 className="text-sm font-semibold">Unmatched columns ({unmatchedHeaders.length})</h3>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                These columns weren&apos;t matched to a candidate field. Tick any you want to capture as a
+                new custom field on every imported candidate.
+              </p>
+              <div className="mt-3 space-y-2">
+                {unmatchedHeaders.map((h) => {
+                  const d = draftFor(h);
+                  return (
+                    <div
+                      key={h}
+                      className="flex flex-wrap items-center gap-3 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+                    >
+                      <label className="inline-flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={d.create}
+                          onChange={(e) => updateDraft(h, { create: e.target.checked })}
+                          className="rounded border-zinc-300 dark:border-zinc-700"
+                        />
+                        <span className="font-mono text-xs">{h}</span>
+                      </label>
+                      {d.create && (
+                        <>
+                          <input
+                            value={d.label}
+                            onChange={(e) => updateDraft(h, { label: e.target.value })}
+                            placeholder="Field label"
+                            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                          />
+                          <select
+                            value={d.type}
+                            onChange={(e) => updateDraft(h, { type: e.target.value as CustomFieldType })}
+                            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                          >
+                            {NEW_FIELD_TYPES.map((t) => (
+                              <option key={t} value={t}>
+                                {CUSTOM_FIELD_TYPE_LABEL[t]}
+                              </option>
+                            ))}
+                          </select>
+                        </>
+                      )}
+                      <span className="ml-auto max-w-[40%] truncate text-xs text-zinc-400">
+                        {previewRow[h] || "—"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {needsPassword && (
+                <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-950/30">
+                  <label className="mb-1 block text-xs font-medium" htmlFor="adminpw">
+                    Admin password — required to create {selectedNewHeaders.length} new field
+                    {selectedNewHeaders.length === 1 ? "" : "s"}
+                  </label>
+                  <input
+                    id="adminpw"
+                    type="password"
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    autoComplete="current-password"
+                    placeholder="Your account password"
+                    className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm md:max-w-xs dark:border-zinc-700 dark:bg-zinc-950"
+                  />
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    Only admins can add fields. New fields appear in Settings → Custom fields afterward.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center justify-between gap-3 border-t border-zinc-200 dark:border-zinc-800 px-4 py-3">
             <div className="text-xs">
               {missingRequired.length > 0 ? (
@@ -214,10 +341,15 @@ export function MappingImportForm() {
             <button
               type="button"
               onClick={handleImport}
-              disabled={pending || missingRequired.length > 0}
+              disabled={pending || missingRequired.length > 0 || passwordMissing}
+              title={passwordMissing ? "Enter your admin password to create the new fields" : undefined}
               className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
             >
-              {pending ? "Importing…" : "Import with this mapping"}
+              {pending
+                ? "Importing…"
+                : needsPassword
+                  ? `Create ${selectedNewHeaders.length} field${selectedNewHeaders.length === 1 ? "" : "s"} & import`
+                  : "Import with this mapping"}
             </button>
           </div>
         </div>
