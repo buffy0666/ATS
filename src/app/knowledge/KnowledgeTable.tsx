@@ -188,14 +188,18 @@ export function KnowledgeTable({
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 dark:text-blue-400 hover:underline break-all"
-                      >
-                        {truncate(item.url, 50)}
-                      </a>
+                      {item.url ? (
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:underline break-all"
+                        >
+                          {truncate(item.url, 50)}
+                        </a>
+                      ) : (
+                        <span className="text-zinc-400">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
                       {item.createdAt.toLocaleDateString()}
