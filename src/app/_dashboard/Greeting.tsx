@@ -64,18 +64,34 @@ export async function loadGreeting(userId: string, orgId: string): Promise<Greet
   return { firstName, next };
 }
 
-function timeOfDayGreeting(d: Date = new Date()): string {
-  const h = d.getHours();
-  if (h < 5) return "Working late";
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  if (h < 22) return "Good evening";
-  return "Working late";
+// Curated, work/recruiting-leaning lines. Picked deterministically by the
+// calendar day so the quote is stable across a day's renders but rotates
+// daily — no flicker on every navigation, no client-side randomness.
+const QUOTES: { text: string; author: string }[] = [
+  { text: "Great vision without great people is irrelevant.", author: "Jim Collins" },
+  { text: "Hire character. Train skill.", author: "Peter Schutz" },
+  { text: "The way to get started is to quit talking and begin doing.", author: "Walt Disney" },
+  { text: "Talent wins games, but teamwork wins championships.", author: "Michael Jordan" },
+  { text: "Done is better than perfect.", author: "Sheryl Sandberg" },
+  { text: "You miss 100% of the shots you don't take.", author: "Wayne Gretzky" },
+  { text: "Whatever you are, be a good one.", author: "Abraham Lincoln" },
+  { text: "Opportunities don't happen. You create them.", author: "Chris Grosser" },
+  { text: "The best way to predict the future is to create it.", author: "Peter Drucker" },
+  { text: "People don't care how much you know until they know how much you care.", author: "Theodore Roosevelt" },
+  { text: "Success is the sum of small efforts repeated day in and day out.", author: "Robert Collier" },
+  { text: "Make each day your masterpiece.", author: "John Wooden" },
+  { text: "Either you run the day or the day runs you.", author: "Jim Rohn" },
+  { text: "Quality means doing it right when no one is looking.", author: "Henry Ford" },
+];
+
+function quoteOfTheDay(d: Date = new Date()) {
+  const dayIndex = Math.floor(d.getTime() / 86_400_000);
+  return QUOTES[dayIndex % QUOTES.length];
 }
 
 export function Greeting({ data }: { data: GreetingData }) {
-  const tod = timeOfDayGreeting();
-  const headline = data.firstName ? `${tod}, ${data.firstName}.` : `${tod}.`;
+  const headline = data.firstName ? `Welcome back, ${data.firstName}.` : "Welcome back.";
+  const quote = quoteOfTheDay();
 
   return (
     <section
@@ -103,6 +119,10 @@ export function Greeting({ data }: { data: GreetingData }) {
       <div className="relative flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{headline}</h1>
+          <p className="mt-1.5 max-w-xl text-sm italic text-zinc-500 dark:text-zinc-400">
+            &ldquo;{quote.text}&rdquo;
+            <span className="not-italic text-zinc-400 dark:text-zinc-500"> — {quote.author}</span>
+          </p>
           <NextLine next={data.next} />
         </div>
       </div>
