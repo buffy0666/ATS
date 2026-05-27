@@ -1,9 +1,29 @@
 import { requireSession } from "@/lib/auth-utils";
+import { prisma } from "@/lib/prisma";
 import { ChangePasswordForm } from "./ChangePasswordForm";
+import { TokensTable } from "@/app/settings/api-tokens/TokensTable";
 
 export default async function ProfilePage() {
   const session = await requireSession();
   const { name, email, role } = session.user;
+
+  // Self-serve API tokens — any user (recruiter included) can mint their
+  // own here for the Outlook add-in / Chrome extension. Tokens are scoped
+  // to this user + their org, so captures are attributed to them and land
+  // in the right workspace. (The same table lives in admin Settings, but
+  // Settings is hidden from non-admins, so we surface it on the profile
+  // page which everyone can reach.)
+  const tokens = await prisma.apiToken.findMany({
+    where: { userId: session.user.id, revokedAt: null },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      name: true,
+      tokenPrefix: true,
+      lastUsedAt: true,
+      createdAt: true,
+    },
+  });
 
   return (
     <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-10">
@@ -44,6 +64,20 @@ export default async function ProfilePage() {
           If you were given a preset password, change it here to something only you know.
         </p>
         <ChangePasswordForm />
+      </section>
+
+      <section className="mt-6 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 mb-1">
+          Connect Outlook / API tokens
+        </h2>
+        <p className="text-sm text-zinc-500 mb-4">
+          Generate a token to paste into the <strong>Add to ATS</strong> Outlook
+          add-in (or the Chrome extension). Captures made with your token are
+          attributed to you and land in your workspace. Keep it private — anyone
+          with the token can add to your workspace. The token is shown once at
+          creation.
+        </p>
+        <TokensTable tokens={tokens} />
       </section>
     </main>
   );

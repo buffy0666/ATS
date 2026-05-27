@@ -85,6 +85,37 @@ function showCaptureView() {
   document.getElementById("settings-view").classList.add("hidden");
   document.getElementById("capture-view").classList.remove("hidden");
   renderPreview();
+  refreshConnectedAs();
+}
+
+/**
+ * Probe /api/external/whoami so the user can see which org + identity the
+ * saved token resolves to — makes a wrong-tenant token obvious instead of
+ * silently routing captures to the wrong (or no) workspace.
+ */
+async function refreshConnectedAs() {
+  const el = document.getElementById("connected-as");
+  if (!el) return;
+  el.textContent = "Checking connection…";
+  try {
+    const res = await fetch(`${settings.atsUrl}/api/external/whoami`, {
+      headers: { Authorization: `Bearer ${settings.apiToken}` },
+    });
+    if (res.status === 401) {
+      el.innerHTML =
+        '<span style="color:#a4262c">Token rejected — open Connection settings and paste a valid token.</span>';
+      return;
+    }
+    const body = await res.json();
+    if (body?.ok) {
+      el.innerHTML =
+        `Connected as <strong>${escapeHtml(body.email)}</strong> · workspace <strong>${escapeHtml(body.organizationName ?? "—")}</strong>`;
+    } else {
+      el.textContent = "";
+    }
+  } catch {
+    el.textContent = "";
+  }
 }
 
 function showSettingsView(fromCapture) {
