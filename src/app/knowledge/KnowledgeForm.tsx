@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { KnowledgeStatus } from "@/generated/prisma";
 import { addKnowledgeItem } from "./actions";
 import { KNOWLEDGE_TYPES } from "./constants";
 
 export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -15,7 +17,13 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
         setError(null);
         startTransition(async () => {
           try {
-            await addKnowledgeItem(fd);
+            const res = await addKnowledgeItem(fd);
+            if (res.ok) {
+              router.push("/knowledge");
+              router.refresh();
+            } else {
+              setError(res.error);
+            }
           } catch (e) {
             setError(e instanceof Error ? e.message : "Could not save knowledge item.");
           }

@@ -1,6 +1,5 @@
 "use server";
 
-import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { KnowledgeStatus, Role } from "@/generated/prisma";
@@ -52,38 +51,48 @@ async function saveKnowledgeFile(file: File): Promise<string> {
   return result.url;
 }
 
-export async function addKnowledgeItem(formData: FormData) {
+export type AddKnowledgeResult = { ok: true } | { ok: false; error: string };
+
+export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledgeResult> {
   const { session, orgId } = await requireSessionWithOrg();
 
-  const parsed = inputSchema.parse({
+  const parsed = inputSchema.safeParse({
     name: formData.get("name"),
     description: formData.get("description"),
     type: formData.get("type"),
     url: formData.get("url"),
     status: formData.get("status") || KnowledgeStatus.UNDER_REVIEW,
   });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+  const data = parsed.data;
 
   const file = formData.get("file") as File | null;
   let finalUrl = "";
 
   // Attachment is optional. If a file is provided it wins; otherwise use the
   // URL if given; otherwise save a name/description-only entry (empty url).
-  if (file && file.size > 0) {
-    finalUrl = await saveKnowledgeFile(file);
-  } else if (parsed.url) {
-    finalUrl = parsed.url;
+  try {
+    if (file && file.size > 0) {
+      finalUrl = await saveKnowledgeFile(file);
+    } else if (data.url) {
+      finalUrl = data.url;
+    }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not save the attachment." };
   }
 
   // Only admins can set the initial status to APPROVED; everyone else has it
   // forced to UNDER_REVIEW regardless of what they submit.
   const isAdmin = session.user.role === Role.ADMIN;
-  const status = isAdmin ? parsed.status : KnowledgeStatus.UNDER_REVIEW;
+  const status = isAdmin ? data.status : KnowledgeStatus.UNDER_REVIEW;
 
   await prisma.knowledgeItem.create({
     data: {
-      name: parsed.name,
-      description: parsed.description,
-      type: parsed.type,
+      name: data.name,
+      description: data.description,
+      type: data.type,
       url: finalUrl,
       status,
       createdById: session.user.id,
@@ -92,7 +101,7 @@ export async function addKnowledgeItem(formData: FormData) {
   });
 
   revalidatePath("/knowledge");
-  redirect("/knowledge");
+  return { ok: true };
 }
 
 export async function setKnowledgeStatus(itemId: string, status: KnowledgeStatus) {
