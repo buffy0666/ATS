@@ -113,10 +113,62 @@ body {
   }
 }
 
+/*
+ * Floating bear assistant trigger — a waving, shimmering call-to-action.
+ *   .bear-bob       gentle up/down idle on the whole bear
+ *   .bear-arm-wave  the raised paw swings side to side (the "wave")
+ *   .assistant-glow pulsing indigo halo so it catches the eye
+ *   .assistant-shimmer  a light band sweeping across the button face
+ */
+@keyframes bear-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+.bear-bob { animation: bear-bob 3.2s ease-in-out infinite; }
+
+@keyframes bear-arm-wave {
+  0%, 55%, 100% { transform: rotate(0deg); }
+  65% { transform: rotate(-20deg); }
+  75% { transform: rotate(10deg); }
+  85% { transform: rotate(-20deg); }
+}
+.bear-arm-wave {
+  transform-box: fill-box;
+  transform-origin: 35% 85%;
+  animation: bear-arm-wave 3.2s ease-in-out infinite;
+}
+
+@keyframes assistant-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.5), 0 10px 24px -8px rgba(0, 0, 0, 0.35); }
+  50% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0), 0 10px 24px -8px rgba(0, 0, 0, 0.35); }
+}
+.assistant-glow { animation: assistant-glow 2.4s ease-out infinite; }
+
+@keyframes assistant-shimmer {
+  0% { transform: translateX(-160%) skewX(-20deg); }
+  55%, 100% { transform: translateX(240%) skewX(-20deg); }
+}
+.assistant-shimmer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 55%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  transform: translateX(-160%) skewX(-20deg);
+  animation: assistant-shimmer 3.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .selection-shimmer,
   .selection-shimmer-border,
-  .dark .selection-shimmer {
+  .dark .selection-shimmer,
+  .bear-bob,
+  .bear-arm-wave,
+  .assistant-glow,
+  .assistant-shimmer::after {
     animation: none;
   }
 }
