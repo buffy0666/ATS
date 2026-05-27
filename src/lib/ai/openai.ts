@@ -148,18 +148,46 @@ export class OpenAICompatibleProvider implements AIProvider {
         : {}),
     };
 
+    // Streaming has no built-in timeout, so a slow/stalled model (e.g. a
+    // reasoning model that "thinks" for a long time before emitting any
+    // token) would hang the assistant forever as "Thinking…". Guard with
+    // both a total-time abort and an idle watchdog that fires if no bytes
+    // arrive for a while. On abort we surface a clear error instead of
+    // spinning indefinitely.
+    const controller = new AbortController();
+    const totalTimeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const IDLE_TIMEOUT_MS = Math.min(this.timeoutMs, 45000);
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const bumpIdle = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
+    };
+
     let response: Response;
     try {
+      bumpIdle();
       response = await fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers,
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
     } catch (error) {
+      clearTimeout(totalTimeout);
+      if (idleTimer) clearTimeout(idleTimer);
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new AIProviderError(
+          this.name,
+          `Chat timed out after ${this.timeoutMs}ms with no response. The model may be overloaded or too slow — try a faster model.`,
+          error,
+        );
+      }
       throw new AIProviderError(this.name, "Chat request failed to connect.", error);
     }
 
     if (!response.ok || !response.body) {
+      clearTimeout(totalTimeout);
+      if (idleTimer) clearTimeout(idleTimer);
       const text = await safeText(response);
       throw new AIProviderError(
         this.name,

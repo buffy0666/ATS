@@ -102,6 +102,14 @@ export type TestAIConfigResult =
 export async function testAIConfig(): Promise<TestAIConfigResult> {
   const { orgId } = await requireAdminWithOrg();
 
+  // Drop any cached provider for this org so the test reflects what's
+  // actually saved in the DB right now — not a provider built from a
+  // previous save still warm in this serverless instance's memory. Without
+  // this, the test could report "Connected to grok" even after the saved
+  // config changed (or was never persisted for this org), masking the real
+  // provider the assistant will use.
+  invalidateAIProviderCache(orgId);
+
   try {
     const response = await complete(
       {
