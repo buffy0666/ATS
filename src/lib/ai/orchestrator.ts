@@ -105,7 +105,10 @@ export async function* runAssistantTurn(
       let finishReason: ChatChunk["type"] extends infer T ? T : never = "done" as never;
       let finishReasonValue: "stop" | "tool_calls" | "length" | "error" = "stop";
 
-      for await (const chunk of chat({ messages, tools: toolDefinitions, maxTokens: 4096 })) {
+      for await (const chunk of chat(
+        { messages, tools: toolDefinitions, maxTokens: 4096 },
+        organizationId,
+      )) {
         switch (chunk.type) {
           case "text": {
             const remaining = MAX_TEXT_BYTES - turnTextBytes;

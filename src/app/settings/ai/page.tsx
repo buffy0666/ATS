@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { getResolvedAIConfig } from "@/lib/ai";
 import { PROVIDERS } from "@/lib/ai/catalog";
@@ -8,12 +8,15 @@ import { getCurrentKeyPreview } from "./actions";
 export const dynamic = "force-dynamic";
 
 export default async function AISettingsPage() {
-  await requireAdmin();
+  const { orgId } = await requireAdminWithOrg();
 
   // Read raw DB row so we can show "is this from DB or env?" honestly.
+  // AIConfig is keyed per-organization, and the resolver must be scoped to
+  // the same org — otherwise the banner always reports the env fallback even
+  // after a successful save.
   const [dbRow, resolved, keyPreview] = await Promise.all([
-    prisma.aIConfig.findUnique({ where: { id: "default" } }),
-    getResolvedAIConfig(),
+    prisma.aIConfig.findUnique({ where: { organizationId: orgId } }),
+    getResolvedAIConfig(orgId),
     getCurrentKeyPreview(),
   ]);
 
