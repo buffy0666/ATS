@@ -721,7 +721,7 @@ function Expander({ label, children }: { label: string; children: React.ReactNod
         className="group inline-flex items-center gap-2.5 rounded-lg border border-dashed border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
       >
         <span
-          className={`grid h-5 w-5 place-items-center rounded-full bg-indigo-600 text-white shadow-sm transition-transform duration-300 ease-out ${
+          className={`grid h-5 w-5 place-items-center rounded-full bg-indigo-400 dark:bg-indigo-500 text-white shadow-sm transition-transform duration-300 ease-out ${
             open ? "rotate-45" : "rotate-0"
           }`}
         >

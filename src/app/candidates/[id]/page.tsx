@@ -6,6 +6,7 @@ import { EmailComposer } from "./EmailComposer";
 import { EmailHistory } from "./EmailHistory";
 import { NotesSection } from "./NotesSection";
 import { CandidateJobsSection } from "./CandidateJobsSection";
+import { CandidateQuickEdit } from "./CandidateQuickEdit";
 import { CandidateNavigator } from "./CandidateNavigator";
 import { DeleteCandidateButton } from "../DeleteCandidateButton";
 import { OutreachInsights, type ActivityItem, type OutreachInsight } from "./OutreachInsights";
@@ -309,7 +310,7 @@ export default async function CandidateDetailPage({
               {candidate.currentCompany}
             </span>
           )}
-          <span className="text-sm text-zinc-500">· {candidate.email}</span>
+          <span className="text-sm text-zinc-500 break-all">· {candidate.email}</span>
           {candidate.tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {candidate.tags.map((t) => (
@@ -405,6 +406,20 @@ export default async function CandidateDetailPage({
               {candidate.summary}
             </p>
           )}
+
+          <div className="mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-5">
+            <CandidateQuickEdit
+              candidate={{
+                id: candidate.id,
+                workAuthorization: candidate.workAuthorization,
+                requiresSponsorship: candidate.requiresSponsorship,
+                githubUrl: candidate.githubUrl,
+                portfolioUrl: candidate.portfolioUrl,
+                employmentTypePref: candidate.employmentTypePref,
+                remotePref: candidate.remotePref,
+              }}
+            />
+          </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-6">
             {/* Left column */}
@@ -722,7 +737,7 @@ function Detail({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
       <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
-      <div className="mt-1 text-sm">{value || <span className="text-zinc-400">—</span>}</div>
+      <div className="mt-1 text-sm break-words">{value || <span className="text-zinc-400">—</span>}</div>
     </div>
   );
 }

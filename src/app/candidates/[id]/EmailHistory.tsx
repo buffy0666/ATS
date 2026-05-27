@@ -59,7 +59,7 @@ export function EmailHistory({ emails }: { emails: EmailLogRow[] }) {
             </summary>
             <div className="border-t border-zinc-200 dark:border-zinc-800 px-4 py-3 text-sm">
               <div className="text-xs text-zinc-500 mb-2">
-                To: <span className="font-mono">{e.to}</span> · via {e.provider}
+                To: <span className="font-mono break-all">{e.to}</span> · via {e.provider}
                 {e.providerMessageId && (
                   <> · id <code className="font-mono">{e.providerMessageId.slice(0, 16)}…</code></>
                 )}

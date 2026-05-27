@@ -13,9 +13,20 @@ type TokenRow = {
   tokenPrefix: string;
   lastUsedAt: Date | null;
   createdAt: Date;
+  // Only populated when an admin is viewing every token in the org.
+  ownerName?: string | null;
+  ownerEmail?: string;
 };
 
-export function TokensTable({ tokens }: { tokens: TokenRow[] }) {
+export function TokensTable({
+  tokens,
+  showOwner = false,
+}: {
+  tokens: TokenRow[];
+  // When true, render an "Owner" column — used on the admin console where a
+  // single admin sees every member's tokens.
+  showOwner?: boolean;
+}) {
   const [state, action, pending] = useActionState<CreateTokenResult | undefined, FormData>(
     createTokenAction,
     undefined,
@@ -71,6 +82,7 @@ export function TokensTable({ tokens }: { tokens: TokenRow[] }) {
           <thead className="bg-zinc-50 dark:bg-zinc-950 text-left text-xs uppercase text-zinc-500">
             <tr>
               <th className="px-4 py-2 font-medium">Name</th>
+              {showOwner && <th className="px-4 py-2 font-medium">Owner</th>}
               <th className="px-4 py-2 font-medium">Prefix</th>
               <th className="px-4 py-2 font-medium">Last used</th>
               <th className="px-4 py-2 font-medium">Created</th>
@@ -80,7 +92,7 @@ export function TokensTable({ tokens }: { tokens: TokenRow[] }) {
           <tbody>
             {tokens.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
+                <td colSpan={showOwner ? 6 : 5} className="px-4 py-8 text-center text-zinc-500">
                   No active tokens. Generate one above.
                 </td>
               </tr>
@@ -88,6 +100,11 @@ export function TokensTable({ tokens }: { tokens: TokenRow[] }) {
             {tokens.map((t) => (
               <tr key={t.id} className="border-t border-zinc-200 dark:border-zinc-800">
                 <td className="px-4 py-3 font-medium">{t.name}</td>
+                {showOwner && (
+                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 break-all">
+                    {t.ownerName ?? t.ownerEmail ?? "—"}
+                  </td>
+                )}
                 <td className="px-4 py-3 font-mono text-xs text-zinc-500">{t.tokenPrefix}…</td>
                 <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
                   {t.lastUsedAt ? new Date(t.lastUsedAt).toLocaleString() : "never"}
