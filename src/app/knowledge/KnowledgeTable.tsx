@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { KnowledgeStatus, Role } from "@/generated/prisma";
-import { deleteKnowledgeItem, setKnowledgeStatus, KNOWLEDGE_TYPES } from "./actions";
+import { deleteKnowledgeItem, setKnowledgeStatus } from "./actions";
+import { KNOWLEDGE_TYPES } from "./constants";
 
 export type KnowledgeRow = {
   id: string;

@@ -7,6 +7,7 @@ import { KnowledgeStatus, Role } from "@/generated/prisma";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { saveAttachment } from "@/lib/uploads";
+import { KNOWLEDGE_TYPES } from "./constants";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const ALLOWED_FILE_TYPES = new Set([
@@ -17,10 +18,6 @@ const ALLOWED_FILE_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "text/plain",
 ]);
-
-// Content categories shown in the Type dropdown. Stored verbatim on
-// KnowledgeItem.type (a free-text column).
-export const KNOWLEDGE_TYPES = ["How To", "FYI", "Policies"] as const;
 
 const inputSchema = z.object({
   name: z.string().trim().min(1).max(160),

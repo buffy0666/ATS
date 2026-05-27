@@ -2,7 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { KnowledgeStatus } from "@/generated/prisma";
-import { addKnowledgeItem, KNOWLEDGE_TYPES } from "./actions";
+import { addKnowledgeItem } from "./actions";
+import { KNOWLEDGE_TYPES } from "./constants";
 
 type Source = "document" | "link";
 
