@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { KnowledgeStatus, Role } from "@/generated/prisma";
-import { deleteKnowledgeItem, setKnowledgeStatus } from "./actions";
+import { deleteKnowledgeItem, setKnowledgeStatus, KNOWLEDGE_TYPES } from "./actions";
 
 export type KnowledgeRow = {
   id: string;
@@ -40,7 +40,7 @@ export function KnowledgeTable({
   const [pending, startTransition] = useTransition();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | KnowledgeStatus>("ALL");
-  const [typeFilter, setTypeFilter] = useState<"all" | "document" | "link">("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
 
   const isAdmin = currentUserRole === Role.ADMIN;
 
@@ -117,8 +117,11 @@ export function KnowledgeTable({
           className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
         >
           <option value="all">All types</option>
-          <option value="document">Documents</option>
-          <option value="link">Links</option>
+          {KNOWLEDGE_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
         </select>
         {(query || statusFilter !== "ALL" || typeFilter !== "all") && (
           <button
@@ -170,7 +173,12 @@ export function KnowledgeTable({
                     key={item.id}
                     className="border-t border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-950"
                   >
-                    <td className="px-4 py-3 font-medium">{item.name}</td>
+                    <td className="px-4 py-3">
+                      <div className="font-medium">{item.name}</div>
+                      <span className="mt-1 inline-block rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200 px-2 py-0.5 text-[10px] font-medium">
+                        {item.type}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 max-w-md">
                       {item.description ? (
                         <span className="line-clamp-2">{item.description}</span>
@@ -179,19 +187,14 @@ export function KnowledgeTable({
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-2">
-                        <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide">
-                          {item.type}
-                        </span>
-                        <a
-                          href={item.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 dark:text-blue-400 hover:underline break-all"
-                        >
-                          {truncate(item.url, 50)}
-                        </a>
-                      </span>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 dark:text-blue-400 hover:underline break-all"
+                      >
+                        {truncate(item.url, 50)}
+                      </a>
                     </td>
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
                       {item.createdAt.toLocaleDateString()}

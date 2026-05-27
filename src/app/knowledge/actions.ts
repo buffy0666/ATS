@@ -18,6 +18,10 @@ const ALLOWED_FILE_TYPES = new Set([
   "text/plain",
 ]);
 
+// Content categories shown in the Type dropdown. Stored verbatim on
+// KnowledgeItem.type (a free-text column).
+export const KNOWLEDGE_TYPES = ["How To", "FYI", "Policies"] as const;
+
 const inputSchema = z.object({
   name: z.string().trim().min(1).max(160),
   description: z
@@ -27,7 +31,11 @@ const inputSchema = z.object({
     .optional()
     .or(z.literal(""))
     .transform((v) => v || null),
-  type: z.enum(["document", "link"]),
+  // What kind of knowledge this is.
+  type: z.enum(KNOWLEDGE_TYPES),
+  // How the content is attached — drives file-upload vs URL. Separate from
+  // `type` so the category isn't tangled with the storage mechanism.
+  source: z.enum(["document", "link"]),
   url: z
     .string()
     .trim()
@@ -57,6 +65,7 @@ export async function addKnowledgeItem(formData: FormData) {
     name: formData.get("name"),
     description: formData.get("description"),
     type: formData.get("type"),
+    source: formData.get("source"),
     url: formData.get("url"),
     status: formData.get("status") || KnowledgeStatus.UNDER_REVIEW,
   });
@@ -64,12 +73,12 @@ export async function addKnowledgeItem(formData: FormData) {
   const file = formData.get("file") as File | null;
   let finalUrl = "";
 
-  if (parsed.type === "link" && parsed.url) {
+  if (parsed.source === "link" && parsed.url) {
     finalUrl = parsed.url;
-  } else if (parsed.type === "document" && file && file.size > 0) {
+  } else if (parsed.source === "document" && file && file.size > 0) {
     finalUrl = await saveKnowledgeFile(file);
   } else {
-    throw new Error("Provide a URL for link type or a file for document type.");
+    throw new Error("Provide a URL for a link, or a file for an upload.");
   }
 
   // Only admins can set the initial status to APPROVED; everyone else has it
