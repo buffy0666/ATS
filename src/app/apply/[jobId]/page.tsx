@@ -33,8 +33,23 @@ async function submitApplication(formData: FormData) {
     return;
   }
 
-  // Create or find candidate
-  let candidate = await prisma.candidate.findUnique({ where: { email } });
+  // Resolve the job's organization so the candidate + application land in
+  // the right tenant. (This public page predates multi-tenancy; scoping
+  // here keeps applicant submissions isolated per org.)
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: { id: true, organizationId: true },
+  });
+  if (!job) return;
+  const orgId = job.organizationId;
+
+  // Create or find the candidate WITHIN the job's org. Email is unique
+  // per org now (not globally), so findFirst scoped to orgId is correct —
+  // the same applicant emailing two different firms is two candidate rows.
+  let candidate = await prisma.candidate.findFirst({
+    where: { email, organizationId: orgId },
+    select: { id: true },
+  });
 
   if (!candidate) {
     let resumeUrl: string | null = null;
@@ -57,7 +72,9 @@ async function submitApplication(formData: FormData) {
         linkedinUrl,
         resumeUrl,
         resumeText,
+        organizationId: orgId,
       },
+      select: { id: true },
     });
   }
 
@@ -71,6 +88,7 @@ async function submitApplication(formData: FormData) {
       data: {
         jobId,
         candidateId: candidate.id,
+        organizationId: orgId,
       },
     });
   }
