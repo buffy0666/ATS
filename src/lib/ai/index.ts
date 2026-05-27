@@ -117,12 +117,15 @@ function buildProvider(config: ResolvedAIConfig): AIProvider {
         config.baseUrl,
       );
     case "grok":
-      // xAI uses an OpenAI-compatible API surface.
+    case "perplexity":
+    case "google":
+      // All three expose an OpenAI-compatible Chat Completions API, so they
+      // share the same client — only base URL / model / key differ.
       if (!config.apiKey) {
-        throw new Error("AI_API_KEY is required for the Grok provider.");
+        throw new Error(`AI_API_KEY is required for the ${config.provider} provider.`);
       }
       return new OpenAICompatibleProvider({
-        providerName: "grok",
+        providerName: config.provider,
         baseUrl: config.baseUrl,
         model: requireModel(config),
         apiKey: config.apiKey,

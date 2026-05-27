@@ -21,7 +21,14 @@ type Initial = {
   keyPreview: string | null;
 };
 
-const PROVIDER_OPTIONS: ProviderId[] = ["ollama", "openai", "anthropic", "grok"];
+const PROVIDER_OPTIONS: ProviderId[] = [
+  "openai",
+  "anthropic",
+  "grok",
+  "perplexity",
+  "google",
+  "ollama",
+];
 
 function isProvider(value: string): value is ProviderId {
   return (PROVIDER_OPTIONS as string[]).includes(value);

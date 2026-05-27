@@ -9,7 +9,13 @@
  * the user's Ollama server's /api/tags endpoint.
  */
 
-export type ProviderId = "ollama" | "openai" | "anthropic" | "grok";
+export type ProviderId =
+  | "ollama"
+  | "openai"
+  | "anthropic"
+  | "grok"
+  | "perplexity"
+  | "google";
 
 export type ProviderMeta = {
   id: ProviderId;
@@ -73,6 +79,36 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
       "grok-3",
       "grok-2-latest",
       "grok-2-vision-latest",
+    ],
+  },
+  perplexity: {
+    id: "perplexity",
+    label: "Perplexity",
+    // Perplexity exposes an OpenAI-compatible Chat Completions API.
+    defaultBaseUrl: "https://api.perplexity.ai",
+    requiresApiKey: true,
+    keyUrl: "https://www.perplexity.ai/settings/api",
+    models: [
+      "sonar",
+      "sonar-pro",
+      "sonar-reasoning",
+      "sonar-reasoning-pro",
+      "sonar-deep-research",
+    ],
+  },
+  google: {
+    id: "google",
+    label: "Google Gemini",
+    // Gemini's OpenAI-compatibility layer — same Chat Completions surface.
+    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    requiresApiKey: true,
+    keyUrl: "https://aistudio.google.com/apikey",
+    models: [
+      "gemini-2.5-pro",
+      "gemini-2.5-flash",
+      "gemini-2.0-flash",
+      "gemini-1.5-pro",
+      "gemini-1.5-flash",
     ],
   },
 };
