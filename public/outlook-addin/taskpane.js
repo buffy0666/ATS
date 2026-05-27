@@ -9,6 +9,11 @@
  * which persists per-user across devices and survives Outlook restarts.
  */
 
+// Pre-filled ATS URL so the user only has to paste their token. They can
+// still overwrite it (e.g. a custom domain). This avoids the trap where
+// the field shows a gray placeholder that looks filled but isn't.
+const DEFAULT_ATS_URL = "https://ats-one-chi.vercel.app";
+
 let settings = { atsUrl: "", apiToken: "" };
 // Whether we're actually running inside Outlook (vs opened in a plain
 // browser tab for a sanity check). Gates the email-reading features.
@@ -85,7 +90,8 @@ function showCaptureView() {
 function showSettingsView(fromCapture) {
   document.getElementById("capture-view").classList.add("hidden");
   document.getElementById("settings-view").classList.remove("hidden");
-  document.getElementById("atsUrl").value = settings.atsUrl;
+  // Default the URL so the user only needs to paste their token.
+  document.getElementById("atsUrl").value = settings.atsUrl || DEFAULT_ATS_URL;
   document.getElementById("apiToken").value = settings.apiToken;
   // Only show "Back" if we got here from a working config.
   document
