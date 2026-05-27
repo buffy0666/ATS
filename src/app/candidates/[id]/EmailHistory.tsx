@@ -1,4 +1,4 @@
-import { EmailStatus } from "@/generated/prisma";
+import { EmailDirection, EmailStatus } from "@/generated/prisma";
 
 type EmailLogRow = {
   id: string;
@@ -6,11 +6,13 @@ type EmailLogRow = {
   bodyText: string | null;
   to: string;
   status: EmailStatus;
+  direction: EmailDirection;
+  fromEmail: string | null;
   errorMessage: string | null;
   provider: string;
   providerMessageId: string | null;
   sentAt: Date;
-  fromUser: { name: string | null; email: string };
+  fromUser: { name: string | null; email: string } | null;
   application: { job: { title: string } } | null;
 };
 
@@ -28,24 +30,34 @@ function formatRelative(date: Date) {
 
 export function EmailHistory({ emails }: { emails: EmailLogRow[] }) {
   if (emails.length === 0) {
-    return <p className="text-sm text-zinc-500">No emails sent yet.</p>;
+    return <p className="text-sm text-zinc-500">No emails yet.</p>;
   }
 
   return (
     <ul className="space-y-2">
-      {emails.map((e) => (
+      {emails.map((e) => {
+        const inbound = e.direction === EmailDirection.INBOUND;
+        return (
         <li key={e.id}>
           <details className="group rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
             <summary className="cursor-pointer list-none px-4 py-3 flex items-start justify-between gap-3 text-sm">
               <div className="min-w-0">
                 <div className="font-medium truncate">{e.subject}</div>
                 <div className="text-xs text-zinc-500 mt-0.5">
-                  Sent by {e.fromUser.name ?? e.fromUser.email} · {formatRelative(e.sentAt)}
+                  {inbound
+                    ? <>Received from {e.fromEmail ?? "candidate"}</>
+                    : <>Sent by {e.fromUser?.name ?? e.fromUser?.email ?? "you"}</>}
+                  {" · "}
+                  {formatRelative(e.sentAt)}
                   {e.application && <> · re: {e.application.job.title}</>}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                {e.status === EmailStatus.SENT ? (
+                {inbound ? (
+                  <span className="rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200 px-2 py-0.5 text-xs uppercase tracking-wide">
+                    Received
+                  </span>
+                ) : e.status === EmailStatus.SENT ? (
                   <span className="rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200 px-2 py-0.5 text-xs uppercase tracking-wide">
                     Sent
                   </span>
@@ -59,7 +71,12 @@ export function EmailHistory({ emails }: { emails: EmailLogRow[] }) {
             </summary>
             <div className="border-t border-zinc-200 dark:border-zinc-800 px-4 py-3 text-sm">
               <div className="text-xs text-zinc-500 mb-2">
-                To: <span className="font-mono break-all">{e.to}</span> · via {e.provider}
+                {inbound ? (
+                  <>From: <span className="font-mono break-all">{e.fromEmail ?? "—"}</span></>
+                ) : (
+                  <>To: <span className="font-mono break-all">{e.to}</span></>
+                )}
+                {" · via "}{e.provider}
                 {e.providerMessageId && (
                   <> · id <code className="font-mono">{e.providerMessageId.slice(0, 16)}…</code></>
                 )}
@@ -75,7 +92,8 @@ export function EmailHistory({ emails }: { emails: EmailLogRow[] }) {
             </div>
           </details>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }
