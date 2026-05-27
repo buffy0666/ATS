@@ -246,19 +246,25 @@ export function CandidateForm({
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <StaticField label="Timezone" name="timezone" placeholder="America/New_York" />
-          <StaticSelect label="Work authorization" name="workAuthorization">
-            <option value="">— Unknown —</option>
-            {(Object.keys(WORK_AUTH_LABEL) as WorkAuth[]).map((k) => (
-              <option key={k} value={k}>
-                {WORK_AUTH_LABEL[k]}
-              </option>
-            ))}
-          </StaticSelect>
         </div>
         <div className="flex flex-wrap gap-6">
           <CheckboxField label="Open to relocation" name="willingToRelocate" />
-          <CheckboxField label="Requires visa sponsorship" name="requiresSponsorship" />
         </div>
+        <Expander label="Work authorization & sponsorship">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <StaticSelect label="Work authorization" name="workAuthorization">
+              <option value="">— Unknown —</option>
+              {(Object.keys(WORK_AUTH_LABEL) as WorkAuth[]).map((k) => (
+                <option key={k} value={k}>
+                  {WORK_AUTH_LABEL[k]}
+                </option>
+              ))}
+            </StaticSelect>
+          </div>
+          <div className="flex flex-wrap gap-6">
+            <CheckboxField label="Requires visa sponsorship" name="requiresSponsorship" />
+          </div>
+        </Expander>
       </Section>
 
       <Section title="Links">
@@ -269,19 +275,23 @@ export function CandidateForm({
             value={fields.linkedinUrl}
             onChange={(v) => setField("linkedinUrl", v)}
           />
-          <ControlledField
-            label="GitHub URL"
-            name="githubUrl"
-            value={fields.githubUrl}
-            onChange={(v) => setField("githubUrl", v)}
-          />
-          <ControlledField
-            label="Portfolio / website"
-            name="portfolioUrl"
-            value={fields.portfolioUrl}
-            onChange={(v) => setField("portfolioUrl", v)}
-          />
         </div>
+        <Expander label="GitHub & portfolio">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <ControlledField
+              label="GitHub URL"
+              name="githubUrl"
+              value={fields.githubUrl}
+              onChange={(v) => setField("githubUrl", v)}
+            />
+            <ControlledField
+              label="Portfolio / website"
+              name="portfolioUrl"
+              value={fields.portfolioUrl}
+              onChange={(v) => setField("portfolioUrl", v)}
+            />
+          </div>
+        </Expander>
         <TextAreaField
           label="Other URLs"
           name="otherUrls"
@@ -358,22 +368,24 @@ export function CandidateForm({
             max={365}
           />
         </div>
-        <CheckboxGroup
-          legend="Employment type preference"
-          name="employmentTypePref"
-          options={(Object.keys(EMPLOYMENT_TYPE_LABEL) as EmploymentType[]).map((k) => ({
-            value: k,
-            label: EMPLOYMENT_TYPE_LABEL[k],
-          }))}
-        />
-        <CheckboxGroup
-          legend="Work mode preference"
-          name="remotePref"
-          options={(Object.keys(REMOTE_PREF_LABEL) as RemotePref[]).map((k) => ({
-            value: k,
-            label: REMOTE_PREF_LABEL[k],
-          }))}
-        />
+        <Expander label="Employment type & work mode">
+          <CheckboxGroup
+            legend="Employment type preference"
+            name="employmentTypePref"
+            options={(Object.keys(EMPLOYMENT_TYPE_LABEL) as EmploymentType[]).map((k) => ({
+              value: k,
+              label: EMPLOYMENT_TYPE_LABEL[k],
+            }))}
+          />
+          <CheckboxGroup
+            legend="Work mode preference"
+            name="remotePref"
+            options={(Object.keys(REMOTE_PREF_LABEL) as RemotePref[]).map((k) => ({
+              value: k,
+              label: REMOTE_PREF_LABEL[k],
+            }))}
+          />
+        </Expander>
       </Section>
 
       <Section title="Focus areas">
@@ -694,6 +706,40 @@ function TextAreaField({
         placeholder={placeholder}
         className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
       />
+    </div>
+  );
+}
+
+function Expander({ label, children }: { label: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="group inline-flex items-center gap-2.5 rounded-lg border border-dashed border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors hover:border-indigo-400 hover:text-indigo-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-indigo-500 dark:hover:text-indigo-400"
+      >
+        <span
+          className={`grid h-5 w-5 place-items-center rounded-full bg-indigo-600 text-white shadow-sm transition-transform duration-300 ease-out ${
+            open ? "rotate-45" : "rotate-0"
+          }`}
+        >
+          <svg viewBox="0 0 14 14" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+            <path d="M7 1.5v11M1.5 7h11" />
+          </svg>
+        </span>
+        {label}
+      </button>
+      <div
+        className={`grid transition-all duration-300 ease-in-out ${
+          open ? "mt-4 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="flex flex-col gap-4">{children}</div>
+        </div>
+      </div>
     </div>
   );
 }
