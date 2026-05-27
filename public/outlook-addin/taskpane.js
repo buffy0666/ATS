@@ -10,23 +10,62 @@
  */
 
 let settings = { atsUrl: "", apiToken: "" };
+// Whether we're actually running inside Outlook (vs opened in a plain
+// browser tab for a sanity check). Gates the email-reading features.
+let inOutlook = false;
 
-Office.onReady((info) => {
-  if (info.host !== Office.HostType.Outlook) return;
+/**
+ * Boot. Runs whether or not we're inside Outlook so the page is NEVER
+ * blank — opening taskpane.html in a normal browser tab shows the
+ * settings form (useful as a health check), and a failure to load
+ * Office.js still renders something instead of a white screen.
+ */
+function boot(info) {
+  inOutlook = !!(info && typeof Office !== "undefined" && info.host === Office.HostType.Outlook);
 
-  // Load saved settings from roaming storage.
-  const roaming = Office.context.roamingSettings;
-  settings.atsUrl = roaming.get("atsUrl") || "";
-  settings.apiToken = roaming.get("apiToken") || "";
-
+  loadSettings();
   wireUpHandlers();
 
-  if (settings.atsUrl && settings.apiToken) {
+  // Only jump straight to the capture view when we're in Outlook AND
+  // configured — capture needs a live mailbox item. Otherwise show
+  // settings (which also serves as the "not in Outlook" landing).
+  if (inOutlook && settings.atsUrl && settings.apiToken) {
     showCaptureView();
   } else {
     showSettingsView(false);
   }
-});
+}
+
+function loadSettings() {
+  if (inOutlook) {
+    try {
+      const roaming = Office.context.roamingSettings;
+      settings.atsUrl = roaming.get("atsUrl") || "";
+      settings.apiToken = roaming.get("apiToken") || "";
+      return;
+    } catch {
+      /* fall through to localStorage */
+    }
+  }
+  // Outside Outlook (browser sanity check) — use localStorage so the
+  // form at least persists between reloads while testing.
+  try {
+    settings.atsUrl = localStorage.getItem("ats_addin_url") || "";
+    settings.apiToken = localStorage.getItem("ats_addin_token") || "";
+  } catch {
+    /* private mode etc. — leave blank */
+  }
+}
+
+// Initialize via Office.js when present; otherwise still render the form
+// on DOMContentLoaded so the page is never a blank white screen.
+if (typeof Office !== "undefined" && Office.onReady) {
+  Office.onReady((info) => boot(info));
+} else if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => boot(null));
+} else {
+  boot(null);
+}
 
 function wireUpHandlers() {
   document.getElementById("save-btn").addEventListener("click", onSaveSettings);
@@ -72,21 +111,37 @@ function onSaveSettings() {
     return;
   }
 
-  const roaming = Office.context.roamingSettings;
-  roaming.set("atsUrl", url);
-  roaming.set("apiToken", token);
-  roaming.saveAsync((res) => {
-    if (res.status === Office.AsyncResultStatus.Succeeded) {
-      settings.atsUrl = url;
-      settings.apiToken = token;
-      status.className = "status ok";
-      status.textContent = "Saved.";
-      setTimeout(showCaptureView, 600);
-    } else {
-      status.className = "status err";
-      status.textContent = "Couldn't save settings: " + (res.error?.message ?? "unknown");
+  if (inOutlook) {
+    const roaming = Office.context.roamingSettings;
+    roaming.set("atsUrl", url);
+    roaming.set("apiToken", token);
+    roaming.saveAsync((res) => {
+      if (res.status === Office.AsyncResultStatus.Succeeded) {
+        settings.atsUrl = url;
+        settings.apiToken = token;
+        status.className = "status ok";
+        status.textContent = "Saved.";
+        setTimeout(showCaptureView, 600);
+      } else {
+        status.className = "status err";
+        status.textContent = "Couldn't save settings: " + (res.error?.message ?? "unknown");
+      }
+    });
+  } else {
+    // Browser sanity-check context — persist to localStorage and tell
+    // the user this only captures emails when opened inside Outlook.
+    try {
+      localStorage.setItem("ats_addin_url", url);
+      localStorage.setItem("ats_addin_token", token);
+    } catch {
+      /* ignore */
     }
-  });
+    settings.atsUrl = url;
+    settings.apiToken = token;
+    status.className = "status ok";
+    status.textContent =
+      "Saved. Open this add-in inside Outlook to capture emails.";
+  }
 }
 
 // ---- Reading the open email -------------------------------------------
