@@ -100,8 +100,13 @@ export async function importCandidatesWithMapping(formData: FormData): Promise<I
     );
   }
 
-  const text = await file.text();
-  const grid = parseCsv(text);
+  let grid: string[][];
+  try {
+    const text = await file.text();
+    grid = parseCsv(text);
+  } catch {
+    return failure("Couldn't read this file as CSV. Re-save it as 'CSV UTF-8 (Comma delimited)' and try again.");
+  }
   if (grid.length < 2) {
     return failure("CSV needs a header row followed by at least one data row.");
   }

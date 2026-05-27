@@ -5,6 +5,16 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  experimental: {
+    serverActions: {
+      // The CSV import server action accepts files up to 5 MB, but Server
+      // Actions default to a 1 MB request-body cap — anything larger was
+      // rejected by the framework before the action ran, surfacing as
+      // "An unexpected response was received from the server." Raise the cap
+      // (with headroom for multipart overhead) so large imports go through.
+      bodySizeLimit: "10mb",
+    },
+  },
 };
 
 export default nextConfig;
