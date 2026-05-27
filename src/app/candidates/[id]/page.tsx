@@ -6,7 +6,7 @@ import { EmailComposer } from "./EmailComposer";
 import { EmailHistory } from "./EmailHistory";
 import { NotesSection } from "./NotesSection";
 import { CandidateJobsSection } from "./CandidateJobsSection";
-import { CandidateQuickEdit } from "./CandidateQuickEdit";
+import { EditableField } from "./EditableField";
 import { CandidateNavigator } from "./CandidateNavigator";
 import { DeleteCandidateButton } from "../DeleteCandidateButton";
 import { OutreachInsights, type ActivityItem, type OutreachInsight } from "./OutreachInsights";
@@ -30,6 +30,7 @@ import {
 } from "@/generated/prisma";
 import { CustomFieldsView } from "@/components/custom-fields/CustomFieldsView";
 import { loadCustomFields, loadCustomFieldValues } from "@/lib/custom-fields";
+import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 import { tagClass } from "@/lib/tag-colors";
 
 const WORK_AUTH_LABEL: Record<WorkAuth, string> = {
@@ -123,6 +124,13 @@ export default async function CandidateDetailPage({
   const { id } = await params;
   const { session, orgId } = await requireSessionWithOrg();
 
+  // Lazy-seed the source/seniority choice registries so the inline editors
+  // always have something to pick from, even on a fresh org.
+  await Promise.all([
+    ensureChoiceDefaults(CHOICE_FIELDS.candidateSource.key, CHOICE_FIELDS.candidateSource.defaults, orgId),
+    ensureChoiceDefaults(CHOICE_FIELDS.candidateSeniority.key, CHOICE_FIELDS.candidateSeniority.defaults, orgId),
+  ]);
+
   const [
     candidate,
     notes,
@@ -132,6 +140,8 @@ export default async function CandidateDetailPage({
     customFields,
     customFieldValues,
     openJobs,
+    sourceOptions,
+    seniorityOptions,
   ] = await Promise.all([
     // findFirst (not findUnique) so we can compose id + organizationId in
     // the where clause — prevents cross-tenant reads if someone guesses
@@ -223,23 +233,27 @@ export default async function CandidateDetailPage({
         client: { select: { id: true, name: true } },
       },
     }),
+    loadChoiceOptions(CHOICE_FIELDS.candidateSource.key, orgId),
+    loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
   ]);
 
   if (!candidate) notFound();
 
   const senderName = session?.user?.name ?? session?.user?.email ?? "ATS";
 
-  const displayLocation = [candidate.locationCity, candidate.locationState, candidate.locationCountry]
-    .filter(Boolean)
-    .join(", ");
-
   const formatSalary = (n: number | null) =>
     n == null ? null : `${candidate.salaryCurrency} ${n.toLocaleString()}`;
 
-  const desiredSalary =
-    candidate.desiredSalaryMin || candidate.desiredSalaryMax
-      ? `${formatSalary(candidate.desiredSalaryMin) ?? "?"} – ${formatSalary(candidate.desiredSalaryMax) ?? "?"}`
-      : null;
+  // Option lists for the inline editors.
+  const toISODate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
+  const intStr = (n: number | null) => (n != null ? String(n) : "");
+  const workAuthOptions = (Object.keys(WORK_AUTH_LABEL) as WorkAuth[]).map((k) => ({ value: k, label: WORK_AUTH_LABEL[k] }));
+  const employmentTypeOptions = (Object.keys(EMPLOYMENT_TYPE_LABEL) as EmploymentType[]).map((k) => ({ value: k, label: EMPLOYMENT_TYPE_LABEL[k] }));
+  const remoteOptions = (Object.keys(REMOTE_PREF_LABEL) as RemotePref[]).map((k) => ({ value: k, label: REMOTE_PREF_LABEL[k] }));
+  const statusOptions = (Object.keys(STATUS_LABEL) as CandidateStatus[]).map((k) => ({ value: k, label: STATUS_LABEL[k] }));
+  const sourceSelectOptions = sourceOptions.map((o) => ({ value: o.name, label: SOURCE_LABEL[o.name] ?? o.name }));
+  const senioritySelectOptions = seniorityOptions.map((o) => ({ value: o.name, label: SENIORITY_LABEL[o.name] ?? o.name }));
+  const ratingOptions = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${"★".repeat(n)} (${n})` }));
 
   const enrollmentsForUI: CandidateEnrollment[] = candidateEnrollments.map((e) => {
     const total = e.stepRuns.length;
@@ -407,19 +421,7 @@ export default async function CandidateDetailPage({
             </p>
           )}
 
-          <div className="mb-6 border-b border-zinc-200 dark:border-zinc-800 pb-5">
-            <CandidateQuickEdit
-              candidate={{
-                id: candidate.id,
-                workAuthorization: candidate.workAuthorization,
-                requiresSponsorship: candidate.requiresSponsorship,
-                githubUrl: candidate.githubUrl,
-                portfolioUrl: candidate.portfolioUrl,
-                employmentTypePref: candidate.employmentTypePref,
-                remotePref: candidate.remotePref,
-              }}
-            />
-          </div>
+          <p className="mb-4 text-xs text-zinc-400">Click any field below to edit it.</p>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-6">
             {/* Left column */}
@@ -442,92 +444,60 @@ export default async function CandidateDetailPage({
                   }))}
               />
 
+              <DetailGrid title="Identity">
+                <EditableField candidateId={candidate.id} field="firstName" label="First name" type="text" value={candidate.firstName} required />
+                <EditableField candidateId={candidate.id} field="lastName" label="Last name" type="text" value={candidate.lastName} required />
+                <EditableField candidateId={candidate.id} field="preferredName" label="Preferred name" type="text" value={candidate.preferredName} />
+                <EditableField candidateId={candidate.id} field="pronouns" label="Pronouns" type="text" value={candidate.pronouns} placeholder="she/her, he/him, they/them" />
+              </DetailGrid>
+
               <DetailGrid title="Contact">
-                <Detail label="Email" value={candidate.email} />
-                <Detail label="Alternate email" value={candidate.alternateEmail} />
-                <Detail label="Phone" value={candidate.phone} />
-                <Detail label="Alternate phone" value={candidate.alternatePhone} />
+                <EditableField candidateId={candidate.id} field="email" label="Email" type="email" value={candidate.email} required />
+                <EditableField candidateId={candidate.id} field="alternateEmail" label="Alternate email" type="email" value={candidate.alternateEmail} />
+                <EditableField candidateId={candidate.id} field="phone" label="Phone" type="text" value={candidate.phone} />
+                <EditableField candidateId={candidate.id} field="alternatePhone" label="Alternate phone" type="text" value={candidate.alternatePhone} />
               </DetailGrid>
 
               <DetailGrid title="Location & work authorization">
-                <Detail label="Location" value={displayLocation || null} />
-                <Detail label="Timezone" value={candidate.timezone} />
-                <Detail
-                  label="Open to relocation"
-                  value={candidate.willingToRelocate ? "Yes" : "No"}
-                />
-                <Detail
-                  label="Work authorization"
-                  value={candidate.workAuthorization ? WORK_AUTH_LABEL[candidate.workAuthorization] : null}
-                />
-                <Detail
-                  label="Requires sponsorship"
-                  value={candidate.requiresSponsorship ? "Yes" : "No"}
-                />
+                <EditableField candidateId={candidate.id} field="locationCity" label="City" type="text" value={candidate.locationCity} />
+                <EditableField candidateId={candidate.id} field="locationState" label="State / region" type="text" value={candidate.locationState} />
+                <EditableField candidateId={candidate.id} field="locationCountry" label="Country" type="text" value={candidate.locationCountry} />
+                <EditableField candidateId={candidate.id} field="timezone" label="Timezone" type="text" value={candidate.timezone} placeholder="America/New_York" />
+                <EditableField candidateId={candidate.id} field="willingToRelocate" label="Open to relocation" type="bool" value={candidate.willingToRelocate} />
+                <EditableField candidateId={candidate.id} field="workAuthorization" label="Work authorization" type="select" value={candidate.workAuthorization} options={workAuthOptions} />
+                <EditableField candidateId={candidate.id} field="requiresSponsorship" label="Requires sponsorship" type="bool" value={candidate.requiresSponsorship} />
               </DetailGrid>
 
               <DetailGrid title="Career">
-                <Detail label="Current title" value={candidate.currentTitle} />
-                <Detail label="Current company" value={candidate.currentCompany} />
-                <Detail
-                  label="Years of experience"
-                  value={candidate.yearsExperience != null ? String(candidate.yearsExperience) : null}
-                />
-                <Detail
-                  label="Seniority"
-                  value={candidate.seniority ? (SENIORITY_LABEL[candidate.seniority] ?? candidate.seniority) : null}
-                />
+                <EditableField candidateId={candidate.id} field="currentTitle" label="Current title" type="text" value={candidate.currentTitle} />
+                <EditableField candidateId={candidate.id} field="currentCompany" label="Current company" type="text" value={candidate.currentCompany} />
+                <EditableField candidateId={candidate.id} field="yearsExperience" label="Years of experience" type="number" value={intStr(candidate.yearsExperience)} />
+                <EditableField candidateId={candidate.id} field="seniority" label="Seniority" type="select" value={candidate.seniority} options={senioritySelectOptions} />
               </DetailGrid>
 
               <DetailGrid title="Compensation & availability">
-                <Detail label="Desired salary" value={desiredSalary} />
-                <Detail label="Current salary" value={formatSalary(candidate.currentSalary)} />
-                <Detail
-                  label="Available from"
-                  value={candidate.availableFrom ? candidate.availableFrom.toLocaleDateString() : null}
-                />
-                <Detail
-                  label="Notice period"
-                  value={candidate.noticePeriodDays != null ? `${candidate.noticePeriodDays} days` : null}
-                />
-                <Detail
-                  label="Employment type"
-                  value={
-                    candidate.employmentTypePref.length > 0
-                      ? candidate.employmentTypePref.map((e) => EMPLOYMENT_TYPE_LABEL[e]).join(", ")
-                      : null
-                  }
-                />
-                <Detail
-                  label="Work mode"
-                  value={
-                    candidate.remotePref.length > 0
-                      ? candidate.remotePref.map((r) => REMOTE_PREF_LABEL[r]).join(", ")
-                      : null
-                  }
-                />
+                <EditableField candidateId={candidate.id} field="desiredSalaryMin" label="Desired salary (min)" type="number" value={intStr(candidate.desiredSalaryMin)} display={formatSalary(candidate.desiredSalaryMin)} />
+                <EditableField candidateId={candidate.id} field="desiredSalaryMax" label="Desired salary (max)" type="number" value={intStr(candidate.desiredSalaryMax)} display={formatSalary(candidate.desiredSalaryMax)} />
+                <EditableField candidateId={candidate.id} field="currentSalary" label="Current salary" type="number" value={intStr(candidate.currentSalary)} display={formatSalary(candidate.currentSalary)} />
+                <EditableField candidateId={candidate.id} field="salaryCurrency" label="Currency" type="text" value={candidate.salaryCurrency} placeholder="USD" />
+                <EditableField candidateId={candidate.id} field="availableFrom" label="Available from" type="date" value={toISODate(candidate.availableFrom)} display={candidate.availableFrom ? candidate.availableFrom.toLocaleDateString() : null} />
+                <EditableField candidateId={candidate.id} field="noticePeriodDays" label="Notice period (days)" type="number" value={intStr(candidate.noticePeriodDays)} />
+                <EditableField candidateId={candidate.id} field="employmentTypePref" label="Employment type" type="multiselect" value={candidate.employmentTypePref} options={employmentTypeOptions} />
+                <EditableField candidateId={candidate.id} field="remotePref" label="Work mode" type="multiselect" value={candidate.remotePref} options={remoteOptions} />
               </DetailGrid>
             </div>
 
             {/* Right column */}
             <div className="space-y-6 min-w-0">
-              {(candidate.industries.length > 0 || candidate.specialties.length > 0) && (
-                <DetailGrid title="Focus">
-                  <Detail
-                    label="Industries"
-                    value={candidate.industries.length > 0 ? candidate.industries.join(", ") : null}
-                  />
-                  <Detail
-                    label="Specialties"
-                    value={candidate.specialties.length > 0 ? candidate.specialties.join(", ") : null}
-                  />
-                </DetailGrid>
-              )}
+              <DetailGrid title="Focus">
+                <EditableField candidateId={candidate.id} field="industries" label="Industries" type="list" value={candidate.industries} placeholder="Comma-separated" />
+                <EditableField candidateId={candidate.id} field="specialties" label="Specialties" type="list" value={candidate.specialties} placeholder="Comma-separated" />
+              </DetailGrid>
 
               <DetailGrid title="Links">
-                <Detail label="LinkedIn" value={linkOrNull(candidate.linkedinUrl)} />
-                <Detail label="GitHub" value={linkOrNull(candidate.githubUrl)} />
-                <Detail label="Portfolio" value={linkOrNull(candidate.portfolioUrl)} />
+                <EditableField candidateId={candidate.id} field="linkedinUrl" label="LinkedIn" type="url" value={candidate.linkedinUrl} display={linkOrNull(candidate.linkedinUrl)} placeholder="https://linkedin.com/in/…" />
+                <EditableField candidateId={candidate.id} field="githubUrl" label="GitHub" type="url" value={candidate.githubUrl} display={linkOrNull(candidate.githubUrl)} placeholder="https://github.com/…" />
+                <EditableField candidateId={candidate.id} field="portfolioUrl" label="Portfolio" type="url" value={candidate.portfolioUrl} display={linkOrNull(candidate.portfolioUrl)} placeholder="https://…" />
                 <Detail
                   label="Resume"
                   value={
@@ -543,35 +513,34 @@ export default async function CandidateDetailPage({
                     ) : null
                   }
                 />
-                {candidate.otherUrls.length > 0 && (
-                  <Detail
-                    label="Other URLs"
-                    value={
+                <EditableField
+                  candidateId={candidate.id}
+                  field="otherUrls"
+                  label="Other URLs"
+                  type="list"
+                  value={candidate.otherUrls}
+                  placeholder="One per line or comma-separated"
+                  display={
+                    candidate.otherUrls.length > 0 ? (
                       <ul className="space-y-0.5">
                         {candidate.otherUrls.map((u) => (
                           <li key={u}>
-                            <a
-                              href={u}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="underline break-all"
-                            >
+                            <a href={u} target="_blank" rel="noopener noreferrer" className="underline break-all">
                               {u}
                             </a>
                           </li>
                         ))}
                       </ul>
-                    }
-                  />
-                )}
+                    ) : undefined
+                  }
+                />
               </DetailGrid>
 
               <DetailGrid title="Source & ownership">
-                <Detail
-                  label="Source"
-                  value={candidate.source ? (SOURCE_LABEL[candidate.source] ?? candidate.source) : null}
-                />
-                <Detail label="Source detail" value={candidate.sourceDetail} />
+                <EditableField candidateId={candidate.id} field="status" label="Status" type="select" value={candidate.status} options={statusOptions} required />
+                <EditableField candidateId={candidate.id} field="rating" label="Rating" type="select" value={intStr(candidate.rating)} options={ratingOptions} />
+                <EditableField candidateId={candidate.id} field="source" label="Source" type="select" value={candidate.source} options={sourceSelectOptions} />
+                <EditableField candidateId={candidate.id} field="sourceDetail" label="Source detail" type="text" value={candidate.sourceDetail} />
                 <Detail
                   label="Sourced by"
                   value={
@@ -600,11 +569,13 @@ export default async function CandidateDetailPage({
                     candidate.lastContactedAt ? candidate.lastContactedAt.toLocaleString() : null
                   }
                 />
-                <Detail
+                <EditableField
+                  candidateId={candidate.id}
+                  field="nextFollowUpAt"
                   label="Next follow-up"
-                  value={
-                    candidate.nextFollowUpAt ? candidate.nextFollowUpAt.toLocaleDateString() : null
-                  }
+                  type="date"
+                  value={toISODate(candidate.nextFollowUpAt)}
+                  display={candidate.nextFollowUpAt ? candidate.nextFollowUpAt.toLocaleDateString() : null}
                 />
                 <Detail
                   label="Email subscription"
@@ -613,23 +584,25 @@ export default async function CandidateDetailPage({
                 <Detail label="Added" value={candidate.createdAt.toLocaleDateString()} />
               </DetailGrid>
 
-              {candidate.skills.length > 0 && (
-                <section>
-                  <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Skills
-                  </h2>
-                  <div className="flex flex-wrap gap-1.5">
-                    {candidate.skills.map((s) => (
-                      <span
-                        key={s}
-                        className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800"
-                      >
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                </section>
-              )}
+              <EditableField
+                candidateId={candidate.id}
+                field="skills"
+                label="Skills"
+                type="list"
+                value={candidate.skills}
+                placeholder="Comma-separated"
+                display={
+                  candidate.skills.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {candidate.skills.map((s) => (
+                        <span key={s} className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                  ) : undefined
+                }
+              />
 
               {candidate.notes && (
                 <section>
