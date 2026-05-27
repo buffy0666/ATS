@@ -223,12 +223,33 @@ export function SidebarClient({
         }`}
       >
         {!collapsed && (
-          <div className="px-2 mb-2">
+          <Link
+            href="/profile"
+            className="block px-2 mb-2 rounded-md py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            title="My profile"
+          >
             <div className="font-medium text-zinc-900 dark:text-zinc-100 truncate">{email}</div>
-            <span className="inline-block mt-1 rounded-full bg-zinc-200 dark:bg-zinc-800 px-2 py-0.5 text-[10px] uppercase tracking-wide">
-              {role}
-            </span>
-          </div>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="inline-block rounded-full bg-zinc-200 dark:bg-zinc-800 px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                {role}
+              </span>
+              <span className="text-[10px] text-zinc-500">My profile →</span>
+            </div>
+          </Link>
+        )}
+        {collapsed && (
+          <Link
+            href="/profile"
+            aria-label={`My profile (${email})`}
+            title={`My profile (${email})`}
+            className={`w-full mb-1 rounded-md text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 h-9 flex items-center justify-center text-xs ${
+              isActive("/profile")
+                ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white"
+                : ""
+            }`}
+          >
+            {initialsFor(email)}
+          </Link>
         )}
         <form action={signOutAction}>
           <button
