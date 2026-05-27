@@ -385,10 +385,10 @@ export default async function CandidateDetailPage({
               }}
               emailSlot={
                 <>
-                  <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Communication ({candidate.emails.length})
-                  </div>
-                  <div className="mb-4">
+                  <div className="mb-4 flex flex-wrap items-center gap-3">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Communication ({candidate.emails.length})
+                    </span>
                     <EmailComposer
                       candidateId={candidate.id}
                       candidateEmail={candidate.email}

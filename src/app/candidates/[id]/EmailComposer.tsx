@@ -77,7 +77,7 @@ export function EmailComposer({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-2 text-sm font-medium"
+        className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-2.5 py-1 text-xs font-medium"
       >
         Compose email
       </button>
@@ -88,7 +88,7 @@ export function EmailComposer({
     <form
       ref={formRef}
       action={action}
-      className="space-y-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4"
+      className="w-full space-y-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4"
     >
       <div>
         <div className="text-xs text-zinc-500 mb-1">
