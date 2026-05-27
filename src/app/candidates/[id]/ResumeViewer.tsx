@@ -42,9 +42,17 @@ export type CandidateResumeData = {
   locationCountry: string | null;
 };
 
-export async function ResumeViewer({ data }: { data: CandidateResumeData }) {
+export async function ResumeViewer({
+  data,
+  emailSlot,
+}: {
+  data: CandidateResumeData;
+  // Server components can pass client elements (EmailComposer/EmailHistory)
+  // straight through to the client ResumeViewerTabs as a prop.
+  emailSlot?: React.ReactNode;
+}) {
   const reachable = await checkResume(data.resumeUrl);
-  return <ResumeViewerTabs data={data} resumeReachable={reachable} />;
+  return <ResumeViewerTabs data={data} resumeReachable={reachable} emailSlot={emailSlot} />;
 }
 
 export type Reachability =

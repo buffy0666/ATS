@@ -16,15 +16,25 @@ import type { CandidateResumeData, Reachability } from "./ResumeViewer";
  * first one that has content.
  */
 
-type TabKey = "uploaded" | "linkedin" | "facsimile";
+type TabKey = "email" | "uploaded" | "linkedin" | "facsimile";
 
 export function ResumeViewerTabs({
   data,
   resumeReachable,
+  emailSlot,
 }: {
   data: CandidateResumeData;
   resumeReachable: Reachability;
+  /**
+   * Content for the "Email" tab (position 1). Today this is the existing
+   * EmailComposer + EmailHistory. Once the native Outlook connection lands,
+   * the email-connection agent swaps the rendered content here — no change
+   * to this tab framework required. Omit it and the Email tab is hidden
+   * (keeps the component reusable without email context).
+   */
+  emailSlot?: React.ReactNode;
 }) {
+  const hasEmail = Boolean(emailSlot);
   const hasUploaded = resumeReachable.ok;
   // LinkedIn text now lives in its own column. Fall back to resumeText for
   // legacy rows captured before the split (they had pageText stored under
@@ -38,19 +48,28 @@ export function ResumeViewerTabs({
     (data as unknown as { aiResumeFacsimile?: unknown }).aiResumeFacsimile,
   );
 
-  const initial: TabKey = hasUploaded
-    ? "uploaded"
-    : hasFacsimile
-      ? "facsimile"
-      : hasLinkedinText
-        ? "linkedin"
-        : "uploaded";
+  // Email is the default landing tab when present — it's the primary
+  // recruiter workspace. Otherwise fall back to the best resume view.
+  const initial: TabKey = hasEmail
+    ? "email"
+    : hasUploaded
+      ? "uploaded"
+      : hasFacsimile
+        ? "facsimile"
+        : hasLinkedinText
+          ? "linkedin"
+          : "uploaded";
 
   const [active, setActive] = useState<TabKey>(initial);
 
   return (
     <div>
       <div className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 px-2 pt-2 pb-0 bg-zinc-50 dark:bg-zinc-950">
+        {hasEmail && (
+          <TabButton active={active === "email"} onClick={() => setActive("email")} present>
+            Email
+          </TabButton>
+        )}
         <TabButton
           active={active === "uploaded"}
           onClick={() => setActive("uploaded")}
@@ -74,6 +93,7 @@ export function ResumeViewerTabs({
         </TabButton>
       </div>
 
+      {active === "email" && <div className="p-5">{emailSlot}</div>}
       {active === "uploaded" && <UploadedPane data={data} reachable={resumeReachable} />}
       {active === "linkedin" && <LinkedinTextPane text={linkedinText} />}
       {active === "facsimile" && <FacsimilePane data={data} />}

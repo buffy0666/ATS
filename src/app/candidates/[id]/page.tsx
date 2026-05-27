@@ -368,6 +368,30 @@ export default async function CandidateDetailPage({
                   aiError: candidate.aiError,
                 } as Record<string, unknown>),
               }}
+              emailSlot={
+                <>
+                  <div className="mb-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    Communication ({candidate.emails.length})
+                  </div>
+                  <div className="mb-4">
+                    <EmailComposer
+                      candidateId={candidate.id}
+                      candidateEmail={candidate.email}
+                      candidateFirstName={candidate.firstName}
+                      candidateLastName={candidate.lastName}
+                      candidatePhone={candidate.phone}
+                      senderName={senderName}
+                      senderEmail={session?.user?.email ?? ""}
+                      applications={candidate.applications.map((a) => ({
+                        id: a.id,
+                        jobTitle: a.job.title,
+                      }))}
+                      templates={templates}
+                    />
+                  </div>
+                  <EmailHistory emails={candidate.emails} />
+                </>
+              }
             />
           </section>
 
@@ -650,31 +674,8 @@ export default async function CandidateDetailPage({
             />
           </section>
 
-          {/* Email composer + history — wide piece, lives in the left column */}
-          <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-            <div className="border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Communication ({candidate.emails.length})
-            </div>
-            <div className="p-5">
-              <div className="mb-4">
-                <EmailComposer
-                  candidateId={candidate.id}
-                  candidateEmail={candidate.email}
-                  candidateFirstName={candidate.firstName}
-                  candidateLastName={candidate.lastName}
-                  candidatePhone={candidate.phone}
-                  senderName={senderName}
-                  senderEmail={session?.user?.email ?? ""}
-                  applications={candidate.applications.map((a) => ({
-                    id: a.id,
-                    jobTitle: a.job.title,
-                  }))}
-                  templates={templates}
-                />
-              </div>
-              <EmailHistory emails={candidate.emails} />
-            </div>
-          </section>
+          {/* Email composer + history now live in the "Email" tab of the
+              ResumeViewer panel above (tab position 1). */}
         </div>
 
         {/* Right column: sticky Notes sidebar. `sticky top-4` keeps the
