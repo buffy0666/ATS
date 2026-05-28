@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { CustomFieldType } from "@/generated/prisma";
 import { CUSTOM_FIELD_TYPE_LABEL } from "@/lib/custom-fields-shared";
 import { parseCsv } from "@/lib/csv";
@@ -11,6 +11,7 @@ import {
   REQUIRED_FIELD_KEYS,
   type FieldMapping,
 } from "./field-catalog";
+import { FileDropzone } from "./FileDropzone";
 import { ImportResults } from "./ImportResults";
 import { initialImportResult, type ImportResult } from "./import-types";
 
@@ -51,10 +52,9 @@ export function MappingImportForm() {
   const [result, setResult] = useState<ImportResult>(initialImportResult);
   const [pending, startTransition] = useTransition();
 
-  async function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onFileSelected(f: File | null) {
     setResult(initialImportResult);
     setParseError(null);
-    const f = e.target.files?.[0] ?? null;
     setFile(f);
     setHeaders([]);
     setMapping({});
@@ -153,17 +153,17 @@ export function MappingImportForm() {
     <div className="mt-6 space-y-5">
       <div className="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
         <div>
-          <label className="mb-1 block text-sm font-medium" htmlFor="mapfile">
+          <label className="mb-2 block text-sm font-medium" htmlFor="mapfile">
             CSV file (any column layout)
           </label>
-          <input
+          <FileDropzone
             id="mapfile"
-            type="file"
-            accept=".csv,text/csv"
-            onChange={onFileChange}
-            className="block w-full text-sm"
+            file={file}
+            onFileChange={onFileSelected}
+            disabled={pending}
+            hint="CSV up to 10 MB"
           />
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-zinc-500">
             We&apos;ll read the column names and try to match them to candidate fields automatically.
             Adjust any that are wrong below.
           </p>
@@ -221,22 +221,13 @@ export function MappingImportForm() {
                       )}
                     </td>
                     <td className="px-4 py-2.5 align-top">
-                      <select
-                        value={value ?? SKIP}
-                        onChange={(e) => setFieldMap(field.key, e.target.value)}
-                        className={`w-full rounded-md border bg-white dark:bg-zinc-950 px-2 py-1.5 text-sm ${
-                          unmet
-                            ? "border-red-400 dark:border-red-700"
-                            : "border-zinc-300 dark:border-zinc-700"
-                        }`}
-                      >
-                        <option value={SKIP}>{isRequired ? "— Select column —" : "— Skip —"}</option>
-                        {headers.map((h) => (
-                          <option key={h} value={h}>
-                            {h}
-                          </option>
-                        ))}
-                      </select>
+                      <HeaderCombobox
+                        value={value}
+                        headers={headers}
+                        required={isRequired}
+                        unmet={unmet}
+                        onChange={(v) => setFieldMap(field.key, v ?? SKIP)}
+                      />
                     </td>
                     <td className="px-4 py-2.5 align-top text-zinc-500 text-xs">
                       <span className="line-clamp-2 break-words">{preview || "—"}</span>
@@ -367,6 +358,115 @@ export function MappingImportForm() {
       )}
 
       <ImportResults result={result} />
+    </div>
+  );
+}
+
+/**
+ * Searchable file-column picker. Click to open a text box that filters the
+ * file's headers as you type (e.g. "phone" narrows to phone-ish columns),
+ * plus a Skip option to clear the mapping. Replaces a long native <select>.
+ */
+function HeaderCombobox({
+  value,
+  headers,
+  required,
+  unmet,
+  onChange,
+}: {
+  value: string | null;
+  headers: string[];
+  required: boolean;
+  unmet: boolean;
+  onChange: (value: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q ? headers.filter((h) => h.toLowerCase().includes(q)) : headers;
+
+  function choose(v: string | null) {
+    onChange(v);
+    setOpen(false);
+    setQuery("");
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((o) => !o);
+          setQuery("");
+        }}
+        className={`flex w-full items-center justify-between gap-2 rounded-md border bg-white px-2 py-1.5 text-left text-sm dark:bg-zinc-950 ${
+          unmet ? "border-red-400 dark:border-red-700" : "border-zinc-300 dark:border-zinc-700"
+        }`}
+      >
+        <span className={value ? "" : "text-zinc-400"}>
+          {value ?? (required ? "— Select column —" : "— Skip —")}
+        </span>
+        <span aria-hidden="true" className="text-zinc-400">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-zinc-200 bg-white shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setOpen(false);
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (filtered.length > 0) choose(filtered[0]);
+              }
+            }}
+            placeholder="Type to filter columns…"
+            className="w-full border-b border-zinc-200 bg-transparent px-2 py-1.5 text-sm outline-none dark:border-zinc-700"
+          />
+          <ul className="max-h-56 overflow-auto py-1 text-sm">
+            <li>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => choose(null)}
+                className="block w-full px-2 py-1.5 text-left text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                — Skip —
+              </button>
+            </li>
+            {filtered.map((h) => (
+              <li key={h}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => choose(h)}
+                  className={`block w-full px-2 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+                    h === value ? "bg-indigo-50 font-medium dark:bg-indigo-950/40" : ""
+                  }`}
+                >
+                  {h}
+                </button>
+              </li>
+            ))}
+            {filtered.length === 0 && (
+              <li className="px-2 py-1.5 text-zinc-400">No columns match &ldquo;{query}&rdquo;.</li>
+            )}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
