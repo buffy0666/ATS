@@ -93,7 +93,11 @@ export function NotesSection({
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
+      {/* flex-1 lets this fill the sidebar; max-h is a fallback ceiling so
+          the inline scroller still works if the parent height chain ever
+          breaks (otherwise the list grows tall and gets clipped by the
+          sticky aside instead of scrolling in place). */}
+      <div className="flex-1 min-h-0 max-h-[60vh] overflow-y-auto overscroll-contain pr-1 -mr-1">
         {notes.length === 0 ? (
           <p className="text-sm text-zinc-500">No notes yet. Add the first one above.</p>
         ) : (
