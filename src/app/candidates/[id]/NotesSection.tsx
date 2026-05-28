@@ -1,12 +1,19 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
-import { addNote, deleteNote, updateNote, type NoteActionResult } from "./notes-actions";
+import {
+  addNote,
+  deleteNote,
+  toggleNotePin,
+  updateNote,
+  type NoteActionResult,
+} from "./notes-actions";
 
 type Note = {
   id: string;
   body: string;
   createdAt: Date;
+  pinnedAt: Date | null;
   authorId: string;
   author: { name: string | null; email: string };
   /** null when this is a candidate-level note (no specific job). */
@@ -47,6 +54,10 @@ function formatAbsolute(date: Date) {
  * candidate directly (general note). The job selector includes a "General
  * note" option for the latter — works even when the candidate isn't on any
  * job yet.
+ *
+ * Each history row is a <details> like the email pane — collapsed to the
+ * meta line, click to expand the body. Authors/admins can pin a note; the
+ * server orderBy already floats pinned rows to the top.
  */
 export function NotesSection({
   candidateId,
@@ -63,6 +74,8 @@ export function NotesSection({
 }) {
   const [expanded, setExpanded] = useState(false);
 
+  const pinnedCount = notes.reduce((n, x) => (x.pinnedAt ? n + 1 : n), 0);
+
   const list = (
     <NoteList
       notes={notes}
@@ -76,9 +89,20 @@ export function NotesSection({
     <div className="flex flex-col gap-3 h-full min-h-0">
       <AddNoteForm candidateId={candidateId} applications={applications} />
 
-      <div className="flex items-center justify-between pt-1">
-        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-          History {notes.length > 0 && <span className="text-zinc-400">({notes.length})</span>}
+      <div className="flex items-center justify-between pt-1 gap-2 flex-wrap">
+        <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 flex items-center gap-2">
+          <span>
+            History{" "}
+            {notes.length > 0 && <span className="text-zinc-400">({notes.length})</span>}
+          </span>
+          {pinnedCount > 0 && (
+            <span
+              className="rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal"
+              title={`${pinnedCount} pinned note${pinnedCount === 1 ? "" : "s"} at the top`}
+            >
+              {pinnedCount} pinned
+            </span>
+          )}
         </h2>
         {notes.length > 2 && (
           <button
@@ -136,6 +160,7 @@ function NoteList({
             candidateId={candidateId}
             canEdit={canModify}
             canDelete={canModify}
+            canPin={canModify}
           />
         );
       })}
@@ -148,21 +173,27 @@ function NoteRow({
   candidateId,
   canEdit,
   canDelete,
+  canPin,
 }: {
   note: Note;
   candidateId: string;
   canEdit: boolean;
   canDelete: boolean;
+  canPin: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
+  const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(note.body);
   const [error, setError] = useState<string | null>(null);
+
+  const isPinned = note.pinnedAt !== null;
 
   function startEdit() {
     setDraft(note.body);
     setError(null);
     setEditing(true);
+    setOpen(true);
   }
 
   function saveEdit() {
@@ -186,34 +217,88 @@ function NoteRow({
     });
   }
 
+  function togglePin() {
+    startTransition(async () => {
+      const r = await toggleNotePin(note.id, candidateId);
+      if (!r.ok) setError(r.error);
+    });
+  }
+
   return (
-    <li className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 text-sm">
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-xs text-zinc-500 min-w-0">
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">
-            {note.author.name ?? note.author.email}
-          </span>
-          {" · "}
-          <span title={formatAbsolute(note.createdAt)}>
-            {formatRelative(note.createdAt)}
-          </span>
-          <div className="text-[11px] text-zinc-400 mt-0.5 truncate">
-            {note.application ? (
-              <>
-                {note.application.job.title} ·{" "}
-                <span className="uppercase tracking-wide">{note.application.stage}</span>
-              </>
-            ) : (
-              <span className="italic">General note</span>
+    <li>
+      <details
+        open={open || editing}
+        onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+        className={`group rounded-lg border bg-white dark:bg-zinc-900 ${
+          isPinned
+            ? "border-amber-300 dark:border-amber-700/60 ring-1 ring-amber-200/60 dark:ring-amber-900/30"
+            : "border-zinc-200 dark:border-zinc-800"
+        }`}
+      >
+        <summary className="cursor-pointer list-none px-3 py-2 flex items-start justify-between gap-2 text-sm">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs text-zinc-500 flex items-center gap-1.5 flex-wrap">
+              {isPinned && (
+                <span
+                  className="rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200 px-1.5 py-0.5 text-[10px] uppercase tracking-wide"
+                  title={note.pinnedAt ? `Pinned ${formatRelative(note.pinnedAt)}` : "Pinned"}
+                >
+                  Pinned
+                </span>
+              )}
+              <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                {note.author.name ?? note.author.email}
+              </span>
+              <span>·</span>
+              <span title={formatAbsolute(note.createdAt)}>
+                {formatRelative(note.createdAt)}
+              </span>
+            </div>
+            <div className="text-[11px] text-zinc-400 mt-0.5 truncate">
+              {note.application ? (
+                <>
+                  {note.application.job.title} ·{" "}
+                  <span className="uppercase tracking-wide">{note.application.stage}</span>
+                </>
+              ) : (
+                <span className="italic">General note</span>
+              )}
+            </div>
+            {/* One-line teaser of the body while collapsed so the user can
+                scan without expanding every note. */}
+            {!open && !editing && (
+              <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400 truncate">
+                {note.body}
+              </div>
             )}
           </div>
-        </div>
-        {!editing && (
-          <div className="flex items-center gap-1 shrink-0">
-            {canEdit && (
+          <div className="flex items-center gap-2 shrink-0">
+            {canPin && (
               <button
                 type="button"
-                onClick={startEdit}
+                onClick={(e) => {
+                  e.preventDefault();
+                  togglePin();
+                }}
+                disabled={pending}
+                className={`text-xs disabled:opacity-50 hover:underline ${
+                  isPinned
+                    ? "text-amber-700 dark:text-amber-300"
+                    : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                }`}
+                aria-label={isPinned ? "Unpin note" : "Pin note to top"}
+                title={isPinned ? "Unpin" : "Pin to top"}
+              >
+                {isPinned ? "Unpin" : "Pin"}
+              </button>
+            )}
+            {!editing && canEdit && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  startEdit();
+                }}
                 disabled={pending}
                 className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 disabled:opacity-50"
                 aria-label="Edit note"
@@ -222,60 +307,67 @@ function NoteRow({
                 Edit
               </button>
             )}
-            {canDelete && (
+            {!editing && canDelete && (
               <button
                 type="button"
                 disabled={pending}
-                onClick={() => {
+                onClick={(e) => {
+                  e.preventDefault();
                   if (!confirm("Delete this note?")) return;
                   startTransition(() => deleteNote(note.id, candidateId));
                 }}
-                className="text-xs text-zinc-400 hover:text-red-600 disabled:opacity-50 ml-1"
+                className="text-xs text-zinc-400 hover:text-red-600 disabled:opacity-50"
                 aria-label="Delete note"
                 title="Delete"
               >
                 ×
               </button>
             )}
+            <span className="text-xs text-zinc-400 group-open:rotate-180 transition-transform">▾</span>
           </div>
-        )}
-      </div>
+        </summary>
 
-      {editing ? (
-        <div className="mt-2 space-y-2">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={4}
-            autoFocus
-            className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5 text-sm"
-          />
-          {error && <p className="text-xs text-red-600">{error}</p>}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={saveEdit}
-              disabled={pending}
-              className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-2.5 py-1 text-xs font-medium disabled:opacity-50"
-            >
-              {pending ? "Saving…" : "Save"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditing(false);
-                setError(null);
-              }}
-              disabled={pending}
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs"
-            >
-              Cancel
-            </button>
-          </div>
+        <div className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 text-sm">
+          {editing ? (
+            <div className="space-y-2">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={4}
+                autoFocus
+                className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5 text-sm"
+              />
+              {error && <p className="text-xs text-red-600">{error}</p>}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={saveEdit}
+                  disabled={pending}
+                  className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-2.5 py-1 text-xs font-medium disabled:opacity-50"
+                >
+                  {pending ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditing(false);
+                    setError(null);
+                  }}
+                  disabled={pending}
+                  className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="whitespace-pre-wrap text-zinc-700 dark:text-zinc-300">{note.body}</p>
+              {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+            </>
+          )}
         </div>
-      ) : (
-        <p className="mt-2 whitespace-pre-wrap text-zinc-700 dark:text-zinc-300">{note.body}</p>
-      )}
+      </details>
     </li>
   );
 }

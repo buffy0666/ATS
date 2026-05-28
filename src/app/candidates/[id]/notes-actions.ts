@@ -117,6 +117,42 @@ export async function updateNote(
   return { ok: true };
 }
 
+/**
+ * Pin or unpin a note. Pinned notes float to the top of the candidate's
+ * notes list (sorted by pinnedAt desc so most-recently-pinned wins).
+ * Permission mirrors edit/delete — author or admin.
+ */
+export async function toggleNotePin(noteId: string, candidateId: string): Promise<NoteActionResult> {
+  const { session, orgId } = await requireSessionWithOrg();
+
+  const note = await prisma.note.findFirst({
+    where: { id: noteId, organizationId: orgId },
+    select: {
+      authorId: true,
+      pinnedAt: true,
+      candidateId: true,
+      application: { select: { candidateId: true } },
+    },
+  });
+  if (!note) return { ok: false, error: "Note not found." };
+
+  const noteCandidateId = note.candidateId ?? note.application?.candidateId ?? null;
+  if (noteCandidateId !== candidateId) {
+    return { ok: false, error: "Note does not belong to this candidate." };
+  }
+  if (note.authorId !== session.user.id && session.user.role !== "ADMIN") {
+    return { ok: false, error: "Only the note's author or an admin can pin it." };
+  }
+
+  await prisma.note.update({
+    where: { id: noteId },
+    data: { pinnedAt: note.pinnedAt ? null : new Date() },
+  });
+
+  revalidatePath(`/candidates/${candidateId}`);
+  return { ok: true };
+}
+
 export async function deleteNote(noteId: string, candidateId: string) {
   const { session, orgId } = await requireSessionWithOrg();
 

@@ -181,7 +181,12 @@ export default async function CandidateDetailPage({
           { application: { candidateId: id } },
         ],
       },
-      orderBy: { createdAt: "desc" },
+      // Pinned notes first (most-recently-pinned at the top), then everything
+      // else by creation order.
+      orderBy: [
+        { pinnedAt: { sort: "desc", nulls: "last" } },
+        { createdAt: "desc" },
+      ],
       include: {
         author: { select: { name: true, email: true } },
         application: {
