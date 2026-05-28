@@ -5,6 +5,7 @@ import { importCandidatesCsv } from "./actions";
 import { FileDropzone } from "./FileDropzone";
 import { ImportResults } from "./ImportResults";
 import { initialImportResult, type ImportResult } from "./import-types";
+import { MAX_CSV_BYTES, MAX_ROWS_PER_IMPORT, formatBytes } from "./limits";
 
 /** Template flow: upload a CSV whose headers already match the template. */
 export function ImportForm() {
@@ -12,7 +13,21 @@ export function ImportForm() {
   const [pending, startTransition] = useTransition();
   const [file, setFile] = useState<File | null>(null);
 
+  const tooLarge = Boolean(file && file.size > MAX_CSV_BYTES);
+
   async function handleSubmit(formData: FormData) {
+    // Guard against an oversized upload BEFORE the server action POST —
+    // Next.js rejects too-large action bodies with an opaque "unexpected
+    // response" framework error that would mask our own size check.
+    const f = formData.get("file");
+    if (f instanceof File && f.size > MAX_CSV_BYTES) {
+      setResult({
+        ...initialImportResult,
+        status: "error",
+        message: `File is too large (${formatBytes(f.size)}). Max is ${formatBytes(MAX_CSV_BYTES)} per import — split it (up to ${MAX_ROWS_PER_IMPORT.toLocaleString()} rows per file) and try again.`,
+      });
+      return;
+    }
     startTransition(async () => {
       try {
         const next = await importCandidatesCsv(formData);
@@ -51,12 +66,17 @@ export function ImportForm() {
               if (result.message) setResult(initialImportResult);
             }}
             disabled={pending}
-            hint="CSV up to 10 MB"
+            hint={`CSV up to ${formatBytes(MAX_CSV_BYTES)} / ${MAX_ROWS_PER_IMPORT.toLocaleString()} rows`}
           />
+          {tooLarge && (
+            <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+              File is {formatBytes(file!.size)} — max is {formatBytes(MAX_CSV_BYTES)}. Split it into smaller files (up to {MAX_ROWS_PER_IMPORT.toLocaleString()} rows each) and try again.
+            </p>
+          )}
         </div>
         <button
           type="submit"
-          disabled={pending || !file}
+          disabled={pending || !file || tooLarge}
           className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
         >
           {pending ? "Importing..." : "Import"}

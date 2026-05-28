@@ -14,6 +14,7 @@ import {
 import { FileDropzone } from "./FileDropzone";
 import { ImportResults } from "./ImportResults";
 import { initialImportResult, type ImportResult } from "./import-types";
+import { MAX_CSV_BYTES, MAX_ROWS_PER_IMPORT, formatBytes } from "./limits";
 
 const SKIP = "__skip__";
 const REQUIRED = new Set(REQUIRED_FIELD_KEYS);
@@ -63,11 +64,25 @@ export function MappingImportForm() {
     setPreviewRow({});
     if (!f) return;
 
+    if (f.size > MAX_CSV_BYTES) {
+      setParseError(
+        `File is too large (${formatBytes(f.size)}). Max is ${formatBytes(MAX_CSV_BYTES)} per import — split it (up to ${MAX_ROWS_PER_IMPORT.toLocaleString()} rows per file) and try again.`,
+      );
+      return;
+    }
+
     try {
       const text = await f.text();
       const grid = parseCsv(text);
       if (grid.length < 1 || grid[0].length === 0) {
         setParseError("Couldn't read a header row from this file.");
+        return;
+      }
+      // grid includes the header row, so data row count is grid.length - 1.
+      if (grid.length - 1 > MAX_ROWS_PER_IMPORT) {
+        setParseError(
+          `File has ${(grid.length - 1).toLocaleString()} rows — max is ${MAX_ROWS_PER_IMPORT.toLocaleString()} per import. Split it and try again.`,
+        );
         return;
       }
       const hdrs = grid[0].map((h) => h.trim()).filter(Boolean);
@@ -161,7 +176,7 @@ export function MappingImportForm() {
             file={file}
             onFileChange={onFileSelected}
             disabled={pending}
-            hint="CSV up to 10 MB"
+            hint={`CSV up to ${formatBytes(MAX_CSV_BYTES)} / ${MAX_ROWS_PER_IMPORT.toLocaleString()} rows`}
           />
           <p className="mt-2 text-xs text-zinc-500">
             We&apos;ll read the column names and try to match them to candidate fields automatically.

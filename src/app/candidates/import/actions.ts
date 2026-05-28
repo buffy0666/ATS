@@ -9,6 +9,7 @@ import { parseCsv, rowsToRecords } from "@/lib/csv";
 import { tagColorForName } from "@/lib/tag-colors";
 import { parseCandidateRow } from "./columns";
 import { REQUIRED_FIELD_KEYS, slugifyFieldKey, type FieldMapping } from "./field-catalog";
+import { MAX_CSV_BYTES, MAX_ROWS_PER_IMPORT } from "./limits";
 import type { ImportResult, RowResult } from "./import-types";
 
 /** A header the user chose to capture as a brand-new custom field. */
@@ -16,9 +17,6 @@ export type NewFieldSpec = { header: string; label: string; type: CustomFieldTyp
 
 /** Resolved new field — its DB id plus the source header + type for value writes. */
 type ResolvedNewField = { fieldId: string; header: string; type: CustomFieldType };
-
-const MAX_CSV_BYTES = 5 * 1024 * 1024; // 5 MB
-const MAX_ROWS_PER_IMPORT = 5000;
 
 /**
  * Template import — the CSV's headers are already the canonical field keys
