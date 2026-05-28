@@ -224,18 +224,35 @@ function NoteRow({
     });
   }
 
+  const expanded = open || editing;
+
   return (
     <li>
-      <details
-        open={open || editing}
-        onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
-        className={`group rounded-lg border bg-white dark:bg-zinc-900 ${
+      <div
+        className={`rounded-lg border bg-white dark:bg-zinc-900 ${
           isPinned
             ? "border-amber-300 dark:border-amber-700/60 ring-1 ring-amber-200/60 dark:ring-amber-900/30"
             : "border-zinc-200 dark:border-zinc-800"
         }`}
       >
-        <summary className="cursor-pointer list-none px-3 py-2 flex items-start justify-between gap-2 text-sm">
+        {/* Summary row. Clicking the meta area toggles expand. The
+            Pin/Edit/Delete buttons live in a sibling that stops propagation
+            — we deliberately don't use a <button> wrapper here because
+            nesting <button>s inside is invalid HTML and trips React /
+            browser parsing. */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => setOpen((o) => !o)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setOpen((o) => !o);
+            }
+          }}
+          aria-expanded={expanded}
+          className="w-full text-left px-3 py-2 flex items-start justify-between gap-2 text-sm cursor-pointer select-none"
+        >
           <div className="min-w-0 flex-1">
             <div className="text-xs text-zinc-500 flex items-center gap-1.5 flex-wrap">
               {isPinned && (
@@ -266,20 +283,20 @@ function NoteRow({
             </div>
             {/* One-line teaser of the body while collapsed so the user can
                 scan without expanding every note. */}
-            {!open && !editing && (
+            {!expanded && (
               <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400 truncate">
                 {note.body}
               </div>
             )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div
+            className="flex items-center gap-2 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+          >
             {canPin && (
               <button
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  togglePin();
-                }}
+                onClick={togglePin}
                 disabled={pending}
                 className={`text-xs disabled:opacity-50 hover:underline ${
                   isPinned
@@ -295,10 +312,7 @@ function NoteRow({
             {!editing && canEdit && (
               <button
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  startEdit();
-                }}
+                onClick={startEdit}
                 disabled={pending}
                 className="text-xs text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 disabled:opacity-50"
                 aria-label="Edit note"
@@ -311,8 +325,7 @@ function NoteRow({
               <button
                 type="button"
                 disabled={pending}
-                onClick={(e) => {
-                  e.preventDefault();
+                onClick={() => {
                   if (!confirm("Delete this note?")) return;
                   startTransition(() => deleteNote(note.id, candidateId));
                 }}
@@ -323,51 +336,58 @@ function NoteRow({
                 ×
               </button>
             )}
-            <span className="text-xs text-zinc-400 group-open:rotate-180 transition-transform">▾</span>
+            <span
+              className={`text-xs text-zinc-400 transition-transform ${expanded ? "rotate-180" : ""}`}
+              aria-hidden="true"
+            >
+              ▾
+            </span>
           </div>
-        </summary>
-
-        <div className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 text-sm">
-          {editing ? (
-            <div className="space-y-2">
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                rows={4}
-                autoFocus
-                className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5 text-sm"
-              />
-              {error && <p className="text-xs text-red-600">{error}</p>}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={saveEdit}
-                  disabled={pending}
-                  className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-2.5 py-1 text-xs font-medium disabled:opacity-50"
-                >
-                  {pending ? "Saving…" : "Save"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditing(false);
-                    setError(null);
-                  }}
-                  disabled={pending}
-                  className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <p className="whitespace-pre-wrap text-zinc-700 dark:text-zinc-300">{note.body}</p>
-              {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
-            </>
-          )}
         </div>
-      </details>
+
+        {expanded && (
+          <div className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 text-sm">
+            {editing ? (
+              <div className="space-y-2">
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  rows={4}
+                  autoFocus
+                  className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5 text-sm"
+                />
+                {error && <p className="text-xs text-red-600">{error}</p>}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={saveEdit}
+                    disabled={pending}
+                    className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-2.5 py-1 text-xs font-medium disabled:opacity-50"
+                  >
+                    {pending ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditing(false);
+                      setError(null);
+                    }}
+                    disabled={pending}
+                    className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 text-xs"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p className="whitespace-pre-wrap text-zinc-700 dark:text-zinc-300">{note.body}</p>
+                {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </li>
   );
 }
