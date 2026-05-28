@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { ImportTabs } from "./ImportTabs";
 
+// Bulk imports run server actions inside this route's function. Vercel
+// Pro lets us extend the default ~60s ceiling up to 300s so a single
+// run can chew through more rows before timing out.
+export const maxDuration = 300;
+
 export default function ImportCandidatesPage() {
   return (
     <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-10">
