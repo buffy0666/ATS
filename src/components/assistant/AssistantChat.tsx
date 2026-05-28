@@ -75,8 +75,13 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
     try {
       const r = await fetch("/api/assistant/conversations");
       if (!r.ok) return;
-      const data = (await r.json()) as ConversationSummary[];
-      setConversations(data);
+      // API returns { conversations: [...] }, not a bare array. Tolerate
+      // both shapes so a future server-side change can't crash the panel.
+      const payload = (await r.json()) as
+        | ConversationSummary[]
+        | { conversations: ConversationSummary[] };
+      const list = Array.isArray(payload) ? payload : payload?.conversations ?? [];
+      setConversations(Array.isArray(list) ? list : []);
     } catch {
       // ignore — the dropdown just won't populate
     }
@@ -91,14 +96,37 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
         setMessages([]);
         return;
       }
-      const data = (await r.json()) as Message[];
-      // Ensure shape: tool_calls default to [].
+      // The API actually responds with { conversation: { messages: [...] } }
+      // where role is the AssistantRole enum (uppercase USER/ASSISTANT/
+      // TOOL/SYSTEM). Tolerate either a bare array or the wrapped shape,
+      // filter out TOOL/SYSTEM rows the UI doesn't render, and map the role
+      // down to the lowercase form Message uses.
+      const payload = (await r.json()) as unknown;
+      const raw: unknown =
+        Array.isArray(payload)
+          ? payload
+          : (payload as { conversation?: { messages?: unknown } })?.conversation?.messages ??
+            (payload as { messages?: unknown })?.messages ??
+            [];
+      const list = Array.isArray(raw) ? (raw as Array<Record<string, unknown>>) : [];
       setMessages(
-        data.map((m) => ({
-          ...m,
-          toolCalls: m.toolCalls ?? [],
-          pending: false,
-        })),
+        list
+          .filter((m) => {
+            const role = String(m.role ?? "").toLowerCase();
+            return role === "user" || role === "assistant";
+          })
+          .map((m): Message => {
+            const role = String(m.role ?? "").toLowerCase() === "user" ? "user" : "assistant";
+            const toolCalls = Array.isArray(m.toolCalls) ? (m.toolCalls as Message["toolCalls"]) : [];
+            return {
+              id: String(m.id ?? ""),
+              role,
+              content: String(m.content ?? ""),
+              toolCalls,
+              createdAt: String(m.createdAt ?? new Date().toISOString()),
+              pending: false,
+            };
+          }),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load messages.");
@@ -168,7 +196,10 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
 
   const activeTitle = useMemo(() => {
     if (!activeConversationId) return "New conversation";
-    const c = conversations.find((x) => x.id === activeConversationId);
+    // Defensive: if something ever puts a non-array into state, fall back
+    // to a sane title rather than throwing during render.
+    const list = Array.isArray(conversations) ? conversations : [];
+    const c = list.find((x) => x.id === activeConversationId);
     return c?.title?.trim() || "Untitled conversation";
   }, [conversations, activeConversationId]);
 
