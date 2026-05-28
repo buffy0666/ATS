@@ -30,7 +30,12 @@ type SearchParamsShape = {
   hasResume?: string;
   lastContactedDays?: string;
   addedDays?: string;
+  page?: string;
+  pageSize?: string;
 };
+
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200, 500] as const;
+const DEFAULT_PAGE_SIZE = 50;
 
 export default async function CandidatesPage({
   searchParams,
@@ -54,6 +59,16 @@ export default async function CandidatesPage({
       orgId,
     ),
   ]);
+
+  // Pagination params from the URL. Defaults aim at "list a small page
+  // fast"; max page size capped to PAGE_SIZE_OPTIONS so a user can't
+  // request runaway pulls via URL crafting.
+  const rawPageSize = Number(sp.pageSize ?? DEFAULT_PAGE_SIZE);
+  const pageSize = (PAGE_SIZE_OPTIONS as readonly number[]).includes(rawPageSize)
+    ? rawPageSize
+    : DEFAULT_PAGE_SIZE;
+  const page = Math.max(1, Number(sp.page ?? 1) || 1);
+  const skip = (page - 1) * pageSize;
 
   // Multi-tenant: scope every read to the caller's org. `where` is built
   // from the URL search params; org filter is unconditional and runs
@@ -87,6 +102,10 @@ export default async function CandidatesPage({
           currentUserId={session.user.id}
           sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
           seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
+          totalCount={0}
+          page={1}
+          pageSize={pageSize}
+          pageSizeOptions={[...PAGE_SIZE_OPTIONS]}
         />
       );
     }
@@ -98,7 +117,7 @@ export default async function CandidatesPage({
     }
   }
 
-  const [candidates, availableTags, savedSearches, sourceOptions, seniorityOptions] =
+  const [candidates, totalCount, availableTags, savedSearches, sourceOptions, seniorityOptions] =
     await Promise.all([
       prisma.candidate.findMany({
         where,
@@ -120,8 +139,12 @@ export default async function CandidatesPage({
           },
           _count: { select: { applications: true } },
         },
-        take: 500,
+        skip,
+        take: pageSize,
       }),
+      // Total matching the same `where` so the paginator can show the
+      // accurate "of N" count and offer the right number of pages.
+      prisma.candidate.count({ where }),
       prisma.tag.findMany({
         where: { organizationId: orgId },
         orderBy: { name: "asc" },
@@ -203,6 +226,10 @@ export default async function CandidatesPage({
       currentUserId={session.user.id}
       sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
       seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
+      totalCount={totalCount}
+      page={page}
+      pageSize={pageSize}
+      pageSizeOptions={[...PAGE_SIZE_OPTIONS]}
     />
   );
 }

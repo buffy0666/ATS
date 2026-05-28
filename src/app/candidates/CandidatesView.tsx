@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   CandidateStatus,
@@ -84,6 +84,10 @@ export function CandidatesView({
   sourceOptions = [],
   seniorityOptions = [],
   originOverride,
+  totalCount,
+  page,
+  pageSize,
+  pageSizeOptions,
 }: {
   candidates: CandidateRow[];
   availableTags: Tag[];
@@ -99,6 +103,14 @@ export function CandidatesView({
    * not the global /candidates page.
    */
   originOverride?: { href: string; label: string };
+  /** Total candidates matching the current filters across all pages. */
+  totalCount?: number;
+  /** 1-based current page. */
+  page?: number;
+  /** Rows per page (one of pageSizeOptions). */
+  pageSize?: number;
+  /** Choices for the per-page selector. */
+  pageSizeOptions?: number[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -337,9 +349,15 @@ export function CandidatesView({
         />
       </div>
 
-      <div className="text-xs text-zinc-500 mb-2">
-        {candidates.length} candidate{candidates.length === 1 ? "" : "s"}
-      </div>
+      <Paginator
+        searchParams={searchParams}
+        page={page}
+        pageSize={pageSize}
+        totalCount={totalCount}
+        pageSizeOptions={pageSizeOptions}
+        visibleRows={candidates.length}
+        location="top"
+      />
 
       {candidates.length === 0 ? (
         <p className="text-sm text-zinc-500">
@@ -462,6 +480,16 @@ export function CandidatesView({
           </table>
         </div>
       )}
+
+      <Paginator
+        searchParams={searchParams}
+        page={page}
+        pageSize={pageSize}
+        totalCount={totalCount}
+        pageSizeOptions={pageSizeOptions}
+        visibleRows={candidates.length}
+        location="bottom"
+      />
 
       <SelectionToolbar
         selectedIds={[...selectedIds]}
@@ -646,4 +674,166 @@ function renderCell(c: CandidateRow, key: ColumnKey): React.ReactNode {
     case "createdAt":
       return fmtDate(c.createdAt);
   }
+}
+
+/**
+ * "Showing X–Y of Z" header with a per-page selector and page-number nav.
+ * Every nav action is a URL change (Next.js Link) so other search params
+ * (filters, q, etc.) stay intact and the resulting page is bookmarkable.
+ */
+function Paginator({
+  searchParams,
+  page = 1,
+  pageSize,
+  totalCount,
+  pageSizeOptions,
+  visibleRows,
+  location,
+}: {
+  searchParams: ReadonlyURLSearchParams | null;
+  page?: number;
+  pageSize?: number;
+  totalCount?: number;
+  pageSizeOptions?: number[];
+  visibleRows: number;
+  location: "top" | "bottom";
+}) {
+  // If the parent didn't wire pagination yet (e.g. legacy callers), keep
+  // the old terse "X candidate(s)" hint and skip the nav controls.
+  if (pageSize === undefined || totalCount === undefined) {
+    return (
+      <div className={`text-xs text-zinc-500 ${location === "top" ? "mb-2" : "mt-3"}`}>
+        {visibleRows} candidate{visibleRows === 1 ? "" : "s"}
+      </div>
+    );
+  }
+
+  const first = totalCount === 0 ? 0 : (page - 1) * pageSize + 1;
+  const last = Math.min(totalCount, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+
+  const linkFor = (params: Record<string, string | number | null>) => {
+    const next = new URLSearchParams(searchParams?.toString() ?? "");
+    for (const [k, v] of Object.entries(params)) {
+      if (v === null || v === "") next.delete(k);
+      else next.set(k, String(v));
+    }
+    const qs = next.toString();
+    return qs ? `?${qs}` : "?";
+  };
+
+  const linkClass = (disabled: boolean) =>
+    `rounded-md border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800 ${
+      disabled ? "pointer-events-none opacity-40" : ""
+    }`;
+
+  // Build a compact list of page numbers: first, last, ±2 around current.
+  const pageNumbers: (number | "…")[] = [];
+  const pushed = new Set<number>();
+  function push(n: number) {
+    if (n >= 1 && n <= totalPages && !pushed.has(n)) {
+      pushed.add(n);
+      pageNumbers.push(n);
+    }
+  }
+  push(1);
+  if (page - 2 > 2) pageNumbers.push("…");
+  for (let i = page - 2; i <= page + 2; i++) push(i);
+  if (page + 2 < totalPages - 1) pageNumbers.push("…");
+  push(totalPages);
+
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-3 text-xs ${
+        location === "top" ? "mb-2" : "mt-3"
+      }`}
+    >
+      <span className="text-zinc-500">
+        {totalCount === 0 ? (
+          "0 candidates"
+        ) : (
+          <>
+            Showing <strong className="text-zinc-700 dark:text-zinc-200">{first.toLocaleString()}</strong>–
+            <strong className="text-zinc-700 dark:text-zinc-200">{last.toLocaleString()}</strong> of{" "}
+            <strong className="text-zinc-700 dark:text-zinc-200">{totalCount.toLocaleString()}</strong>
+          </>
+        )}
+      </span>
+
+      {pageSizeOptions && pageSizeOptions.length > 1 && (
+        <label className="inline-flex items-center gap-1.5 text-zinc-500">
+          <span>per page</span>
+          {/* a plain select that navigates on change keeps URL state authoritative */}
+          <PageSizeSelect
+            currentValue={pageSize}
+            options={pageSizeOptions}
+            searchParams={searchParams}
+          />
+        </label>
+      )}
+
+      {totalPages > 1 && (
+        <nav className="ml-auto flex items-center gap-1">
+          <Link href={linkFor({ page: page > 1 ? page - 1 : null })} className={linkClass(page <= 1)} aria-label="Previous page">
+            ←
+          </Link>
+          {pageNumbers.map((n, idx) =>
+            n === "…" ? (
+              <span key={`gap-${idx}`} className="px-1 text-zinc-400">…</span>
+            ) : (
+              <Link
+                key={n}
+                href={linkFor({ page: n === 1 ? null : n })}
+                className={`rounded-md border px-2 py-1 ${
+                  n === page
+                    ? "border-zinc-900 bg-zinc-900 text-white dark:border-zinc-200 dark:bg-zinc-100 dark:text-zinc-900"
+                    : "border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                }`}
+              >
+                {n}
+              </Link>
+            ),
+          )}
+          <Link href={linkFor({ page: page < totalPages ? page + 1 : null })} className={linkClass(page >= totalPages)} aria-label="Next page">
+            →
+          </Link>
+        </nav>
+      )}
+    </div>
+  );
+}
+
+function PageSizeSelect({
+  currentValue,
+  options,
+  searchParams,
+}: {
+  currentValue: number;
+  options: number[];
+  searchParams: ReadonlyURLSearchParams | null;
+}) {
+  const router = useRouter();
+  return (
+    <select
+      value={currentValue}
+      onChange={(e) => {
+        const next = new URLSearchParams(searchParams?.toString() ?? "");
+        const v = Number(e.target.value);
+        if (v === options[0]) next.delete("pageSize");
+        else next.set("pageSize", String(v));
+        // Reset to page 1 whenever the page size changes — otherwise the
+        // user could land on a page that no longer exists.
+        next.delete("page");
+        const qs = next.toString();
+        router.push(qs ? `?${qs}` : "?");
+      }}
+      className="rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-950"
+    >
+      {options.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
+    </select>
+  );
 }
