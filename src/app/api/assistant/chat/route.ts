@@ -8,6 +8,12 @@ import { runAssistantTurn, type AssistantEvent } from "@/lib/ai/orchestrator";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// Reasoning models (e.g. grok-4) routinely spend 30–90s "thinking" before
+// emitting visible content. Without this Vercel kills the function at the
+// plan's default (10s on Hobby, ~60s on Pro) and the chat stream just stops
+// with no error in the UI. 300 is the Pro/Enterprise ceiling; Vercel clamps
+// to whatever the plan actually allows.
+export const maxDuration = 300;
 
 const chatBodySchema = z.object({
   conversationId: z.string().min(1).max(40).optional(),
