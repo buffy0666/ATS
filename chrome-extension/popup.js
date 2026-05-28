@@ -1,6 +1,10 @@
 // Popup: lets the user paste the ATS URL + API token and stores them in
 // chrome.storage.local. The content script reads these to know where to POST.
 
+// Pre-filled so a new user only has to paste their token. They can still
+// overwrite it (custom domain / local dev).
+const DEFAULT_ATS_URL = "https://ats-one-chi.vercel.app";
+
 const urlEl = document.getElementById("atsUrl");
 const tokenEl = document.getElementById("apiToken");
 const saveEl = document.getElementById("save");
@@ -13,7 +17,8 @@ function setStatus(text, kind) {
 
 async function load() {
   const { atsUrl, apiToken } = await chrome.storage.local.get(["atsUrl", "apiToken"]);
-  if (atsUrl) urlEl.value = atsUrl;
+  // Default the URL so the user only needs to paste a token.
+  urlEl.value = atsUrl || DEFAULT_ATS_URL;
   if (apiToken) tokenEl.value = apiToken;
 }
 
