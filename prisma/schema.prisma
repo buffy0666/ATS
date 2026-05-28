@@ -1433,8 +1433,10 @@ model CustomField {
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  // Phase 6 will swap this to @@unique([organizationId, entity, key]).
-  @@unique([entity, key])
+  // Per-tenant uniqueness — each org has its own namespace of field keys,
+  // so two workspaces can independently define e.g. (CANDIDATE, "company_state")
+  // without colliding.
+  @@unique([organizationId, entity, key])
   @@index([entity, active, sortOrder])
   @@index([organizationId])
 }

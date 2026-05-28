@@ -76,11 +76,10 @@ export async function createCustomField(formData: FormData): Promise<CustomField
     return { ok: false, error: "Add at least one option (one per line or comma-separated)." };
   }
 
-  // The (entity, key) unique index is still global until Phase 6 swaps it
-  // for (organizationId, entity, key). Until then two orgs can't both
-  // define e.g. "candidate.linkedin_handle" — known limitation.
+  // Per-org dedupe: two orgs can independently use the same (entity, key)
+  // — this check only blocks duplicates within the caller's workspace.
   const existing = await prisma.customField.findUnique({
-    where: { entity_key: { entity, key } },
+    where: { organizationId_entity_key: { organizationId: orgId, entity, key } },
     select: { id: true },
   });
   if (existing) {
