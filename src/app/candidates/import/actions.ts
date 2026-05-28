@@ -10,13 +10,31 @@ import { tagColorForName } from "@/lib/tag-colors";
 import { parseCandidateRow } from "./columns";
 import { REQUIRED_FIELD_KEYS, slugifyFieldKey, type FieldMapping } from "./field-catalog";
 import { MAX_CSV_BYTES, MAX_ROWS_PER_IMPORT } from "./limits";
-import type { ImportResult, RowResult } from "./import-types";
+import type { ImportMode, ImportResult, RowResult } from "./import-types";
 
-/** A header the user chose to capture as a brand-new custom field. */
-export type NewFieldSpec = { header: string; label: string; type: CustomFieldType };
+/**
+ * A header the user chose to capture as a brand-new custom field.
+ *
+ * For SELECT / MULTI_SELECT types the client also derives the option list
+ * from the column's distinct values (after fuzzy-merging near-duplicates)
+ * and sends a `valueMap` so the server can normalize raw cell values to the
+ * canonical option name during the import.
+ */
+export type NewFieldSpec = {
+  header: string;
+  label: string;
+  type: CustomFieldType;
+  options?: string[];
+  valueMap?: Record<string, string>;
+};
 
 /** Resolved new field — its DB id plus the source header + type for value writes. */
-type ResolvedNewField = { fieldId: string; header: string; type: CustomFieldType };
+type ResolvedNewField = {
+  fieldId: string;
+  header: string;
+  type: CustomFieldType;
+  valueMap: Record<string, string>;
+};
 
 /**
  * Template import — the CSV's headers are already the canonical field keys
@@ -63,7 +81,7 @@ export async function importCandidatesCsv(formData: FormData): Promise<ImportRes
     );
   }
 
-  return runImport(records, headers, orgId, session.user.id ?? null);
+  return runImport(records, headers, orgId, session.user.id ?? null, undefined, [], readMode(formData));
 }
 
 /**
@@ -168,7 +186,15 @@ export async function importCandidatesWithMapping(formData: FormData): Promise<I
 
   // Keep the original rows + headers for the errored-row download so it
   // mirrors the user's actual file, not the remapped shape.
-  return runImport(canonicalRecords, headers, orgId, session.user.id ?? null, records, resolvedNewFields);
+  return runImport(
+    canonicalRecords,
+    headers,
+    orgId,
+    session.user.id ?? null,
+    records,
+    resolvedNewFields,
+    readMode(formData),
+  );
 }
 
 /**
@@ -224,14 +250,27 @@ async function ensureCustomFields(
     let key = base;
     for (let n = 2; usedKeys.has(key); n++) key = `${base}_${n}`.slice(0, 60);
 
+    const isChoice = type === CustomFieldType.SELECT || type === CustomFieldType.MULTI_SELECT;
+    const initialOptions = isChoice ? cleanOptionList(spec.options) : [];
+    const valueMap = spec.valueMap ?? {};
+
     // Reuse an existing field with this key in the org; otherwise create.
+    // For an existing choice field, union the incoming option list into the
+    // saved one so the import can grow the choices ("create the choice if
+    // it's not there" — the user already confirmed the merges client-side).
     const existing = await prisma.customField.findFirst({
       where: { entity: CustomFieldEntity.CANDIDATE, organizationId: orgId, key },
-      select: { id: true, type: true },
+      select: { id: true, type: true, options: true },
     });
     if (existing) {
+      if (existing.type === CustomFieldType.SELECT || existing.type === CustomFieldType.MULTI_SELECT) {
+        const merged = cleanOptionList([...(existing.options ?? []), ...initialOptions]);
+        if (merged.length !== (existing.options ?? []).length) {
+          await prisma.customField.update({ where: { id: existing.id }, data: { options: merged } });
+        }
+      }
       usedKeys.add(key);
-      resolved.push({ fieldId: existing.id, header: spec.header, type: existing.type });
+      resolved.push({ fieldId: existing.id, header: spec.header, type: existing.type, valueMap });
       continue;
     }
 
@@ -242,14 +281,14 @@ async function ensureCustomFields(
         label,
         type,
         required: false,
-        options: [],
+        options: initialOptions,
         sortOrder: sortOrder++,
         organizationId: orgId,
       },
       select: { id: true },
     });
     usedKeys.add(key);
-    resolved.push({ fieldId: created.id, header: spec.header, type });
+    resolved.push({ fieldId: created.id, header: spec.header, type, valueMap });
   }
 
   revalidatePath("/settings/custom-fields");
@@ -268,9 +307,11 @@ async function runImport(
   sourcedById: string | null,
   rawRecords?: Record<string, string>[],
   newFields: ResolvedNewField[] = [],
+  mode: ImportMode = "create",
 ): Promise<ImportResult> {
   const rowResults: RowResult[] = [];
   let created = 0;
+  let updated = 0;
   let skipped = 0;
   let errored = 0;
 
@@ -296,12 +337,21 @@ async function runImport(
     }
 
     try {
-      // Dedupe by email within this org.
-      const existing = await prisma.candidate.findFirst({
-        where: { email: parsed.email, organizationId: orgId },
-        select: { id: true },
-      });
-      if (existing) {
+      // Match an existing candidate. Prefer an `id` cell when the user
+      // mapped a Candidate ID column; otherwise fall back to per-org email.
+      const candidateId = (record.id ?? "").trim();
+      const existing = candidateId
+        ? await prisma.candidate.findFirst({
+            where: { id: candidateId, organizationId: orgId },
+            select: { id: true },
+          })
+        : await prisma.candidate.findFirst({
+            where: { email: parsed.email, organizationId: orgId },
+            select: { id: true },
+          });
+
+      // --- Branch on mode + existence ---------------------------------
+      if (existing && mode === "create") {
         skipped++;
         rowResults.push({
           row: csvRow,
@@ -311,7 +361,45 @@ async function runImport(
         });
         continue;
       }
+      if (!existing && mode === "update-only") {
+        skipped++;
+        rowResults.push({
+          row: csvRow,
+          email: parsed.email,
+          status: "skipped",
+          reason: "No existing candidate matched — update-only mode",
+        });
+        continue;
+      }
 
+      if (existing) {
+        // Partial update: only fields whose source cell was non-blank get
+        // applied (so an overlay import doesn't clobber data not present
+        // in the CSV). Array fields replace when present.
+        const updateData = pickNonBlankUpdates(parsed.data, record);
+        const tagsCellHasContent = (record.tags ?? "").trim().length > 0;
+        const tagIds = tagsCellHasContent ? await syncTagNamesToIds(parsed.tags, orgId) : [];
+        await prisma.candidate.update({
+          where: { id: existing.id },
+          data: {
+            ...updateData,
+            ...(tagsCellHasContent
+              ? { tags: { set: tagIds.map((id) => ({ id })) } }
+              : {}),
+          },
+        });
+        await writeNewFieldValues(existing.id, rawRecord, newFields);
+        updated++;
+        rowResults.push({
+          row: csvRow,
+          email: parsed.email,
+          status: "updated",
+          candidateId: existing.id,
+        });
+        continue;
+      }
+
+      // --- Create path ------------------------------------------------
       const tagIds = await syncTagNamesToIds(parsed.tags, orgId);
       const candidate = await prisma.candidate.create({
         data: {
@@ -342,12 +430,13 @@ async function runImport(
     }
   }
 
-  if (created > 0) revalidatePath("/candidates");
+  if (created > 0 || updated > 0) revalidatePath("/candidates");
 
   return {
     status: "success",
-    message: `Imported ${created}, skipped ${skipped}, ${errored} errored.`,
+    message: `Imported ${created}, updated ${updated}, skipped ${skipped}, ${errored} errored.`,
     created,
+    updated,
     skipped,
     errored,
     rows: rowResults,
@@ -355,16 +444,41 @@ async function runImport(
   };
 }
 
+/**
+ * Strip fields from `parsed.data` whose source cell was blank — so an
+ * overlay import only touches columns the CSV actually carried. Arrays
+ * are kept when their cell had any content (parseCandidateRow already
+ * split them); scalars whose cell was blank are removed entirely.
+ */
+function pickNonBlankUpdates(
+  data: Record<string, unknown>,
+  rec: Record<string, string>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(data)) {
+    const cell = (rec[key] ?? "").trim();
+    if (!cell) continue;
+    out[key] = (data as Record<string, unknown>)[key];
+  }
+  return out;
+}
+
 function failure(message: string): ImportResult {
   return {
     status: "error",
     message,
     created: 0,
+    updated: 0,
     skipped: 0,
     errored: 0,
     rows: [],
     headers: [],
   };
+}
+
+function readMode(formData: FormData): ImportMode {
+  const raw = String(formData.get("mode") ?? "create");
+  return raw === "upsert" || raw === "update-only" ? raw : "create";
 }
 
 /**
@@ -377,6 +491,11 @@ async function writeNewFieldValues(
   rawRecord: Record<string, string>,
   newFields: ResolvedNewField[],
 ): Promise<void> {
+  // When a row's choice value lands outside the field's saved options we
+  // append it (per the "create the choice if it's not there" rule). Batch
+  // the updates and apply once at the end so we don't hit the DB per row.
+  const choiceAppends = new Map<string, Set<string>>();
+
   for (const f of newFields) {
     const raw = (rawRecord[f.header] ?? "").trim();
     if (!raw) continue;
@@ -405,11 +524,30 @@ async function writeNewFieldValues(
       case CustomFieldType.BOOLEAN:
         data.valueBoolean = /^(yes|true|1|y)$/i.test(raw);
         break;
-      case CustomFieldType.MULTI_SELECT:
-        data.valueStrings = raw.split("|").map((s) => s.trim()).filter(Boolean);
+      case CustomFieldType.SELECT: {
+        // Map raw → canonical option (client-resolved); track unknowns.
+        const mapped = f.valueMap[raw] ?? raw;
+        data.valueText = mapped;
+        if (!f.valueMap[raw]) {
+          if (!choiceAppends.has(f.fieldId)) choiceAppends.set(f.fieldId, new Set());
+          choiceAppends.get(f.fieldId)!.add(mapped);
+        }
         break;
+      }
+      case CustomFieldType.MULTI_SELECT: {
+        const parts = raw.split("|").map((s) => s.trim()).filter(Boolean);
+        const mapped = parts.map((p) => f.valueMap[p] ?? p);
+        data.valueStrings = Array.from(new Set(mapped));
+        for (let i = 0; i < parts.length; i++) {
+          if (!f.valueMap[parts[i]]) {
+            if (!choiceAppends.has(f.fieldId)) choiceAppends.set(f.fieldId, new Set());
+            choiceAppends.get(f.fieldId)!.add(mapped[i]);
+          }
+        }
+        break;
+      }
       default:
-        // TEXT, LONG_TEXT, URL, EMAIL, SELECT
+        // TEXT, LONG_TEXT, URL, EMAIL
         data.valueText = raw;
     }
 
@@ -419,6 +557,33 @@ async function writeNewFieldValues(
       update: data,
     });
   }
+
+  // Flush any new choices encountered into the fields' options lists.
+  for (const [fieldId, added] of choiceAppends) {
+    const field = await prisma.customField.findUnique({
+      where: { id: fieldId },
+      select: { options: true },
+    });
+    if (!field) continue;
+    const merged = cleanOptionList([...(field.options ?? []), ...added]);
+    if (merged.length !== (field.options ?? []).length) {
+      await prisma.customField.update({ where: { id: fieldId }, data: { options: merged } });
+    }
+  }
+}
+
+/** Trim, drop empties, de-dupe (case-sensitive) preserving first-seen order. */
+function cleanOptionList(values: string[] | undefined): string[] {
+  if (!values) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of values) {
+    const t = (v ?? "").trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
 }
 
 async function syncTagNamesToIds(rawNames: string[], orgId: string): Promise<string[]> {

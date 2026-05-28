@@ -4,11 +4,11 @@ import { useState, useTransition } from "react";
 import { importCandidatesCsv } from "./actions";
 import { FileDropzone } from "./FileDropzone";
 import { ImportResults } from "./ImportResults";
-import { initialImportResult, type ImportResult } from "./import-types";
+import { initialImportResult, type ImportMode, type ImportResult } from "./import-types";
 import { MAX_CSV_BYTES, MAX_ROWS_PER_IMPORT, formatBytes } from "./limits";
 
 /** Template flow: upload a CSV whose headers already match the template. */
-export function ImportForm() {
+export function ImportForm({ importMode = "create" }: { importMode?: ImportMode }) {
   const [result, setResult] = useState<ImportResult>(initialImportResult);
   const [pending, startTransition] = useTransition();
   const [file, setFile] = useState<File | null>(null);
@@ -52,6 +52,7 @@ export function ImportForm() {
         action={handleSubmit}
         className="mt-6 space-y-4 rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
       >
+        <input type="hidden" name="mode" value={importMode} />
         <div>
           <label className="mb-2 block text-sm font-medium" htmlFor="file">
             CSV file (template format)

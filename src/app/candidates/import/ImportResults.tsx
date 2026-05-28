@@ -23,6 +23,7 @@ export function ImportResults({ result }: { result: ImportResult }) {
       </div>
       <div className="mb-3 flex gap-4 text-sm">
         <Stat label="Created" value={result.created} tone="ok" />
+        <Stat label="Updated" value={result.updated} tone="ok" />
         <Stat label="Skipped" value={result.skipped} tone="muted" />
         <Stat label="Errored" value={result.errored} tone="err" />
       </div>
@@ -45,7 +46,7 @@ export function ImportResults({ result }: { result: ImportResult }) {
                   <StatusBadge status={r.status} />
                 </td>
                 <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">
-                  {r.status === "created" ? (
+                  {r.status === "created" || r.status === "updated" ? (
                     <Link href={`/candidates/${r.candidateId}`} className="underline">
                       View candidate
                     </Link>
@@ -77,13 +78,15 @@ function Stat({ label, value, tone }: { label: string; value: number; tone: "ok"
   );
 }
 
-function StatusBadge({ status }: { status: "created" | "skipped" | "error" }) {
+function StatusBadge({ status }: { status: "created" | "updated" | "skipped" | "error" }) {
   const cls =
     status === "created"
       ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
-      : status === "skipped"
-        ? "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-        : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200";
+      : status === "updated"
+        ? "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+        : status === "skipped"
+          ? "bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          : "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200";
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wide ${cls}`}>
       {status}

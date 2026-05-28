@@ -19,6 +19,7 @@ export type ImportField = {
 };
 
 export const IMPORT_FIELDS: ImportField[] = [
+  { key: "id", label: "Candidate ID", required: false, synonyms: ["candidate id", "candidate_id", "cuid", "candidateid"], hint: "Used to match existing candidates on overlay imports" },
   { key: "firstName", label: "First name", required: true, synonyms: ["first", "fname", "given name", "givenname"] },
   { key: "lastName", label: "Last name", required: true, synonyms: ["last", "lname", "surname", "family name", "familyname"] },
   { key: "email", label: "Email", required: true, synonyms: ["email address", "e-mail", "mail", "work email", "primary email"] },

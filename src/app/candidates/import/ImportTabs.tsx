@@ -4,8 +4,27 @@ import { useState } from "react";
 import { CSV_HEADERS } from "./columns";
 import { ImportForm } from "./ImportForm";
 import { MappingImportForm } from "./MappingImportForm";
+import type { ImportMode } from "./import-types";
 
 type Mode = "template" | "mapping";
+
+const MODE_OPTIONS: { value: ImportMode; label: string; help: string }[] = [
+  {
+    value: "create",
+    label: "Create new only",
+    help: "Skip rows whose email already matches an existing candidate.",
+  },
+  {
+    value: "upsert",
+    label: "Update if exists",
+    help: "Match by email (or ID) — update existing candidates, create the rest.",
+  },
+  {
+    value: "update-only",
+    label: "Update existing only",
+    help: "Skip rows whose candidate doesn't already exist; only patch known ones.",
+  },
+];
 
 /**
  * Two import paths:
@@ -15,9 +34,35 @@ type Mode = "template" | "mapping";
  */
 export function ImportTabs() {
   const [mode, setMode] = useState<Mode>("template");
+  const [importMode, setImportMode] = useState<ImportMode>("create");
+  const activeHelp = MODE_OPTIONS.find((m) => m.value === importMode)?.help ?? "";
 
   return (
     <div className="mt-6">
+      {/* What to do when a row already matches an existing candidate. */}
+      <div className="mb-4 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          On match
+        </div>
+        <div className="mt-2 inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-1 dark:border-zinc-800 dark:bg-zinc-950">
+          {MODE_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setImportMode(opt.value)}
+              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                importMode === opt.value
+                  ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white"
+                  : "text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-zinc-500">{activeHelp}</p>
+      </div>
+
       <div className="inline-flex rounded-lg border border-zinc-200 dark:border-zinc-800 p-1 bg-zinc-50 dark:bg-zinc-950">
         <ModeButton active={mode === "template"} onClick={() => setMode("template")}>
           Import from template
@@ -65,7 +110,7 @@ export function ImportTabs() {
               <p className="mt-2 break-words text-xs text-zinc-500">{CSV_HEADERS.join(", ")}</p>
             </details>
           </section>
-          <ImportForm />
+          <ImportForm importMode={importMode} />
         </>
       ) : (
         <>
@@ -75,7 +120,7 @@ export function ImportTabs() {
             what you don&apos;t need. Same value formats as the template (pipes for multi-value,
             <code> yes/no</code> for booleans, <code>YYYY-MM-DD</code> for dates).
           </p>
-          <MappingImportForm />
+          <MappingImportForm importMode={importMode} />
         </>
       )}
     </div>

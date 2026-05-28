@@ -361,6 +361,7 @@ model Organization {
   auditLogs              AuditLog[]
   announcements          Announcement[]
   announcementTargets    AnnouncementTarget[]
+  importMappings         ImportMapping[]
 }
 
 model Tag {
@@ -450,6 +451,9 @@ model User {
   // sign in as platform admins to "support" them.
   impersonationsStarted  ImpersonationSession[] @relation("ImpersonationPlatformAdmin")
   impersonationsTargeted ImpersonationSession[] @relation("ImpersonationTarget")
+
+  importMappingsCreated ImportMapping[] @relation("ImportMappingCreator")
+  importMappingsUpdated ImportMapping[] @relation("ImportMappingUpdater")
 
   // Multi-tenant: every user belongs to exactly one Organization. Nullable
   // during the staged migration (current users get assigned to the Default
@@ -1569,5 +1573,38 @@ model AnnouncementTarget {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([announcementId, organizationId])
+  @@index([organizationId])
+}
+
+/**
+ * Saved CSV-import mapping, keyed by a sha256 fingerprint of the file's
+ * sorted-normalized headers. When the next file with the same header set
+ * is uploaded, the importer restores the previously-saved mapping (field
+ * pairings, new-field creation choices, value-merge decisions, etc.) so
+ * teammates don't have to redo the work. One row per (org, fingerprint).
+ */
+model ImportMapping {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  headersFingerprint  String
+  // Canonical-field-key -> input header (or null = skip). Also captures
+  // any `cf:<fieldId>` keys once we surface existing custom fields.
+  mapping             Json
+  // Per-header new-field drafts: { header: { create, label, type } }.
+  newFieldDrafts      Json
+  // User merges resolving fuzzy near-duplicate options for choice fields.
+  userMerges          Json
+  // Per-header confirmation flags for high-cardinality choice fields.
+  confirmHigh         Json
+  createdById         String?
+  updatedById         String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation("ImportMappingCreator", fields: [createdById], references: [id])
+  updatedBy    User?        @relation("ImportMappingUpdater", fields: [updatedById], references: [id])
+
+  @@unique([organizationId, headersFingerprint])
   @@index([organizationId])
 }

@@ -13,25 +13,52 @@ import {
 } from "./field-catalog";
 import { FileDropzone } from "./FileDropzone";
 import { ImportResults } from "./ImportResults";
-import { initialImportResult, type ImportResult } from "./import-types";
+import { initialImportResult, type ImportMode, type ImportResult } from "./import-types";
 import { MAX_CSV_BYTES, MAX_ROWS_PER_IMPORT, formatBytes } from "./limits";
+import { clusterValues, type ClusterResult } from "./fuzzy";
+import {
+  clearImportMapping,
+  loadImportMapping,
+  saveImportMapping,
+  type SavedMapping,
+} from "./mapping-actions";
 
 const SKIP = "__skip__";
 const REQUIRED = new Set(REQUIRED_FIELD_KEYS);
 
-// Types offered for auto-created fields — single-value kinds only (SELECT /
-// MULTI_SELECT need a predefined option list, so they're set up in Settings).
+// Above this many distinct values, a Single/Multi choice field probably
+// represents free text rather than a real enum — require the user to
+// explicitly confirm before we let it through.
+const CHOICE_HIGH_CARDINALITY = 10;
+
+// Types offered for auto-created fields. SELECT / MULTI_SELECT used to be
+// excluded because they need a predefined option list — now the importer
+// derives that list from the column's own values (with fuzzy de-dup).
 const NEW_FIELD_TYPES: CustomFieldType[] = [
   CustomFieldType.TEXT,
   CustomFieldType.LONG_TEXT,
   CustomFieldType.NUMBER,
   CustomFieldType.DATE,
   CustomFieldType.BOOLEAN,
+  CustomFieldType.SELECT,
+  CustomFieldType.MULTI_SELECT,
   CustomFieldType.URL,
   CustomFieldType.EMAIL,
 ];
 
+function isChoiceType(t: CustomFieldType) {
+  return t === CustomFieldType.SELECT || t === CustomFieldType.MULTI_SELECT;
+}
+
 type NewFieldDraft = { create: boolean; label: string; type: CustomFieldType };
+
+/** Per-header analysis result for choice fields. */
+type ChoiceAnalysis = {
+  distinct: string[];        // raw distinct cell values (after split for MULTI)
+  cluster: ClusterResult;    // auto-merge result + flagged near-dupes
+  options: string[];         // final canonical options after user merges
+  valueMap: Record<string, string>; // raw → canonical (sent to server)
+};
 
 /**
  * Field-mapping flow:
@@ -42,16 +69,26 @@ type NewFieldDraft = { create: boolean; label: string; type: CustomFieldType };
  *   3. Import sends the file + the mapping JSON to the server action,
  *      which remaps each row and runs the standard import pipeline.
  */
-export function MappingImportForm() {
+export function MappingImportForm({ importMode = "create" }: { importMode?: ImportMode }) {
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewRow, setPreviewRow] = useState<Record<string, string>>({});
+  const [columnValues, setColumnValues] = useState<Record<string, string[]>>({});
   const [mapping, setMapping] = useState<FieldMapping>({});
   const [newFieldDrafts, setNewFieldDrafts] = useState<Record<string, NewFieldDraft>>({});
+  // For each header that's a choice field, the user's explicit "merge X into Y"
+  // decisions on top of the auto-merge clustering. `userMerges[header][raw] = target`.
+  const [userMerges, setUserMerges] = useState<Record<string, Record<string, string>>>({});
+  // For each choice header with > CHOICE_HIGH_CARDINALITY options, has the
+  // user confirmed they really want it as a choice field?
+  const [confirmHigh, setConfirmHigh] = useState<Record<string, boolean>>({});
   const [adminPassword, setAdminPassword] = useState("");
   const [parseError, setParseError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResult>(initialImportResult);
   const [pending, startTransition] = useTransition();
+  // The saved-mapping row we restored from for this header set, if any.
+  // Drives the "Restored mapping by X on Y — Reset" banner.
+  const [restoredFrom, setRestoredFrom] = useState<SavedMapping | null>(null);
 
   async function onFileSelected(f: File | null) {
     setResult(initialImportResult);
@@ -60,8 +97,12 @@ export function MappingImportForm() {
     setHeaders([]);
     setMapping({});
     setNewFieldDrafts({});
+    setUserMerges({});
+    setConfirmHigh({});
     setAdminPassword("");
     setPreviewRow({});
+    setColumnValues({});
+    setRestoredFrom(null);
     if (!f) return;
 
     if (f.size > MAX_CSV_BYTES) {
@@ -95,10 +136,52 @@ export function MappingImportForm() {
         });
         setPreviewRow(preview);
       }
-      setMapping(autoMatchFields(hdrs));
+      // Keep every cell so SELECT / MULTI_SELECT new-field drafts can
+      // analyze their column's distinct values for fuzzy-merging.
+      const cols: Record<string, string[]> = {};
+      hdrs.forEach((h, idx) => {
+        const vals: string[] = [];
+        for (let r = 1; r < grid.length; r++) {
+          const v = (grid[r][idx] ?? "").trim();
+          if (v) vals.push(v);
+        }
+        cols[h] = vals;
+      });
+      setColumnValues(cols);
+
+      // Restore a previously-saved mapping for this header set (org-wide),
+      // or fall back to auto-match if none exists.
+      try {
+        const saved = await loadImportMapping(hdrs);
+        if (saved) {
+          setMapping(saved.mapping);
+          setNewFieldDrafts(
+            saved.newFieldDrafts as Record<string, NewFieldDraft>,
+          );
+          setUserMerges(saved.userMerges ?? {});
+          setConfirmHigh(saved.confirmHigh ?? {});
+          setRestoredFrom(saved);
+        } else {
+          setMapping(autoMatchFields(hdrs));
+        }
+      } catch {
+        // If the lookup fails for any reason, fall back to auto-match so
+        // the importer still works.
+        setMapping(autoMatchFields(hdrs));
+      }
     } catch {
       setParseError("Couldn't parse this file as CSV.");
     }
+  }
+
+  async function handleResetSavedMapping() {
+    if (headers.length === 0) return;
+    await clearImportMapping(headers);
+    setRestoredFrom(null);
+    setNewFieldDrafts({});
+    setUserMerges({});
+    setConfirmHigh({});
+    setMapping(autoMatchFields(headers));
   }
 
   function setFieldMap(fieldKey: string, value: string) {
@@ -139,14 +222,78 @@ export function MappingImportForm() {
   const needsPassword = selectedNewHeaders.length > 0;
   const passwordMissing = needsPassword && !adminPassword.trim();
 
+  // For each selected SELECT/MULTI_SELECT new-field draft, run the
+  // cell-value analysis: distinct values, auto-merges, near-dup flags,
+  // and the user's resolved merges layered on top.
+  const choiceAnalyses = useMemo(() => {
+    const out: Record<string, ChoiceAnalysis> = {};
+    for (const h of selectedNewHeaders) {
+      const d = draftFor(h);
+      if (!isChoiceType(d.type)) continue;
+
+      const cells = columnValues[h] ?? [];
+      const parts: string[] =
+        d.type === CustomFieldType.MULTI_SELECT
+          ? cells.flatMap((c) => c.split("|").map((s) => s.trim()).filter(Boolean))
+          : cells;
+      const distinct = Array.from(new Set(parts));
+      const cluster = clusterValues(distinct);
+      const merges = userMerges[h] ?? {};
+
+      // Final raw -> canonical mapping, layering user merges on top of
+      // the cluster's auto-merges by normalized form.
+      const valueMap: Record<string, string> = {};
+      for (const raw of distinct) {
+        const afterAuto = cluster.mergeMap[raw] ?? raw;
+        valueMap[raw] = merges[afterAuto] ?? afterAuto;
+      }
+      const options = Array.from(new Set(Object.values(valueMap)));
+
+      out[h] = { distinct, cluster, options, valueMap };
+    }
+    return out;
+    // draftFor and userMerges captured by reference are fine here — the
+    // memo recomputes whenever any of the deps below change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedNewHeaders, newFieldDrafts, columnValues, userMerges]);
+
+  // A choice header needs explicit confirmation when its distinct count
+  // exceeds the cardinality threshold and the user hasn't ticked the
+  // "yes, really" box.
+  const choiceNeedsConfirm = (h: string) => {
+    const a = choiceAnalyses[h];
+    return Boolean(a && a.options.length > CHOICE_HIGH_CARDINALITY && !confirmHigh[h]);
+  };
+  const unresolvedChoiceHeaders = selectedNewHeaders.filter(choiceNeedsConfirm);
+
+  function mergePair(header: string, from: string, into: string) {
+    setUserMerges((prev) => ({
+      ...prev,
+      [header]: { ...(prev[header] ?? {}), [from]: into },
+    }));
+  }
+  function unmergePair(header: string, from: string) {
+    setUserMerges((prev) => {
+      const next = { ...(prev[header] ?? {}) };
+      delete next[from];
+      return { ...prev, [header]: next };
+    });
+  }
+
   function handleImport() {
     if (!file) return;
     const newFields = selectedNewHeaders.map((h) => {
       const d = draftFor(h);
-      return { header: h, label: d.label.trim() || h, type: d.type };
+      const base = { header: h, label: d.label.trim() || h, type: d.type };
+      if (isChoiceType(d.type)) {
+        const a = choiceAnalyses[h];
+        return { ...base, options: a?.options ?? [], valueMap: a?.valueMap ?? {} };
+      }
+      return base;
     });
     const fd = new FormData();
     fd.set("file", file);
+    fd.set("mode", importMode);
     fd.set("mapping", JSON.stringify(mapping));
     fd.set("newFields", JSON.stringify(newFields));
     if (newFields.length > 0) fd.set("adminPassword", adminPassword);
@@ -154,6 +301,20 @@ export function MappingImportForm() {
       try {
         const next = await importCandidatesWithMapping(fd);
         setResult(next);
+        // After a successful run, persist the mapping for this header set
+        // so the next teammate inherits the same field pairings.
+        if (next.status === "success" && headers.length > 0) {
+          try {
+            await saveImportMapping(headers, {
+              mapping,
+              newFieldDrafts,
+              userMerges,
+              confirmHigh,
+            });
+          } catch {
+            // Non-fatal — the import succeeded.
+          }
+        }
       } catch (error) {
         setResult({
           ...initialImportResult,
@@ -185,6 +346,24 @@ export function MappingImportForm() {
         </div>
         {parseError && <p className="text-sm text-red-600 dark:text-red-400">{parseError}</p>}
       </div>
+
+      {restoredFrom && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm dark:border-indigo-900/60 dark:bg-indigo-950/30">
+          <span className="text-indigo-800 dark:text-indigo-200">
+            Restored a previously-saved mapping for these columns
+            {restoredFrom.savedByName ? ` (last saved by ${restoredFrom.savedByName}` : " ("}
+            {" on "}
+            {new Date(restoredFrom.savedAt).toLocaleDateString()}).
+          </span>
+          <button
+            type="button"
+            onClick={handleResetSavedMapping}
+            className="rounded-md border border-indigo-300 px-2 py-1 text-xs hover:bg-white dark:border-indigo-700 dark:hover:bg-indigo-950/60"
+          >
+            Reset to auto-match
+          </button>
+        </div>
+      )}
 
       {headers.length > 0 && (
         <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
@@ -263,44 +442,140 @@ export function MappingImportForm() {
               <div className="mt-3 space-y-2">
                 {unmatchedHeaders.map((h) => {
                   const d = draftFor(h);
+                  const analysis = d.create && isChoiceType(d.type) ? choiceAnalyses[h] : undefined;
+                  const overThreshold = Boolean(analysis && analysis.options.length > CHOICE_HIGH_CARDINALITY);
                   return (
                     <div
                       key={h}
-                      className="flex flex-wrap items-center gap-3 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+                      className="flex flex-col gap-2 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800"
                     >
-                      <label className="inline-flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={d.create}
-                          onChange={(e) => updateDraft(h, { create: e.target.checked })}
-                          className="rounded border-zinc-300 dark:border-zinc-700"
-                        />
-                        <span className="font-mono text-xs">{h}</span>
-                      </label>
-                      {d.create && (
-                        <>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className="inline-flex items-center gap-2 text-sm">
                           <input
-                            value={d.label}
-                            onChange={(e) => updateDraft(h, { label: e.target.value })}
-                            placeholder="Field label"
-                            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                            type="checkbox"
+                            checked={d.create}
+                            onChange={(e) => updateDraft(h, { create: e.target.checked })}
+                            className="rounded border-zinc-300 dark:border-zinc-700"
                           />
-                          <select
-                            value={d.type}
-                            onChange={(e) => updateDraft(h, { type: e.target.value as CustomFieldType })}
-                            className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-950"
-                          >
-                            {NEW_FIELD_TYPES.map((t) => (
-                              <option key={t} value={t}>
-                                {CUSTOM_FIELD_TYPE_LABEL[t]}
-                              </option>
-                            ))}
-                          </select>
-                        </>
+                          <span className="font-mono text-xs">{h}</span>
+                        </label>
+                        {d.create && (
+                          <>
+                            <input
+                              value={d.label}
+                              onChange={(e) => updateDraft(h, { label: e.target.value })}
+                              placeholder="Field label"
+                              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                            />
+                            <select
+                              value={d.type}
+                              onChange={(e) => updateDraft(h, { type: e.target.value as CustomFieldType })}
+                              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+                            >
+                              {NEW_FIELD_TYPES.map((t) => (
+                                <option key={t} value={t}>
+                                  {CUSTOM_FIELD_TYPE_LABEL[t]}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+                        <span className="ml-auto max-w-[40%] truncate text-xs text-zinc-400">
+                          {previewRow[h] || "—"}
+                        </span>
+                      </div>
+
+                      {analysis && (
+                        <div className="ml-6 rounded-md border border-indigo-100 bg-indigo-50/40 px-3 py-2 text-xs dark:border-indigo-900/40 dark:bg-indigo-950/20">
+                          <div className="text-zinc-600 dark:text-zinc-300">
+                            <span className="font-medium">{analysis.options.length}</span> distinct option
+                            {analysis.options.length === 1 ? "" : "s"} found
+                            {analysis.distinct.length !== analysis.options.length &&
+                              ` (merged from ${analysis.distinct.length})`}
+                            :{" "}
+                            <span className="text-zinc-500">
+                              {analysis.options.slice(0, 8).join(", ")}
+                              {analysis.options.length > 8 ? `, … (+${analysis.options.length - 8})` : ""}
+                            </span>
+                          </div>
+
+                          {overThreshold && (
+                            <label className="mt-2 inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(confirmHigh[h])}
+                                onChange={(e) =>
+                                  setConfirmHigh((p) => ({ ...p, [h]: e.target.checked }))
+                                }
+                                className="rounded border-amber-400"
+                              />
+                              <span>
+                                {analysis.options.length} options is a lot — yes, I really want this as a{" "}
+                                {d.type === CustomFieldType.MULTI_SELECT ? "Multi" : "Single"} choice
+                              </span>
+                            </label>
+                          )}
+
+                          {analysis.cluster.nearDuplicates.length > 0 && (
+                            <div className="mt-2">
+                              <div className="mb-1 text-zinc-600 dark:text-zinc-300">
+                                Possibly the same — review {analysis.cluster.nearDuplicates.length}{" "}
+                                pair{analysis.cluster.nearDuplicates.length === 1 ? "" : "s"}:
+                              </div>
+                              <ul className="space-y-1">
+                                {analysis.cluster.nearDuplicates.map(({ left, right }) => {
+                                  // Determine current state: merged into something or kept separate.
+                                  const merged = userMerges[h] ?? {};
+                                  const rightMergedIntoLeft = merged[right] === left;
+                                  const leftMergedIntoRight = merged[left] === right;
+                                  return (
+                                    <li
+                                      key={`${left}::${right}`}
+                                      className="flex flex-wrap items-center gap-2"
+                                    >
+                                      <span className="font-mono">&ldquo;{left}&rdquo;</span>
+                                      <span className="text-zinc-400">vs</span>
+                                      <span className="font-mono">&ldquo;{right}&rdquo;</span>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          rightMergedIntoLeft
+                                            ? unmergePair(h, right)
+                                            : mergePair(h, right, left)
+                                        }
+                                        className={`rounded border px-2 py-0.5 text-[11px] ${
+                                          rightMergedIntoLeft
+                                            ? "border-indigo-500 bg-indigo-600 text-white"
+                                            : "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+                                        }`}
+                                        title={`Merge "${right}" into "${left}"`}
+                                      >
+                                        → keep &ldquo;{left}&rdquo;
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          leftMergedIntoRight
+                                            ? unmergePair(h, left)
+                                            : mergePair(h, left, right)
+                                        }
+                                        className={`rounded border px-2 py-0.5 text-[11px] ${
+                                          leftMergedIntoRight
+                                            ? "border-indigo-500 bg-indigo-600 text-white"
+                                            : "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-600 dark:hover:bg-zinc-800"
+                                        }`}
+                                        title={`Merge "${left}" into "${right}"`}
+                                      >
+                                        → keep &ldquo;{right}&rdquo;
+                                      </button>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
                       )}
-                      <span className="ml-auto max-w-[40%] truncate text-xs text-zinc-400">
-                        {previewRow[h] || "—"}
-                      </span>
                     </div>
                   );
                 })}
@@ -347,8 +622,19 @@ export function MappingImportForm() {
             <button
               type="button"
               onClick={handleImport}
-              disabled={pending || missingRequired.length > 0 || passwordMissing}
-              title={passwordMissing ? "Enter your admin password to create the new fields" : undefined}
+              disabled={
+                pending ||
+                missingRequired.length > 0 ||
+                passwordMissing ||
+                unresolvedChoiceHeaders.length > 0
+              }
+              title={
+                passwordMissing
+                  ? "Enter your admin password to create the new fields"
+                  : unresolvedChoiceHeaders.length > 0
+                    ? `Confirm high-cardinality choice fields: ${unresolvedChoiceHeaders.join(", ")}`
+                    : undefined
+              }
               className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
             >
               {pending
