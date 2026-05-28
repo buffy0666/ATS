@@ -21,7 +21,12 @@ export function ImportResults({ result }: { result: ImportResult }) {
           </button>
         )}
       </div>
-      <div className="mb-3 flex gap-4 text-sm">
+      <div className="mb-3 flex flex-wrap gap-4 text-sm">
+        <Stat
+          label="Total in file"
+          value={result.created + result.updated + result.skipped + result.errored}
+          tone="muted"
+        />
         <Stat label="Created" value={result.created} tone="ok" />
         <Stat label="Updated" value={result.updated} tone="ok" />
         <Stat label="Skipped" value={result.skipped} tone="muted" />
