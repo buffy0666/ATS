@@ -36,8 +36,15 @@ export async function importCandidatesCsv(formData: FormData): Promise<ImportRes
     return failure(`File too large (${file.size} bytes). Max is ${MAX_CSV_BYTES} bytes.`);
   }
 
-  const text = await file.text();
-  const grid = parseCsv(text);
+  let grid: string[][];
+  try {
+    const text = await file.text();
+    grid = parseCsv(text);
+  } catch {
+    return failure(
+      "Couldn't read this file as CSV. If it came from Excel, save it as 'CSV UTF-8 (Comma delimited)' (not .xlsx) and try again.",
+    );
+  }
   if (grid.length < 2) {
     return failure("CSV needs a header row followed by at least one data row.");
   }
