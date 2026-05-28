@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       // First event: tell the client which conversation we're on (matters
       // when it was created by this request).
       controller.enqueue(
-        encoder.encode(formatSse("conversation", { conversationId })),
+        encoder.encode(formatSse({ type: "conversation", conversationId })),
       );
       try {
         const events = runAssistantTurn({
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Assistant turn failed.";
-        controller.enqueue(encoder.encode(formatSse("error", { message })));
+        controller.enqueue(encoder.encode(formatSse({ type: "error", message })));
       } finally {
         controller.close();
       }
@@ -84,23 +84,55 @@ export async function POST(request: Request) {
 function formatEvent(event: AssistantEvent): string {
   switch (event.type) {
     case "text":
-      return formatSse("text", { delta: event.delta });
+      return formatSse({ type: "text", content: event.delta });
     case "tool_call":
-      return formatSse("tool_call", event.toolCall);
-    case "tool_result":
-      return formatSse("tool_result", {
-        toolCallId: event.toolCallId,
-        toolName: event.toolName,
-        content: event.content,
-        isError: event.isError,
+      return formatSse({
+        type: "tool_call",
+        toolCall: {
+          id: event.toolCall.id,
+          name: event.toolCall.name,
+          arguments: event.toolCall.arguments,
+          state: "pending",
+        },
       });
+    case "tool_result": {
+      const parsedResult = tryParseJson(event.content);
+      const errorMessage = event.isError
+        ? extractErrorMessage(parsedResult) ?? event.content
+        : undefined;
+      return formatSse({
+        type: "tool_result",
+        toolCallId: event.toolCallId,
+        result: parsedResult ?? event.content,
+        ok: !event.isError,
+        ...(errorMessage ? { errorMessage } : {}),
+      });
+    }
     case "done":
-      return formatSse("done", { messageId: event.messageId });
+      return formatSse({ type: "done" });
     case "error":
-      return formatSse("error", { message: event.message });
+      return formatSse({ type: "error", message: event.message });
   }
 }
 
-function formatSse(eventName: string, payload: unknown): string {
-  return `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`;
+// SSE envelope: the client reads only `data:` lines, so the discriminant
+// `type` lives inside the JSON payload (the `event:` line would be lost).
+function formatSse(payload: unknown): string {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+function tryParseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function extractErrorMessage(value: unknown): string | undefined {
+  if (value && typeof value === "object" && "error" in value) {
+    const err = (value as { error: unknown }).error;
+    if (typeof err === "string") return err;
+  }
+  return undefined;
 }
