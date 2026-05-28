@@ -148,19 +148,28 @@ export class OpenAICompatibleProvider implements AIProvider {
         : {}),
     };
 
-    // Streaming has no built-in timeout, so a slow/stalled model (e.g. a
-    // reasoning model that "thinks" for a long time before emitting any
-    // token) would hang the assistant forever as "Thinking…". Guard with
-    // both a total-time abort and an idle watchdog that fires if no bytes
-    // arrive for a while. On abort we surface a clear error instead of
-    // spinning indefinitely.
+    // Streaming has no built-in timeout, so a slow/stalled model would hang
+    // forever. Guard with an idle watchdog that fires only when no bytes
+    // have arrived for IDLE_TIMEOUT_MS, plus a long total ceiling for
+    // pathological streams. The idle timer MUST be bumped on every chunk —
+    // otherwise reasoning models (e.g. grok-4) that emit `reasoning_content`
+    // chunks for 30–90s before the final `content` get killed mid-stream
+    // and the UI shows nothing.
     const controller = new AbortController();
-    const totalTimeout = setTimeout(() => controller.abort(), this.timeoutMs);
-    const IDLE_TIMEOUT_MS = Math.min(this.timeoutMs, 45000);
+    const TOTAL_TIMEOUT_MS = Math.max(this.timeoutMs * 5, 300_000);
+    const IDLE_TIMEOUT_MS = Math.max(this.timeoutMs, 45_000);
+    const totalTimeout = setTimeout(() => controller.abort(), TOTAL_TIMEOUT_MS);
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const bumpIdle = () => {
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
+    };
+    const clearTimers = () => {
+      clearTimeout(totalTimeout);
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+        idleTimer = null;
+      }
     };
 
     let response: Response;
@@ -173,12 +182,11 @@ export class OpenAICompatibleProvider implements AIProvider {
         signal: controller.signal,
       });
     } catch (error) {
-      clearTimeout(totalTimeout);
-      if (idleTimer) clearTimeout(idleTimer);
+      clearTimers();
       if (error instanceof DOMException && error.name === "AbortError") {
         throw new AIProviderError(
           this.name,
-          `Chat timed out after ${this.timeoutMs}ms with no response. The model may be overloaded or too slow — try a faster model.`,
+          `Chat timed out with no response. The model may be overloaded or too slow — try a faster model.`,
           error,
         );
       }
@@ -186,8 +194,7 @@ export class OpenAICompatibleProvider implements AIProvider {
     }
 
     if (!response.ok || !response.body) {
-      clearTimeout(totalTimeout);
-      if (idleTimer) clearTimeout(idleTimer);
+      clearTimers();
       const text = await safeText(response);
       throw new AIProviderError(
         this.name,
@@ -203,7 +210,11 @@ export class OpenAICompatibleProvider implements AIProvider {
     >();
     let finishReason: "stop" | "tool_calls" | "length" | "error" = "stop";
 
+    try {
     for await (const event of readOpenAISseEvents(response.body)) {
+      // Any chunk — including reasoning-only chunks we don't render —
+      // counts as activity and resets the idle watchdog.
+      bumpIdle();
       if (event === "[DONE]") break;
 
       const choice = event?.choices?.[0];
@@ -249,6 +260,9 @@ export class OpenAICompatibleProvider implements AIProvider {
     }
 
     yield { type: "done", finishReason };
+    } finally {
+      clearTimers();
+    }
   }
 }
 
