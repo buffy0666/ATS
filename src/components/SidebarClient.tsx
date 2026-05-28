@@ -97,9 +97,12 @@ export function SidebarClient({
 
   return (
     <aside
+      // sticky + self-start + h-screen pins the sidebar to the viewport
+      // while the main column scrolls past it. The inner <nav> already has
+      // overflow-y-auto so items still scroll internally on short screens.
       className={`${
         collapsed ? "w-14" : "w-60"
-      } shrink-0 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col transition-[width] duration-150`}
+      } shrink-0 self-start sticky top-0 h-screen border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col transition-[width] duration-150`}
     >
       <div
         className={`border-b border-zinc-200 dark:border-zinc-800 ${
