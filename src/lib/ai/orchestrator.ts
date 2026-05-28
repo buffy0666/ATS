@@ -7,7 +7,15 @@ import {
   Prisma,
   Role,
 } from "@/generated/prisma";
-import { chat, type ChatChunk, type ChatMessage, type ToolCall, type ToolDefinition } from ".";
+import {
+  chat,
+  getResolvedAIConfig,
+  PROVIDERS,
+  type ChatChunk,
+  type ChatMessage,
+  type ToolCall,
+  type ToolDefinition,
+} from ".";
 import { findToolByName, getAvailableTools, type AssistantTool } from "./tools";
 
 // Cap on tool calls per user turn to prevent runaway loops if the model
@@ -82,11 +90,15 @@ export async function* runAssistantTurn(
     const tools = getAvailableTools(role);
     const toolDefinitions: ToolDefinition[] = tools.map(toToolDefinition);
 
+    const aiCfg = await getResolvedAIConfig(organizationId);
+
     const systemPrompt = buildSystemPrompt({
       userName: user.name ?? user.email,
       userEmail: user.email,
       userRole: user.role,
       tools,
+      providerLabel: PROVIDERS[aiCfg.provider].label,
+      model: aiCfg.model || null,
     });
 
     let messages: ChatMessage[] = [
@@ -431,10 +443,18 @@ function buildSystemPrompt(input: {
   userEmail: string;
   userRole: Role;
   tools: AssistantTool[];
+  providerLabel: string;
+  model: string | null;
 }): string {
   const toolList = input.tools.map((t) => `- ${t.name}: ${t.description}`).join("\n");
+  // Tell the model what it is so it can answer "which LLM are you?" honestly
+  // instead of guessing or claiming to be ChatGPT.
+  const identity = input.model
+    ? `${input.providerLabel} (${input.model})`
+    : input.providerLabel;
   return [
     "You are the AI assistant inside a recruiting firm's ATS.",
+    `You are running on ${identity}. If the user asks which model or LLM is answering, tell them this.`,
     `Current user: ${input.userName} (${input.userEmail}), role: ${input.userRole}.`,
     "",
     "Use the tools below to act on the user's behalf. Prefer running a tool over guessing.",

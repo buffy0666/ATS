@@ -15,6 +15,11 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showConvDropdown, setShowConvDropdown] = useState(false);
+  // Small "via <model>" label in the header so the user can see which LLM
+  // is answering. Loaded once on mount from /api/assistant/info.
+  const [aiInfo, setAiInfo] = useState<{ providerLabel: string; model: string | null } | null>(
+    null,
+  );
   const streamingMessageIdRef = useRef<string | null>(null);
 
   const { send, abort, pending } = useChatStream({
@@ -140,6 +145,31 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
   }, [loadConversations]);
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/assistant/info");
+        if (!r.ok) return;
+        const data = (await r.json()) as {
+          providerLabel?: unknown;
+          model?: unknown;
+        };
+        if (cancelled) return;
+        const providerLabel = typeof data.providerLabel === "string" ? data.providerLabel : null;
+        const model = typeof data.model === "string" && data.model.length > 0 ? data.model : null;
+        if (providerLabel || model) {
+          setAiInfo({ providerLabel: providerLabel ?? "AI", model });
+        }
+      } catch {
+        // non-fatal — the label just won't render
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (activeConversationId) {
       void loadMessages(activeConversationId);
     } else {
@@ -215,6 +245,14 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
           >
             {activeTitle}
           </button>
+          {aiInfo && (
+            <div
+              className="text-[10px] text-zinc-500 dark:text-zinc-500 truncate"
+              title={`Powered by ${aiInfo.providerLabel}${aiInfo.model ? ` — ${aiInfo.model}` : ""}`}
+            >
+              via {aiInfo.model ?? aiInfo.providerLabel}
+            </div>
+          )}
           {showConvDropdown && (
             <div className="absolute left-0 top-full mt-1 w-72 rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg z-20 text-sm max-h-80 overflow-y-auto">
               <button
