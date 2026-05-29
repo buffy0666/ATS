@@ -77,8 +77,13 @@ export function ResumeViewerTabs({
   const [active, setActive] = useState<TabKey>(initial);
 
   return (
-    <div>
-      <div className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 px-2 pt-2 pb-0 bg-zinc-50 dark:bg-zinc-950">
+    // flex-col + h-full so the active pane below can claim the remaining
+    // height after the tab strip. The parent <section> in the candidate
+    // page is sticky with a viewport-capped max-h, and this layout lets
+    // each per-tab pane's internal scrollbar handle overflow instead of
+    // the whole panel growing past the viewport.
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 px-2 pt-2 pb-0 bg-zinc-50 dark:bg-zinc-950 shrink-0">
         {hasEmail && (
           <TabButton active={active === "email"} onClick={() => setActive("email")} present>
             Email
@@ -125,12 +130,17 @@ export function ResumeViewerTabs({
         </TabButton>
       </div>
 
-      {active === "email" && <div className="p-5">{emailSlot}</div>}
-      {active === "contact" && <div>{contactSlot}</div>}
-      {active === "meetings" && <div>{meetingsSlot}</div>}
-      {active === "uploaded" && <UploadedPane data={data} reachable={resumeReachable} />}
-      {active === "linkedin" && <LinkedinTextPane text={linkedinText} />}
-      {active === "facsimile" && <FacsimilePane data={data} />}
+      {/* flex-1 + overflow-y-auto: this scroll container is what makes the
+          sticky panel work — each pane can grow as much as it likes; the
+          container scrolls within the pinned tab-strip height. */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {active === "email" && <div className="p-5">{emailSlot}</div>}
+        {active === "contact" && <div>{contactSlot}</div>}
+        {active === "meetings" && <div>{meetingsSlot}</div>}
+        {active === "uploaded" && <UploadedPane data={data} reachable={resumeReachable} />}
+        {active === "linkedin" && <LinkedinTextPane text={linkedinText} />}
+        {active === "facsimile" && <FacsimilePane data={data} />}
+      </div>
     </div>
   );
 }
