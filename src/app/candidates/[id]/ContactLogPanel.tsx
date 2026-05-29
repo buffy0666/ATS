@@ -99,78 +99,73 @@ export function ContactLogPanel({
           disabled={pending}
         />
 
-        {/* Outbound + Inbound columns ----------------------------------- */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {/* Outbound */}
-          <div>
-            <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5">
-              Outbound
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setShowCallOutcomes((v) => !v)}
-                disabled={pending}
-                aria-expanded={showCallOutcomes}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${
-                  showCallOutcomes
-                    ? "bg-emerald-700"
-                    : "bg-emerald-600 hover:bg-emerald-700"
-                }`}
-              >
-                Log Call {showCallOutcomes ? "▴" : "▾"}
-              </button>
-              <button
-                type="button"
-                onClick={() => submit(ContactChannel.SMS, EmailDirection.OUTBOUND)}
-                disabled={pending}
-                className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Log SMS
-              </button>
-              <button
-                type="button"
-                onClick={() => submit(ContactChannel.LINKEDIN, EmailDirection.OUTBOUND)}
-                disabled={pending}
-                className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Log LI
-              </button>
-            </div>
-          </div>
+        {/* All six buttons in a single row, left to right: outbound first
+            (green), then inbound (blue). A thin divider + slightly larger
+            gap signals where the two groups split. Wraps on narrow screens
+            so nothing overflows the panel. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Outbound (green) */}
+          <button
+            type="button"
+            onClick={() => setShowCallOutcomes((v) => !v)}
+            disabled={pending}
+            aria-expanded={showCallOutcomes}
+            className={`rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+              showCallOutcomes
+                ? "bg-emerald-700"
+                : "bg-emerald-600 hover:bg-emerald-700"
+            }`}
+          >
+            Log Call {showCallOutcomes ? "▴" : "▾"}
+          </button>
+          <button
+            type="button"
+            onClick={() => submit(ContactChannel.SMS, EmailDirection.OUTBOUND)}
+            disabled={pending}
+            className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Log SMS
+          </button>
+          <button
+            type="button"
+            onClick={() => submit(ContactChannel.LINKEDIN, EmailDirection.OUTBOUND)}
+            disabled={pending}
+            className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Log LI
+          </button>
 
-          {/* Inbound */}
-          <div>
-            <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5">
-              Inbound
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => submit(ContactChannel.CALL, EmailDirection.INBOUND)}
-                disabled={pending}
-                className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Rec Call
-              </button>
-              <button
-                type="button"
-                onClick={() => submit(ContactChannel.SMS, EmailDirection.INBOUND)}
-                disabled={pending}
-                className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Rec SMS
-              </button>
-              <button
-                type="button"
-                onClick={() => submit(ContactChannel.LINKEDIN, EmailDirection.INBOUND)}
-                disabled={pending}
-                className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Rec LI
-              </button>
-            </div>
-          </div>
+          {/* Divider between the two groups. */}
+          <span
+            aria-hidden="true"
+            className="mx-1 hidden h-6 w-px bg-zinc-300 dark:bg-zinc-700 sm:inline-block"
+          />
+
+          {/* Inbound (blue) */}
+          <button
+            type="button"
+            onClick={() => submit(ContactChannel.CALL, EmailDirection.INBOUND)}
+            disabled={pending}
+            className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Rec Call
+          </button>
+          <button
+            type="button"
+            onClick={() => submit(ContactChannel.SMS, EmailDirection.INBOUND)}
+            disabled={pending}
+            className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Rec SMS
+          </button>
+          <button
+            type="button"
+            onClick={() => submit(ContactChannel.LINKEDIN, EmailDirection.INBOUND)}
+            disabled={pending}
+            className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Rec LI
+          </button>
         </div>
 
         {/* Call outcome sub-menu — spans below both columns so the four
