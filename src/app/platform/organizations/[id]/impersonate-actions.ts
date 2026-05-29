@@ -91,6 +91,16 @@ export async function endImpersonationAction(): Promise<void> {
     platformAdminUserId: impersonation.realUserId,
   });
 
+  // Look up the actor's platform-admin flag BEFORE clearing the overlay
+  // so we can pick a landing page that makes sense for them: platform
+  // admins return to the cross-tenant org view they were on; regular
+  // org admins return to their own "Login as" picker. (Realm-correct
+  // because realUserId is who's actually logged in.)
+  const actor = await prisma.user.findUnique({
+    where: { id: impersonation.realUserId },
+    select: { isPlatformAdmin: true },
+  });
+
   // Pass null to signal "clear the overlay" — JWT callback handles this
   // by deleting the token.impersonation field. TS sees `null` as wider
   // than the Session type allows, so cast to keep the runtime contract
@@ -99,5 +109,8 @@ export async function endImpersonationAction(): Promise<void> {
     typeof updateSession
   >[0]);
 
-  redirect(`/platform/organizations/${impersonation.targetOrgId}`);
+  if (actor?.isPlatformAdmin) {
+    redirect(`/platform/organizations/${impersonation.targetOrgId}`);
+  }
+  redirect("/admin/impersonate");
 }

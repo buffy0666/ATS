@@ -22,6 +22,7 @@ const PRIMARY_ITEMS: NavItem[] = [
 const ADMIN_ITEMS: NavItem[] = [
   { href: "/tasks", label: "Tasks" },
   { href: "/users", label: "Users" },
+  { href: "/admin/impersonate", label: "Login as user" },
   { href: "/audit", label: "Audit history" },
   { href: "/settings", label: "Settings" },
 ];
