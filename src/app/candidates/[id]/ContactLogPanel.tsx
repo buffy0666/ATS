@@ -45,6 +45,49 @@ const OUTCOMES: CallOutcome[] = [
   "NOT_INTERESTED",
 ];
 
+// Pastel-with-depth button styles. Soft tinted fill + colored text + 1px
+// border in the same hue + a layered shadow (1px above, inset hairline
+// below) for subtle depth. Hover lifts the button 1px and brightens the
+// fill; active press settles it back. Tight 13px medium text feels less
+// utilitarian than 14px font-medium.
+const OUT_BTN =
+  "inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[13px] font-medium tracking-tight text-emerald-700 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_-1px_0_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-px hover:bg-emerald-100 hover:shadow-[0_3px_8px_-2px_rgba(16,185,129,0.2),inset_0_-1px_0_rgba(0,0,0,0.04)] active:translate-y-0 active:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200 dark:hover:bg-emerald-900/50";
+const OUT_BTN_ACTIVE =
+  "inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-100 px-3 py-1.5 text-[13px] font-medium tracking-tight text-emerald-800 shadow-[inset_0_1px_2px_rgba(16,185,129,0.2)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-100";
+const IN_BTN =
+  "inline-flex items-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-[13px] font-medium tracking-tight text-sky-700 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_-1px_0_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-px hover:bg-sky-100 hover:shadow-[0_3px_8px_-2px_rgba(2,132,199,0.2),inset_0_-1px_0_rgba(0,0,0,0.04)] active:translate-y-0 active:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-900/50";
+const OUTCOME_BTN =
+  "inline-flex items-center rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium tracking-tight text-emerald-700 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-px hover:bg-emerald-50 hover:shadow-[0_2px_6px_-2px_rgba(16,185,129,0.2)] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-900/60 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40";
+
+function IconPhone({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72a2 2 0 0 1 1.72 2z" />
+    </svg>
+  );
+}
+function IconSms({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </svg>
+  );
+}
+function IconLinkedIn({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M20.45 20.45h-3.55v-5.57c0-1.33-.02-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.95v5.66H9.36V9h3.41v1.56h.05c.47-.9 1.63-1.85 3.36-1.85 3.59 0 4.26 2.36 4.26 5.43v6.31zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM3.56 20.45h3.56V9H3.56v11.45z" />
+    </svg>
+  );
+}
+function IconCaret({ open }: { open: boolean }) {
+  return (
+    <svg viewBox="0 0 12 12" className={`h-3 w-3 transition-transform duration-150 ${open ? "rotate-180" : ""}`} aria-hidden="true">
+      <path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function ContactLogPanel({
   candidateId,
   logs,
@@ -104,66 +147,69 @@ export function ContactLogPanel({
             gap signals where the two groups split. Wraps on narrow screens
             so nothing overflows the panel. */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Outbound (green) */}
+          {/* Outbound (emerald) */}
           <button
             type="button"
             onClick={() => setShowCallOutcomes((v) => !v)}
             disabled={pending}
             aria-expanded={showCallOutcomes}
-            className={`rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${
-              showCallOutcomes
-                ? "bg-emerald-700"
-                : "bg-emerald-600 hover:bg-emerald-700"
-            }`}
+            className={showCallOutcomes ? OUT_BTN_ACTIVE : OUT_BTN}
           >
-            Log Call {showCallOutcomes ? "▴" : "▾"}
+            <IconPhone />
+            Log Call
+            <IconCaret open={showCallOutcomes} />
           </button>
           <button
             type="button"
             onClick={() => submit(ContactChannel.SMS, EmailDirection.OUTBOUND)}
             disabled={pending}
-            className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={OUT_BTN}
           >
+            <IconSms />
             Log SMS
           </button>
           <button
             type="button"
             onClick={() => submit(ContactChannel.LINKEDIN, EmailDirection.OUTBOUND)}
             disabled={pending}
-            className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={OUT_BTN}
           >
+            <IconLinkedIn />
             Log LI
           </button>
 
-          {/* Divider between the two groups. */}
+          {/* Hairline divider between the two groups. */}
           <span
             aria-hidden="true"
-            className="mx-1 hidden h-6 w-px bg-zinc-300 dark:bg-zinc-700 sm:inline-block"
+            className="mx-1.5 hidden h-5 w-px bg-zinc-200/80 dark:bg-zinc-800 sm:inline-block"
           />
 
-          {/* Inbound (blue) */}
+          {/* Inbound (sky) */}
           <button
             type="button"
             onClick={() => submit(ContactChannel.CALL, EmailDirection.INBOUND)}
             disabled={pending}
-            className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={IN_BTN}
           >
+            <IconPhone />
             Rec Call
           </button>
           <button
             type="button"
             onClick={() => submit(ContactChannel.SMS, EmailDirection.INBOUND)}
             disabled={pending}
-            className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={IN_BTN}
           >
+            <IconSms />
             Rec SMS
           </button>
           <button
             type="button"
             onClick={() => submit(ContactChannel.LINKEDIN, EmailDirection.INBOUND)}
             disabled={pending}
-            className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className={IN_BTN}
           >
+            <IconLinkedIn />
             Rec LI
           </button>
         </div>
@@ -171,11 +217,11 @@ export function ContactLogPanel({
         {/* Call outcome sub-menu — spans below both columns so the four
             outcome buttons get room and don't squeeze the Outbound column. */}
         {showCallOutcomes && (
-          <div className="rounded-md border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30 p-2.5">
-            <div className="text-[11px] text-emerald-900 dark:text-emerald-200 mb-1.5">
-              Pick an outcome — clicking logs the call:
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3 shadow-[0_1px_2px_rgba(16,185,129,0.05),inset_0_0_0_1px_rgba(16,185,129,0.04)] dark:border-emerald-900/60 dark:bg-emerald-950/30">
+            <div className="mb-2 text-[11px] font-medium tracking-tight text-emerald-800 dark:text-emerald-200">
+              Pick an outcome — clicking logs the call.
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {OUTCOMES.map((o) => (
                 <button
                   key={o}
@@ -184,7 +230,7 @@ export function ContactLogPanel({
                     submit(ContactChannel.CALL, EmailDirection.OUTBOUND, o)
                   }
                   disabled={pending}
-                  className="rounded-md border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-medium text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+                  className={OUTCOME_BTN}
                 >
                   {OUTCOME_LABEL[o]}
                 </button>
