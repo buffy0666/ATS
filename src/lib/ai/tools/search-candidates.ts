@@ -42,6 +42,26 @@ export const searchCandidatesTool = defineTool({
       return { error: "No organization context — re-authenticate and try again." };
     }
     const orgId = ctx.organizationId;
+
+    // Auto-route: when the model passes a single alphabetic word as `query`
+    // (and no `nameContains`), it almost always meant "search by name" —
+    // matches the "named X" / "how many X" intent. Treat it as nameContains
+    // so we don't FTS across resume text and return 50 unrelated rows.
+    let queryInput = args.query?.trim() ?? "";
+    let nameInput = args.nameContains?.trim() ?? "";
+    let autoRoutedNameQuery: string | null = null;
+    if (!nameInput && queryInput) {
+      const looksLikeName =
+        queryInput.length <= 30 &&
+        !/\s/.test(queryInput) &&
+        /^[A-Za-z][A-Za-z' .-]*$/.test(queryInput);
+      if (looksLikeName) {
+        nameInput = queryInput;
+        autoRoutedNameQuery = queryInput;
+        queryInput = "";
+      }
+    }
+
     const where: Parameters<typeof prisma.candidate.findMany>[0] = {
       where: { organizationId: orgId },
     };
@@ -54,50 +74,62 @@ export const searchCandidatesTool = defineTool({
         tags: { some: { name: { in: args.tags } } },
       };
     }
-    if (args.nameContains && args.nameContains.trim().length > 0) {
-      const v = args.nameContains.trim();
+    if (nameInput.length > 0) {
       where.where = {
         ...where.where,
         OR: [
-          { firstName: { contains: v, mode: "insensitive" } },
-          { lastName: { contains: v, mode: "insensitive" } },
+          { firstName: { contains: nameInput, mode: "insensitive" } },
+          { lastName: { contains: nameInput, mode: "insensitive" } },
         ],
       };
     }
 
     let ftsIds: string[] | null = null;
-    if (hasSearchInput(args.query)) {
-      ftsIds = await searchCandidates(args.query, orgId);
+    if (hasSearchInput(queryInput)) {
+      ftsIds = await searchCandidates(queryInput, orgId);
       if (ftsIds && ftsIds.length === 0) return { results: [], total: 0 };
       if (ftsIds) {
         where.where = { ...where.where, id: { in: ftsIds } };
       }
     }
 
-    const candidates = await prisma.candidate.findMany({
-      where: where.where,
-      orderBy: { createdAt: "desc" },
-      take: args.limit,
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        status: true,
-        currentTitle: true,
-        currentCompany: true,
-        locationCity: true,
-        locationState: true,
-        tags: { select: { name: true } },
-      },
-    });
+    // Real total reflects how many rows actually match the filters — not
+    // the page size. Crucial for accurate answers to "how many ...".
+    const [total, candidates] = await Promise.all([
+      prisma.candidate.count({ where: where.where }),
+      prisma.candidate.findMany({
+        where: where.where,
+        orderBy: { createdAt: "desc" },
+        take: args.limit,
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          status: true,
+          currentTitle: true,
+          currentCompany: true,
+          locationCity: true,
+          locationState: true,
+          tags: { select: { name: true } },
+        },
+      }),
+    ]);
 
     const ordered = ftsIds
       ? [...candidates].sort((a, b) => ftsIds!.indexOf(a.id) - ftsIds!.indexOf(b.id))
       : candidates;
 
     return {
-      total: ordered.length,
+      total,
+      returned: ordered.length,
+      // Surface the auto-route so the model (and the user) can see we
+      // interpreted a bare word like "jason" as a name search.
+      ...(autoRoutedNameQuery
+        ? {
+            note: `Treated query "${autoRoutedNameQuery}" as a name search (firstName/lastName contains). Pass nameContains explicitly to suppress this fallback, or pass a multi-word/Boolean query to force keyword search.`,
+          }
+        : {}),
       results: ordered.map((c) => ({
         id: c.id,
         name: `${c.firstName} ${c.lastName}`.trim(),
