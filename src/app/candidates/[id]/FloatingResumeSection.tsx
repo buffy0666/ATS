@@ -72,6 +72,14 @@ export function FloatingResumeSection({
   // panel. Matches the 1rem gap used elsewhere on the page.
   const topPx = bannerH + 16;
 
+  // Height budget for the panel. We deliberately don't take the full
+  // viewport — that would push the Profile + metadata sections below it
+  // entirely off-screen on first paint, forcing the user to scroll past
+  // a wall of panel just to see the candidate's details. 60% of viewport
+  // (capped at 560px) leaves ~40% of the screen below the panel for the
+  // Profile card and the rest of the left column.
+  const panelHeight = `min(60vh, calc(100vh - ${topPx + 16}px), 560px)`;
+
   return (
     <>
       {/* Spacer: occupies the column slot so metadata sections below
@@ -79,7 +87,7 @@ export function FloatingResumeSection({
       <div
         ref={slotRef}
         aria-hidden
-        style={{ height: `calc(100vh - ${topPx + 16}px)` }}
+        style={{ height: panelHeight }}
       />
 
       {/* The floating panel itself. */}
@@ -90,7 +98,7 @@ export function FloatingResumeSection({
           top: `${topPx}px`,
           left: geom?.left ?? 0,
           width: geom?.width ?? 0,
-          maxHeight: `calc(100vh - ${topPx + 16}px)`,
+          maxHeight: panelHeight,
           zIndex: 30,
           visibility: geom ? "visible" : "hidden",
         }}
