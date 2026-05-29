@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth-utils";
+import { Role } from "@/generated/prisma";
 import { RoleSelector } from "./RoleSelector";
 import { ResetPasswordForm } from "./ResetPasswordForm";
 import { DeleteUserButton } from "./DeleteUserButton";
@@ -37,7 +38,12 @@ export default async function EditUserPage({
 
         <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 mb-3">Role</h2>
-          <RoleSelector userId={user.id} role={user.role} isSelf={isSelf} />
+          <RoleSelector
+            userId={user.id}
+            role={user.role}
+            isSelf={isSelf}
+            viewerRole={(session.user.role as Role) ?? Role.RECRUITER}
+          />
           {isSelf && (
             <p className="text-xs text-zinc-500 mt-2">
               You can&apos;t demote yourself — ask another admin to do it.

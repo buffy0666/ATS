@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { Role } from "@/generated/prisma";
+import { isAdminOrAbove } from "@/lib/auth-utils";
 import { KnowledgeForm } from "../KnowledgeForm";
 
 export default async function NewKnowledgeItemPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const isAdmin = session.user.role === Role.ADMIN;
+  const isAdmin = isAdminOrAbove(session.user.role);
 
   return (
     <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-10">

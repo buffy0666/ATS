@@ -22,6 +22,18 @@ export const createUserTool = defineTool({
       .describe("Initial password. Must be at least 10 chars; user should change it on first login."),
   }),
   async execute(args, ctx) {
+    // Middle-tier ADMIN may only create RECRUITER or ADMIN — only an
+    // OWNER can spin up another OWNER.
+    if (args.role === Role.OWNER) {
+      const caller = await prisma.user.findUnique({
+        where: { id: ctx.userId },
+        select: { role: true },
+      });
+      if (caller?.role !== Role.OWNER) {
+        return { ok: false, error: "Only an owner can create another OWNER." };
+      }
+    }
+
     const existing = await prisma.user.findUnique({
       where: { email: args.email.toLowerCase() },
       select: { id: true },

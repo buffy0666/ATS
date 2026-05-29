@@ -1,10 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { removeAttachmentFile, saveAttachment } from "@/lib/uploads";
-import { Role } from "@/generated/prisma";
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2 MB
 const ALLOWED_LOGO_TYPES = new Set(["image/jpeg", "image/png"]);
@@ -15,7 +14,7 @@ export type LogoActionResult =
 
 export async function uploadOrgLogo(formData: FormData): Promise<LogoActionResult> {
   const { session, orgId } = await requireSessionWithOrg();
-  if (session.user.role !== Role.ADMIN) {
+  if (!isAdminOrAbove(session.user.role)) {
     return { ok: false, message: "Only admins can change the workspace logo." };
   }
 
@@ -69,7 +68,7 @@ export async function uploadOrgLogo(formData: FormData): Promise<LogoActionResul
 
 export async function removeOrgLogo(): Promise<LogoActionResult> {
   const { session, orgId } = await requireSessionWithOrg();
-  if (session.user.role !== Role.ADMIN) {
+  if (!isAdminOrAbove(session.user.role)) {
     return { ok: false, message: "Only admins can change the workspace logo." };
   }
 

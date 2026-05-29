@@ -56,8 +56,8 @@ export async function createOrganizationAction(
         where: { id: userId },
         data: {
           organizationId: org.id,
-          // Promote to ADMIN since they're the founder of this workspace.
-          role: Role.ADMIN,
+          // Promote to OWNER since they're the founder of this workspace.
+          role: Role.OWNER,
         },
       });
     });

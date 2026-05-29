@@ -744,7 +744,7 @@ export default async function CandidateDetailPage({
                 stage: a.stage,
               }))}
               currentUserId={session?.user?.id ?? ""}
-              currentUserIsAdmin={session?.user?.role === Role.ADMIN}
+              currentUserIsAdmin={session?.user?.role === Role.ADMIN || session?.user?.role === Role.OWNER}
             />
           </div>
         </aside>

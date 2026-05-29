@@ -53,7 +53,8 @@ export const ALL_TOOLS: AssistantTool[] = [
  * means the model can't even attempt to call them.
  */
 export function getAvailableTools(role: Role): AssistantTool[] {
-  if (role === Role.ADMIN) return ALL_TOOLS;
+  // Both OWNER and ADMIN are "admin-tier" for tool gating purposes.
+  if (role === Role.OWNER || role === Role.ADMIN) return ALL_TOOLS;
   return ALL_TOOLS.filter((t) => !t.requiresAdmin);
 }
 

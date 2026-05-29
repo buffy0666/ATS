@@ -49,6 +49,15 @@ export async function createUser(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
 
+  // Middle-tier ADMIN may only create RECRUITER or ADMIN — never OWNER.
+  // Only OWNERs can spin up another OWNER.
+  if (parsed.data.role === Role.OWNER && session.user.role !== Role.OWNER) {
+    return {
+      ok: false,
+      error: "Only an owner can create another OWNER.",
+    };
+  }
+
   const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } });
   if (existing) return { ok: false, error: "A user with that email already exists." };
 
@@ -149,16 +158,45 @@ Please change your password after your first login.
   }
 }
 
-export async function updateUserRole(userId: string, role: Role) {
-  const session = await requireAdmin();
+export type UpdateRoleResult = { ok: true } | { ok: false; error: string };
 
-  if (userId === session.user.id && role !== Role.ADMIN) {
-    throw new Error("You can't remove admin from your own account.");
+export async function updateUserRole(
+  userId: string,
+  role: Role,
+): Promise<UpdateRoleResult> {
+  const { session, orgId } = await requireAdminWithOrg();
+  const viewerIsOwner = session.user.role === Role.OWNER;
+
+  // Look up the target so we know whether the viewer is allowed to touch
+  // them and whether changing their role would leave the org orphaned.
+  const target = await prisma.user.findFirst({
+    where: { id: userId, organizationId: orgId },
+    select: { id: true, role: true },
+  });
+  if (!target) return { ok: false, error: "User not found in your workspace." };
+
+  // ADMIN can't promote anyone to OWNER, can't edit an OWNER's role.
+  if (!viewerIsOwner && (role === Role.OWNER || target.role === Role.OWNER)) {
+    return { ok: false, error: "Only an owner can manage OWNER roles." };
+  }
+
+  // Never let an org end up with zero OWNERs.
+  if (target.role === Role.OWNER && role !== Role.OWNER) {
+    const owners = await prisma.user.count({
+      where: { organizationId: orgId, role: Role.OWNER },
+    });
+    if (owners <= 1) {
+      return {
+        ok: false,
+        error: "At least one OWNER must remain in this workspace.",
+      };
+    }
   }
 
   await prisma.user.update({ where: { id: userId }, data: { role } });
   revalidatePath("/users");
   revalidatePath(`/users/${userId}`);
+  return { ok: true };
 }
 
 const resetSchema = z.object({ password: passwordPolicy });
@@ -225,6 +263,11 @@ export async function inviteTeammateAction(
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  // Middle-tier ADMIN can't invite anyone in as OWNER.
+  if (parsed.data.role === Role.OWNER && session.user.role !== Role.OWNER) {
+    return { ok: false, error: "Only an owner can invite another OWNER." };
   }
 
   // Don't invite an email that's already a user — either they're already
@@ -438,7 +481,9 @@ export async function createGlobalAdminAction(
       email: parsed.data.email,
       name: parsed.data.name,
       passwordHash,
-      role: Role.ADMIN,
+      // Platform admins are seeded as OWNERs of their bootstrap tenant
+      // so they have full per-tenant access too.
+      role: Role.OWNER,
       organizationId: orgId,
       isPlatformAdmin: true,
     },

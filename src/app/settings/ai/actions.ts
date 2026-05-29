@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireAdminWithOrg } from "@/lib/auth-utils";
+import { requireOwnerWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret, maskKey } from "@/lib/crypto";
 import { complete, invalidateAIProviderCache } from "@/lib/ai";
@@ -29,7 +29,7 @@ export type SaveAIConfigResult =
  * brings their own provider + key in Settings → AI provider.
  */
 export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResult> {
-  const { orgId } = await requireAdminWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
 
   const parsed = saveSchema.safeParse({
     provider: formData.get("provider"),
@@ -100,7 +100,7 @@ export type TestAIConfigResult =
   | { ok: false; error: string };
 
 export async function testAIConfig(): Promise<TestAIConfigResult> {
-  const { orgId } = await requireAdminWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
 
   // Drop any cached provider for this org so the test reflects what's
   // actually saved in the DB right now — not a provider built from a
@@ -154,7 +154,7 @@ export type ListOllamaModelsResult =
   | { ok: false; error: string };
 
 export async function listOllamaModels(baseUrl: string): Promise<ListOllamaModelsResult> {
-  await requireAdminWithOrg();
+  await requireOwnerWithOrg();
 
   const trimmed = baseUrl.trim();
   if (!trimmed) {
@@ -198,7 +198,7 @@ export async function listOllamaModels(baseUrl: string): Promise<ListOllamaModel
 }
 
 export async function getCurrentKeyPreview(): Promise<string | null> {
-  const { orgId } = await requireAdminWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
   const row = await prisma.aIConfig.findUnique({
     where: { organizationId: orgId },
     select: { apiKeyEncrypted: true },

@@ -40,9 +40,38 @@ export async function requireSession() {
   return session;
 }
 
+/**
+ * Pure helpers — useful in client components, server components, and tools
+ * that don't want to perform a redirect. The hierarchy is:
+ *   OWNER     - full access to every tenant feature.
+ *   ADMIN     - branding / announcements / tags / users (RECRUITER+ADMIN)
+ *               / audit history / knowledge approval. Locked out of deep
+ *               settings (custom fields, choice options, AI provider).
+ *   RECRUITER - day-to-day recruiter access only.
+ */
+export function isOwner(role: Role | null | undefined): boolean {
+  return role === Role.OWNER;
+}
+export function isAdminOrAbove(role: Role | null | undefined): boolean {
+  return role === Role.OWNER || role === Role.ADMIN;
+}
+
 export async function requireAdmin() {
   const session = await requireSession();
-  if (session.user.role !== Role.ADMIN) {
+  if (!isAdminOrAbove(session.user.role)) {
+    redirect("/?error=forbidden");
+  }
+  return session;
+}
+
+/**
+ * Stricter than requireAdmin — only OWNERs pass. Use on routes that
+ * configure org-wide deep settings (AI provider, custom-field schema,
+ * choice options, etc.) so a middle-tier ADMIN can't reach them.
+ */
+export async function requireOwner() {
+  const session = await requireSession();
+  if (!isOwner(session.user.role)) {
     redirect("/?error=forbidden");
   }
   return session;
@@ -78,12 +107,30 @@ export async function requireSessionWithOrg() {
 }
 
 /**
- * Same as requireSessionWithOrg() but also enforces ADMIN role. Pages that
- * write tenant configuration (Settings → AI provider, Settings → API
- * tokens, etc.) should use this.
+ * Same as requireSessionWithOrg() but also enforces OWNER or ADMIN role.
+ * Use this on pages that ADMIN should be able to reach (Branding,
+ * Announcements, Tags, Users, Audit history, Knowledge approvals).
  */
 export async function requireAdminWithOrg() {
   const session = await requireAdmin();
+  const orgId = session.user.organizationId;
+  if (!orgId) {
+    redirect("/onboarding/create-organization");
+  }
+  return {
+    session,
+    orgId,
+    orgName: session.user.organizationName,
+  };
+}
+
+/**
+ * OWNER-only variant of requireAdminWithOrg. Use on pages that the
+ * middle-tier ADMIN should NOT be able to reach — AI provider, custom
+ * fields, choice options, API tokens, and other deep settings.
+ */
+export async function requireOwnerWithOrg() {
+  const session = await requireOwner();
   const orgId = session.user.organizationId;
   if (!orgId) {
     redirect("/onboarding/create-organization");

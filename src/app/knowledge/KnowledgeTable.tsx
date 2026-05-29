@@ -43,7 +43,9 @@ export function KnowledgeTable({
   const [statusFilter, setStatusFilter] = useState<"ALL" | KnowledgeStatus>("ALL");
   const [typeFilter, setTypeFilter] = useState<string>("all");
 
-  const isAdmin = currentUserRole === Role.ADMIN;
+  // ADMIN or OWNER can approve / delete any item; recruiters can only
+  // delete their own and never approve.
+  const isAdmin = currentUserRole === Role.ADMIN || currentUserRole === Role.OWNER;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

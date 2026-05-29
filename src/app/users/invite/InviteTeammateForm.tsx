@@ -1,13 +1,15 @@
 "use client";
 
 import { useActionState } from "react";
+import { Role } from "@/generated/prisma";
 import { inviteTeammateAction, type InviteResult } from "../actions";
 
-export function InviteTeammateForm() {
+export function InviteTeammateForm({ viewerRole }: { viewerRole: Role }) {
   const [state, action, pending] = useActionState<InviteResult | undefined, FormData>(
     inviteTeammateAction,
     undefined,
   );
+  const viewerIsOwner = viewerRole === Role.OWNER;
 
   if (state?.ok) {
     return (
@@ -72,7 +74,10 @@ export function InviteTeammateForm() {
           className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
         >
           <option value="RECRUITER">Recruiter — can manage jobs, candidates, and pipelines</option>
-          <option value="ADMIN">Admin — full access, including user management</option>
+          <option value="ADMIN">Admin — user management, branding, announcements, tags</option>
+          {viewerIsOwner && (
+            <option value="OWNER">Owner — full access to every setting</option>
+          )}
         </select>
       </div>
       {state && !state.ok && <p className="text-sm text-red-600">{state.error}</p>}

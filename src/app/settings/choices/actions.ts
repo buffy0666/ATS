@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { requireOwnerWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { CHOICE_FIELDS } from "@/lib/choices";
 
@@ -69,7 +69,7 @@ function clean(name: string): string {
 }
 
 export async function usageCountForChoice(field: string, name: string): Promise<number> {
-  const { orgId } = await requireSessionWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
   return getHandler(field).count(orgId, name);
 }
 
@@ -77,7 +77,7 @@ export async function createChoiceOption(
   field: string,
   rawName: string,
 ): Promise<ChoiceActionResult> {
-  const { orgId } = await requireSessionWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
   const name = clean(rawName);
   if (!name) return { ok: false, message: "Name is required." };
   if (name.length > MAX_NAME) return { ok: false, message: `Name too long (max ${MAX_NAME}).` };
@@ -114,7 +114,7 @@ export async function renameChoiceOption(
   optionId: string,
   rawNewName: string,
 ): Promise<ChoiceActionResult> {
-  const { orgId } = await requireSessionWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
   const newName = clean(rawNewName);
   if (!newName) return { ok: false, message: "Name is required." };
   if (newName.length > MAX_NAME) return { ok: false, message: `Name too long (max ${MAX_NAME}).` };
@@ -172,7 +172,7 @@ export async function renameChoiceOption(
 }
 
 export async function deleteChoiceOption(optionId: string): Promise<ChoiceActionResult> {
-  const { orgId } = await requireSessionWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
   const existing = await prisma.choiceOption.findFirst({
     where: { id: optionId, organizationId: orgId },
     select: { field: true, name: true },

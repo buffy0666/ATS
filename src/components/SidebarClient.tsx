@@ -47,6 +47,7 @@ export function SidebarClient({
   email,
   role,
   isAdmin,
+  isOwner,
   isPlatformAdmin,
   organizationName,
   organizationLogoUrl,
@@ -54,6 +55,12 @@ export function SidebarClient({
   email: string;
   role: string;
   isAdmin: boolean;
+  /**
+   * Strict OWNER tier — true only for users with role === OWNER.
+   * Drives visibility of deep settings (Custom fields, Choices, AI
+   * provider) that the middle-tier ADMIN must not see.
+   */
+  isOwner: boolean;
   // SaaS operator — gets the Platform section that spans all tenants.
   // Orthogonal to isAdmin (a platform admin might also be a tenant admin
   // of their own dogfood org).

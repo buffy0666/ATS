@@ -98,11 +98,11 @@ export async function acceptInvitationAction(
           data: { ownerUserId: user.id },
         });
         // Defense in depth: invitations with asOwner should always have
-        // role=ADMIN. Promote just in case the row was tampered with.
-        if (invitation.role !== Role.ADMIN) {
+        // role=OWNER. Promote just in case the row was tampered with.
+        if (invitation.role !== Role.OWNER) {
           await tx.user.update({
             where: { id: user.id },
-            data: { role: Role.ADMIN },
+            data: { role: Role.OWNER },
           });
         }
       }

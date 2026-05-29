@@ -2,9 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { isOwner, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
-import { Role } from "@/generated/prisma";
 import { createApiToken, revokeApiToken } from "@/lib/api-tokens";
 
 const nameSchema = z.string().trim().min(1).max(80);
@@ -29,15 +28,17 @@ export async function createTokenAction(
 
 export async function revokeTokenAction(tokenId: string): Promise<void> {
   const { session, orgId } = await requireSessionWithOrg();
-  if (session.user.role === Role.ADMIN) {
-    // Admins can revoke any token in their own org — but never across
-    // tenants: the org filter is the hard boundary.
+  if (isOwner(session.user.role)) {
+    // OWNERs can revoke any token in their own org — but never across
+    // tenants: the org filter is the hard boundary. The middle-tier
+    // ADMIN cannot revoke other people's tokens (a token grants full
+    // user-level access; only OWNERs may rotate it for someone else).
     await prisma.apiToken.updateMany({
       where: { id: tokenId, organizationId: orgId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
   } else {
-    // Non-admins can only revoke tokens they created.
+    // Non-owners can only revoke tokens they created themselves.
     await revokeApiToken(session.user.id, tokenId);
   }
   revalidatePath("/settings/api-tokens");

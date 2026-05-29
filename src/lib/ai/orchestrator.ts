@@ -275,7 +275,7 @@ async function runOneTool(input: {
     return { content: JSON.stringify({ error: errMsg }), isError: true };
   }
 
-  if (tool.requiresAdmin && role !== Role.ADMIN) {
+  if (tool.requiresAdmin && role !== Role.ADMIN && role !== Role.OWNER) {
     const errMsg = `Tool "${tool.name}" requires admin role.`;
     await persistToolOutcome({
       conversationId,

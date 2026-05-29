@@ -1,6 +1,5 @@
-import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
-import { Role } from "@/generated/prisma";
 import { BrandingForm } from "./BrandingForm";
 
 export default async function BrandingSettingsPage() {
@@ -12,7 +11,7 @@ export default async function BrandingSettingsPage() {
   return (
     <BrandingForm
       currentLogoUrl={org?.logoUrl ?? null}
-      isAdmin={session.user.role === Role.ADMIN}
+      isAdmin={isAdminOrAbove(session.user.role)}
     />
   );
 }

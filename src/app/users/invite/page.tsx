@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAdminWithOrg } from "@/lib/auth-utils";
+import { Role } from "@/generated/prisma";
 import { InviteTeammateForm } from "./InviteTeammateForm";
 
 /**
@@ -8,7 +9,7 @@ import { InviteTeammateForm } from "./InviteTeammateForm";
  * invitee picks their own when they click the link.
  */
 export default async function InviteUserPage() {
-  await requireAdminWithOrg();
+  const { session } = await requireAdminWithOrg();
 
   return (
     <main className="flex-1 max-w-xl mx-auto w-full px-6 py-10 space-y-4">
@@ -27,7 +28,7 @@ export default async function InviteUserPage() {
           ← All users
         </Link>
       </div>
-      <InviteTeammateForm />
+      <InviteTeammateForm viewerRole={(session.user.role as Role) ?? Role.RECRUITER} />
       <p className="text-xs text-zinc-500">
         Prefer to set a password yourself?{" "}
         <Link href="/users/new" className="underline">

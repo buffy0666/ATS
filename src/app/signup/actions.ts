@@ -69,7 +69,8 @@ export async function signupAction(
           email,
           name,
           passwordHash,
-          role: Role.ADMIN,
+          // Signup creates a new tenant → first user becomes its OWNER.
+          role: Role.OWNER,
           organizationId: org.id,
         },
         select: { id: true },

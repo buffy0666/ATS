@@ -9,7 +9,16 @@ datasource db {
 }
 
 enum Role {
+  /// Top tier. Full access to every tenant-scoped feature plus user
+  /// administration. The role today's "admins" were upgraded into during
+  /// the OWNER/ADMIN split — there can be more than one OWNER per org.
+  OWNER
+  /// Middle tier. Can create/edit users (RECRUITER + ADMIN only — cannot
+  /// promote anyone to OWNER) and manage Branding, Announcements, Tags,
+  /// Audit history (own org), and Knowledge approvals. Locked out of
+  /// Custom fields, Choice options, AI provider, and other deep settings.
   ADMIN
+  /// Default tier — everything a recruiter does day-to-day.
   RECRUITER
 }
 

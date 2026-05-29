@@ -221,14 +221,14 @@ async function authorizeFieldCreation(
   password: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!userId) return { ok: false, error: "You must be signed in to create fields." };
-  if (!password) return { ok: false, error: "Enter your admin password to create new fields." };
+  if (!password) return { ok: false, error: "Enter your owner password to create new fields." };
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { role: true, passwordHash: true },
   });
-  if (!user || user.role !== Role.ADMIN) {
-    return { ok: false, error: "Only admins can create new fields during import." };
+  if (!user || user.role !== Role.OWNER) {
+    return { ok: false, error: "Only owners can create new fields during import." };
   }
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) return { ok: false, error: "That password is incorrect." };

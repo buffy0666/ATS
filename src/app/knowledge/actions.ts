@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { KnowledgeStatus, Role } from "@/generated/prisma";
-import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { KnowledgeStatus } from "@/generated/prisma";
+import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { saveAttachment } from "@/lib/uploads";
 import { KNOWLEDGE_TYPES } from "./constants";
@@ -83,10 +83,11 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the attachment." };
   }
 
-  // Only admins can set the initial status to APPROVED; everyone else has it
-  // forced to UNDER_REVIEW regardless of what they submit.
-  const isAdmin = session.user.role === Role.ADMIN;
-  const status = isAdmin ? data.status : KnowledgeStatus.UNDER_REVIEW;
+  // Only admins (or owners) can set the initial status to APPROVED;
+  // everyone else has it forced to UNDER_REVIEW regardless of what they
+  // submit.
+  const canApprove = isAdminOrAbove(session.user.role);
+  const status = canApprove ? data.status : KnowledgeStatus.UNDER_REVIEW;
 
   await prisma.knowledgeItem.create({
     data: {
@@ -106,7 +107,7 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
 
 export async function setKnowledgeStatus(itemId: string, status: KnowledgeStatus) {
   const { session, orgId } = await requireSessionWithOrg();
-  if (session.user.role !== Role.ADMIN) {
+  if (!isAdminOrAbove(session.user.role)) {
     throw new Error("Only admins can change knowledge item status.");
   }
 
@@ -127,9 +128,9 @@ export async function deleteKnowledgeItem(itemId: string) {
   });
   if (!item) return;
 
-  const isAdmin = session.user.role === Role.ADMIN;
-  const isOwner = item.createdById === session.user.id;
-  if (!isAdmin && !isOwner) {
+  const isAdmin = isAdminOrAbove(session.user.role);
+  const isCreator = item.createdById === session.user.id;
+  if (!isAdmin && !isCreator) {
     throw new Error("Only the item's creator or an admin can delete it.");
   }
 

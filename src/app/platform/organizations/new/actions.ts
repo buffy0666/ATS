@@ -86,7 +86,8 @@ export async function createTenantAction(
   const { token } = await createInvitation({
     email: ownerEmail,
     organizationId,
-    role: Role.ADMIN,
+    // Platform admin created this tenant — the invitee will be its OWNER.
+    role: Role.OWNER,
     invitedByUserId: platformAdmin.user.id,
     asOwner: true,
   });
