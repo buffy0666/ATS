@@ -425,6 +425,8 @@ export default async function CandidateDetailPage({
                   logs={candidate.contactLogs.map((c) => ({
                     id: c.id,
                     direction: c.direction,
+                    channel: c.channel,
+                    outcome: c.outcome,
                     notes: c.notes,
                     loggedAt: c.loggedAt,
                     loggedBy: c.loggedBy,

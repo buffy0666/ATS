@@ -2,24 +2,45 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { EmailDirection } from "@/generated/prisma";
+import { CallOutcome, ContactChannel, EmailDirection } from "@/generated/prisma";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 
 /**
- * Free-form log of a phone call / SMS / LinkedIn message for a candidate.
- * The recruiter types what happened ("Left voicemail, mentioned Director
- * role"), then hits the Sent or Received button to stamp it with their
- * id, time, and direction.
+ * Log of phone / SMS / LinkedIn outreach for a candidate. Each entry has:
+ *
+ *  - channel:   CALL | SMS | LINKEDIN — picked by which button you click.
+ *  - direction: INBOUND  ("Rec ...")  or  OUTBOUND ("Log ..."). Reuses
+ *               EmailDirection so the UI badge can match the email tab.
+ *  - outcome:   only set when channel=CALL and direction=OUTBOUND — one of
+ *               Bad Number / Left VM / No Answer / Not Interested.
+ *  - notes:     optional free-form text. The textarea is shared across all
+ *               six buttons; whatever's there at click time is attached.
  *
  * Mirrors the email-history pattern so the candidate page can render both
  * in the same INBOUND/OUTBOUND idiom.
  */
 
-const schema = z.object({
-  notes: z.string().trim().min(1, "Add a note before logging.").max(4000),
-  direction: z.nativeEnum(EmailDirection),
-});
+const logSchema = z
+  .object({
+    notes: z
+      .string()
+      .trim()
+      .max(4000)
+      .optional()
+      .transform((v) => (v && v.length > 0 ? v : null)),
+    direction: z.nativeEnum(EmailDirection),
+    channel: z.nativeEnum(ContactChannel),
+    outcome: z.nativeEnum(CallOutcome).optional(),
+  })
+  .refine(
+    // Outcomes only apply to outbound calls; reject obviously-wrong combos
+    // (e.g. SMS + Left VM) so they don't quietly become bad rows.
+    (v) =>
+      !v.outcome ||
+      (v.channel === ContactChannel.CALL && v.direction === EmailDirection.OUTBOUND),
+    { path: ["outcome"], message: "Outcome only applies to outbound calls." },
+  );
 
 export type LogContactResult = { ok: true; id: string } | { ok: false; error: string };
 
@@ -30,9 +51,11 @@ export async function logContact(
 ): Promise<LogContactResult> {
   const { session, orgId } = await requireSessionWithOrg();
 
-  const parsed = schema.safeParse({
+  const parsed = logSchema.safeParse({
     notes: formData.get("notes"),
     direction: formData.get("direction"),
+    channel: formData.get("channel"),
+    outcome: formData.get("outcome") || undefined,
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
@@ -57,6 +80,8 @@ export async function logContact(
       organizationId: orgId,
       loggedByUserId: session.user.id,
       direction: parsed.data.direction,
+      channel: parsed.data.channel,
+      outcome: parsed.data.outcome ?? null,
       notes: parsed.data.notes,
     },
     select: { id: true },
@@ -73,4 +98,51 @@ export async function logContact(
 
   revalidatePath(`/candidates/${candidate.id}`);
   return { ok: true, id: created.id };
+}
+
+/**
+ * Edit the notes on an existing ContactLog row. Channel / direction /
+ * outcome / timestamp are intentionally NOT editable — those represent
+ * facts about a touchpoint that already happened. If the user clicked
+ * the wrong button they can delete and re-log.
+ */
+
+const editSchema = z.object({
+  notes: z
+    .string()
+    .trim()
+    .max(4000)
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : null)),
+});
+
+export type EditContactResult = { ok: true } | { ok: false; error: string };
+
+export async function updateContactLog(
+  logId: string,
+  notes: string,
+): Promise<EditContactResult> {
+  const { orgId } = await requireSessionWithOrg();
+
+  const parsed = editSchema.safeParse({ notes });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  // Tenant-scope the update so a stray id from another org can't be touched.
+  const existing = await prisma.contactLog.findFirst({
+    where: { id: logId, organizationId: orgId },
+    select: { id: true, candidateId: true },
+  });
+  if (!existing) {
+    return { ok: false, error: "Entry not found." };
+  }
+
+  await prisma.contactLog.update({
+    where: { id: existing.id },
+    data: { notes: parsed.data.notes },
+  });
+
+  revalidatePath(`/candidates/${existing.candidateId}`);
+  return { ok: true };
 }

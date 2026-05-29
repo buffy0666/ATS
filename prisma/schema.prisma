@@ -990,11 +990,31 @@ model EmailLog {
   @@index([candidateId, direction, sentAt])
 }
 
+/// Channel for a ContactLog entry. The UI lets the recruiter pick one
+/// of three when logging (Call, SMS, LinkedIn message), and surfaces it
+/// in the history badge alongside Sent/Received.
+enum ContactChannel {
+  CALL
+  SMS
+  LINKEDIN
+}
+
+/// Outcome of an outbound phone call — only meaningful when channel=CALL
+/// and direction=OUTBOUND. Picked from a small fixed menu so dispositions
+/// stay consistent (Bad Number / Left VM / No Answer / Not Interested).
+enum CallOutcome {
+  BAD_NUMBER
+  LEFT_VM
+  NO_ANSWER
+  NOT_INTERESTED
+}
+
 /// Log of non-email outreach (phone calls, SMS, LinkedIn messages) made
 /// to or received from a candidate. Free-form notes — the recruiter types
 /// what happened ("Left voicemail, mentioned the open Director role") and
-/// hits Sent or Received to stamp it. Direction reuses EmailDirection
-/// (INBOUND/OUTBOUND) so the UI can render it with the same affordances.
+/// hits one of the channel + direction buttons to stamp it. Direction
+/// reuses EmailDirection (INBOUND/OUTBOUND) so the UI can render it with
+/// the same Sent/Received affordances as email.
 model ContactLog {
   id             String         @id @default(cuid())
   candidateId    String
@@ -1003,7 +1023,16 @@ model ContactLog {
   loggedByUserId String
   loggedBy       User           @relation("ContactLogLogger", fields: [loggedByUserId], references: [id])
   direction      EmailDirection
-  notes          String
+  /// Which channel this touchpoint was on. The default (CALL) only matters
+  /// for the single pre-channel test row backfilled by `prisma db push` —
+  /// every code path that creates new rows explicitly supplies the channel.
+  channel        ContactChannel @default(CALL)
+  /// Outcome of an outbound call (left vm / no answer / etc). Null for
+  /// inbound calls and for SMS/LinkedIn rows.
+  outcome        CallOutcome?
+  /// Free-form note. Optional — clicking "Log Call → Left VM" is enough on
+  /// its own to capture the touchpoint without typing anything.
+  notes          String?
   loggedAt       DateTime       @default(now())
 
   organizationId String?
