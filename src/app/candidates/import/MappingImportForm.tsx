@@ -9,8 +9,10 @@ import {
   autoMatchFields,
   IMPORT_FIELDS,
   REQUIRED_FIELD_KEYS,
+  slugifyFieldKey,
   type FieldMapping,
 } from "./field-catalog";
+import type { ExistingCustomField } from "./ImportTabs";
 import { FileDropzone } from "./FileDropzone";
 import { ImportResults } from "./ImportResults";
 import { initialImportResult, type ImportMode, type ImportResult } from "./import-types";
@@ -69,7 +71,13 @@ type ChoiceAnalysis = {
  *   3. Import sends the file + the mapping JSON to the server action,
  *      which remaps each row and runs the standard import pipeline.
  */
-export function MappingImportForm({ importMode = "create" }: { importMode?: ImportMode }) {
+export function MappingImportForm({
+  importMode = "create",
+  existingCustomFields = [],
+}: {
+  importMode?: ImportMode;
+  existingCustomFields?: ExistingCustomField[];
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewRow, setPreviewRow] = useState<Record<string, string>>({});
@@ -219,7 +227,30 @@ export function MappingImportForm({ importMode = "create" }: { importMode?: Impo
     () => unmatchedHeaders.filter((h) => newFieldDrafts[h]?.create),
     [unmatchedHeaders, newFieldDrafts],
   );
-  const needsPassword = selectedNewHeaders.length > 0;
+
+  // Map of existing custom-field key -> label, used to recognize drafts
+  // that already correspond to a field created on a prior import. The
+  // server's ensureCustomFields reuses by key, so these need no password.
+  const existingByKey = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const f of existingCustomFields) m.set(f.key, f.label);
+    return m;
+  }, [existingCustomFields]);
+
+  // Returns the existing field's label if this header's slugified key
+  // matches one already in the org, else undefined.
+  const existingMatchFor = (h: string) =>
+    existingByKey.get(slugifyFieldKey(h));
+
+  // Only headers that would create a brand-new field count toward the
+  // admin-password gate. Drafts that map onto an existing field skip it.
+  const actuallyNewHeaders = useMemo(
+    () => selectedNewHeaders.filter((h) => !existingMatchFor(h)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedNewHeaders, existingByKey],
+  );
+
+  const needsPassword = actuallyNewHeaders.length > 0;
   const passwordMissing = needsPassword && !adminPassword.trim();
 
   // For each selected SELECT/MULTI_SELECT new-field draft, run the
@@ -459,6 +490,14 @@ export function MappingImportForm({ importMode = "create" }: { importMode?: Impo
                           />
                           <span className="font-mono text-xs">{h}</span>
                         </label>
+                        {d.create && existingMatchFor(h) && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200"
+                            title="A custom field with this key already exists — values will go into it (no new field created)."
+                          >
+                            → existing: {existingMatchFor(h)}
+                          </span>
+                        )}
                         {d.create && (
                           <>
                             <input
@@ -584,8 +623,8 @@ export function MappingImportForm({ importMode = "create" }: { importMode?: Impo
               {needsPassword && (
                 <div className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5 dark:border-amber-800 dark:bg-amber-950/30">
                   <label className="mb-1 block text-xs font-medium" htmlFor="adminpw">
-                    Admin password — required to create {selectedNewHeaders.length} new field
-                    {selectedNewHeaders.length === 1 ? "" : "s"}
+                    Admin password — required to create {actuallyNewHeaders.length} new field
+                    {actuallyNewHeaders.length === 1 ? "" : "s"}
                   </label>
                   <input
                     id="adminpw"
@@ -640,7 +679,7 @@ export function MappingImportForm({ importMode = "create" }: { importMode?: Impo
               {pending
                 ? "Importing…"
                 : needsPassword
-                  ? `Create ${selectedNewHeaders.length} field${selectedNewHeaders.length === 1 ? "" : "s"} & import`
+                  ? `Create ${actuallyNewHeaders.length} field${actuallyNewHeaders.length === 1 ? "" : "s"} & import`
                   : "Import with this mapping"}
             </button>
           </div>

@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { CustomFieldEntity } from "@/generated/prisma";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { loadCustomFields } from "@/lib/custom-fields";
 import { ImportTabs } from "./ImportTabs";
 
 // Bulk imports run server actions inside this route's function. Vercel
@@ -6,7 +9,19 @@ import { ImportTabs } from "./ImportTabs";
 // run can chew through more rows before timing out.
 export const maxDuration = 300;
 
-export default function ImportCandidatesPage() {
+export default async function ImportCandidatesPage() {
+  const { orgId } = await requireSessionWithOrg();
+  // Surface the org's existing candidate custom fields so the mapping
+  // form can recognize "create new field" drafts that actually point at
+  // a field created on a previous import — and skip the admin-password
+  // gate for those, since the server reuses by key (no new field made).
+  const existingFields = await loadCustomFields(CustomFieldEntity.CANDIDATE, orgId);
+  const existingCustomFields = existingFields.map((f) => ({
+    id: f.id,
+    key: f.key,
+    label: f.label,
+  }));
+
   return (
     <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-10">
       <Link href="/candidates" className="text-sm text-zinc-500 hover:underline">
@@ -18,7 +33,7 @@ export default function ImportCandidatesPage() {
         skipped — they aren&apos;t overwritten.
       </p>
 
-      <ImportTabs />
+      <ImportTabs existingCustomFields={existingCustomFields} />
     </main>
   );
 }

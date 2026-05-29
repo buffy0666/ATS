@@ -32,7 +32,13 @@ const MODE_OPTIONS: { value: ImportMode; label: string; help: string }[] = [
  *   - "Map fields from my file" — any CSV; pair its columns to candidate
  *     fields with auto-match + skip.
  */
-export function ImportTabs() {
+export type ExistingCustomField = { id: string; key: string; label: string };
+
+export function ImportTabs({
+  existingCustomFields = [],
+}: {
+  existingCustomFields?: ExistingCustomField[];
+}) {
   const [mode, setMode] = useState<Mode>("template");
   const [importMode, setImportMode] = useState<ImportMode>("create");
   const activeHelp = MODE_OPTIONS.find((m) => m.value === importMode)?.help ?? "";
@@ -120,7 +126,10 @@ export function ImportTabs() {
             what you don&apos;t need. Same value formats as the template (pipes for multi-value,
             <code> yes/no</code> for booleans, <code>YYYY-MM-DD</code> for dates).
           </p>
-          <MappingImportForm importMode={importMode} />
+          <MappingImportForm
+            importMode={importMode}
+            existingCustomFields={existingCustomFields}
+          />
         </>
       )}
     </div>
