@@ -27,22 +27,38 @@ export function FloatingResumeSection({
 }) {
   const slotRef = useRef<HTMLDivElement>(null);
   const [geom, setGeom] = useState<{ left: number; width: number } | null>(null);
+  // Height of the impersonation banner (sticky at the very top of the page,
+  // z-50, ~36px). 0 when not impersonating. We measure it so the floating
+  // panel sits BELOW it instead of being covered by it.
+  const [bannerH, setBannerH] = useState(0);
 
   useEffect(() => {
     const el = slotRef.current;
     if (!el) return;
 
+    const banner = document.querySelector<HTMLElement>(
+      "[data-impersonation-banner]",
+    );
+
     const update = () => {
       const r = el.getBoundingClientRect();
+      const bh = banner ? banner.getBoundingClientRect().height : 0;
       // window.scrollY shouldn't affect left/width but Safari sometimes
       // reports stale rects when called before layout flush — measure on
       // requestAnimationFrame to be safe.
-      requestAnimationFrame(() => setGeom({ left: r.left, width: r.width }));
+      requestAnimationFrame(() => {
+        setGeom({ left: r.left, width: r.width });
+        setBannerH(bh);
+      });
     };
     update();
 
     const ro = new ResizeObserver(update);
     ro.observe(el);
+    // Observe the banner too — its content can wrap on narrow screens and
+    // grow taller, which would push the panel further down.
+    if (banner) ro.observe(banner);
+
     // Window resize covers sidebar collapse/expand (which reflows the
     // grid columns and changes the spacer's left/width).
     window.addEventListener("resize", update);
@@ -52,6 +68,10 @@ export function FloatingResumeSection({
     };
   }, []);
 
+  // Gap between banner bottom (or page top) and the top of the floating
+  // panel. Matches the 1rem gap used elsewhere on the page.
+  const topPx = bannerH + 16;
+
   return (
     <>
       {/* Spacer: occupies the column slot so metadata sections below
@@ -59,7 +79,7 @@ export function FloatingResumeSection({
       <div
         ref={slotRef}
         aria-hidden
-        style={{ height: "calc(100vh - 2rem)" }}
+        style={{ height: `calc(100vh - ${topPx + 16}px)` }}
       />
 
       {/* The floating panel itself. */}
@@ -67,10 +87,10 @@ export function FloatingResumeSection({
         className="flex flex-col rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden shadow-sm"
         style={{
           position: "fixed",
-          top: "1rem",
+          top: `${topPx}px`,
           left: geom?.left ?? 0,
           width: geom?.width ?? 0,
-          maxHeight: "calc(100vh - 2rem)",
+          maxHeight: `calc(100vh - ${topPx + 16}px)`,
           zIndex: 30,
           visibility: geom ? "visible" : "hidden",
         }}

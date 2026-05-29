@@ -16,7 +16,10 @@ export async function ImpersonationBanner() {
   const { realEmail, targetEmail, targetOrgName } = session.impersonation;
 
   return (
-    <div className="sticky top-0 z-50 bg-red-600 text-white px-4 py-2 text-sm flex items-center justify-between gap-3 shadow">
+    <div
+      data-impersonation-banner
+      className="sticky top-0 z-50 bg-red-600 text-white px-4 py-2 text-sm flex items-center justify-between gap-3 shadow"
+    >
       <div className="flex items-center gap-3 min-w-0">
         <span className="font-semibold uppercase tracking-wider text-[10px] rounded-full bg-white/20 px-2 py-0.5">
           Impersonating
