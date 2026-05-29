@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { EmailComposer } from "./EmailComposer";
 import { EmailHistory } from "./EmailHistory";
 import { ContactLogPanel } from "./ContactLogPanel";
+import { MeetingsPanel } from "./MeetingsPanel";
 import { NotesSection } from "./NotesSection";
 import { CandidateJobsSection } from "./CandidateJobsSection";
 import { EditableField } from "./EditableField";
@@ -165,6 +166,12 @@ export default async function CandidateDetailPage({
           orderBy: { loggedAt: "desc" },
           include: {
             loggedBy: { select: { name: true, email: true } },
+          },
+        },
+        interviews: {
+          orderBy: { startAt: "desc" },
+          include: {
+            organizer: { select: { name: true, email: true } },
           },
         },
         tags: true,
@@ -367,7 +374,14 @@ export default async function CandidateDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4 mb-4 items-start">
         {/* Left column: resume + everything else, stacked. */}
         <div className="space-y-4 min-w-0">
-          <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+          {/* sticky top-4 self-start: pins the tabbed Email / Call-SMS-LI
+              / Resume panel to the viewport as the user scrolls through
+              the metadata and sequences below — matches the Notes column.
+              max-h caps it to viewport so the inner per-tab scrollers
+              (email history, contact history, PDF preview, AI resume…)
+              can do their own scrolling within the pinned panel. z-10
+              keeps it above the metadata that scrolls behind it. */}
+          <section className="sticky top-4 self-start z-10 max-h-[calc(100vh-2rem)] flex flex-col rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
             <ResumeViewer
               data={{
                 resumeUrl: candidate.resumeUrl,
@@ -430,6 +444,23 @@ export default async function CandidateDetailPage({
                     notes: c.notes,
                     loggedAt: c.loggedAt,
                     loggedBy: c.loggedBy,
+                  }))}
+                />
+              }
+              meetingsSlot={
+                <MeetingsPanel
+                  candidateId={candidate.id}
+                  meetings={candidate.interviews.map((m) => ({
+                    id: m.id,
+                    title: m.title,
+                    type: m.type,
+                    status: m.status,
+                    startAt: m.startAt,
+                    endAt: m.endAt,
+                    location: m.location,
+                    videoUrl: m.videoUrl,
+                    description: m.description,
+                    organizer: m.organizer,
                   }))}
                 />
               }

@@ -16,13 +16,14 @@ import type { CandidateResumeData, Reachability } from "./ResumeViewer";
  * first one that has content.
  */
 
-type TabKey = "email" | "contact" | "uploaded" | "linkedin" | "facsimile";
+type TabKey = "email" | "contact" | "meetings" | "uploaded" | "linkedin" | "facsimile";
 
 export function ResumeViewerTabs({
   data,
   resumeReachable,
   emailSlot,
   contactSlot,
+  meetingsSlot,
 }: {
   data: CandidateResumeData;
   resumeReachable: Reachability;
@@ -39,9 +40,15 @@ export function ResumeViewerTabs({
    * non-email outreach composer + history. Omit to hide the tab.
    */
   contactSlot?: React.ReactNode;
+  /**
+   * Content for the "Meetings" tab (position 3). Lists the candidate's
+   * interviews and lets the recruiter Schedule or Log one. Omit to hide.
+   */
+  meetingsSlot?: React.ReactNode;
 }) {
   const hasEmail = Boolean(emailSlot);
   const hasContact = Boolean(contactSlot);
+  const hasMeetings = Boolean(meetingsSlot);
   const hasUploaded = resumeReachable.ok;
   // LinkedIn text now lives in its own column. Fall back to resumeText for
   // legacy rows captured before the split (they had pageText stored under
@@ -86,6 +93,15 @@ export function ResumeViewerTabs({
             Call / SMS / LI
           </TabButton>
         )}
+        {hasMeetings && (
+          <TabButton
+            active={active === "meetings"}
+            onClick={() => setActive("meetings")}
+            present
+          >
+            Meetings
+          </TabButton>
+        )}
         <TabButton
           active={active === "uploaded"}
           onClick={() => setActive("uploaded")}
@@ -111,6 +127,7 @@ export function ResumeViewerTabs({
 
       {active === "email" && <div className="p-5">{emailSlot}</div>}
       {active === "contact" && <div>{contactSlot}</div>}
+      {active === "meetings" && <div>{meetingsSlot}</div>}
       {active === "uploaded" && <UploadedPane data={data} reachable={resumeReachable} />}
       {active === "linkedin" && <LinkedinTextPane text={linkedinText} />}
       {active === "facsimile" && <FacsimilePane data={data} />}

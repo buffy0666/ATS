@@ -46,6 +46,7 @@ export async function ResumeViewer({
   data,
   emailSlot,
   contactSlot,
+  meetingsSlot,
 }: {
   data: CandidateResumeData;
   // Server components can pass client elements (EmailComposer/EmailHistory)
@@ -54,6 +55,8 @@ export async function ResumeViewer({
   // Same pattern for the new "Call / SMS / LI" tab (position 2): the page
   // builds the composer + history server-side and passes the JSX through.
   contactSlot?: React.ReactNode;
+  // And again for the Meetings tab (position 3).
+  meetingsSlot?: React.ReactNode;
 }) {
   const reachable = await checkResume(data.resumeUrl);
   return (
@@ -62,6 +65,7 @@ export async function ResumeViewer({
       resumeReachable={reachable}
       emailSlot={emailSlot}
       contactSlot={contactSlot}
+      meetingsSlot={meetingsSlot}
     />
   );
 }
