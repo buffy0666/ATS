@@ -99,100 +99,104 @@ export function ContactLogPanel({
           disabled={pending}
         />
 
-        {/* Outbound row */}
-        <div>
-          <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5">
-            Outbound
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setShowCallOutcomes((v) => !v)}
-              disabled={pending}
-              aria-expanded={showCallOutcomes}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${
-                showCallOutcomes
-                  ? "bg-emerald-700"
-                  : "bg-emerald-600 hover:bg-emerald-700"
-              }`}
-            >
-              Log Call {showCallOutcomes ? "▴" : "▾"}
-            </button>
-            <button
-              type="button"
-              onClick={() => submit(ContactChannel.SMS, EmailDirection.OUTBOUND)}
-              disabled={pending}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Log SMS
-            </button>
-            <button
-              type="button"
-              onClick={() => submit(ContactChannel.LINKEDIN, EmailDirection.OUTBOUND)}
-              disabled={pending}
-              className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Log LI
-            </button>
-          </div>
-
-          {/* Call outcome sub-menu — only visible after clicking "Log Call". */}
-          {showCallOutcomes && (
-            <div className="mt-2 rounded-md border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30 p-2.5">
-              <div className="text-[11px] text-emerald-900 dark:text-emerald-200 mb-1.5">
-                Pick an outcome — clicking logs the call:
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {OUTCOMES.map((o) => (
-                  <button
-                    key={o}
-                    type="button"
-                    onClick={() =>
-                      submit(ContactChannel.CALL, EmailDirection.OUTBOUND, o)
-                    }
-                    disabled={pending}
-                    className="rounded-md border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-medium text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {OUTCOME_LABEL[o]}
-                  </button>
-                ))}
-              </div>
+        {/* Outbound + Inbound columns ----------------------------------- */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* Outbound */}
+          <div>
+            <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5">
+              Outbound
             </div>
-          )}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCallOutcomes((v) => !v)}
+                disabled={pending}
+                aria-expanded={showCallOutcomes}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+                  showCallOutcomes
+                    ? "bg-emerald-700"
+                    : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                Log Call {showCallOutcomes ? "▴" : "▾"}
+              </button>
+              <button
+                type="button"
+                onClick={() => submit(ContactChannel.SMS, EmailDirection.OUTBOUND)}
+                disabled={pending}
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Log SMS
+              </button>
+              <button
+                type="button"
+                onClick={() => submit(ContactChannel.LINKEDIN, EmailDirection.OUTBOUND)}
+                disabled={pending}
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Log LI
+              </button>
+            </div>
+          </div>
+
+          {/* Inbound */}
+          <div>
+            <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5">
+              Inbound
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => submit(ContactChannel.CALL, EmailDirection.INBOUND)}
+                disabled={pending}
+                className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Rec Call
+              </button>
+              <button
+                type="button"
+                onClick={() => submit(ContactChannel.SMS, EmailDirection.INBOUND)}
+                disabled={pending}
+                className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Rec SMS
+              </button>
+              <button
+                type="button"
+                onClick={() => submit(ContactChannel.LINKEDIN, EmailDirection.INBOUND)}
+                disabled={pending}
+                className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Rec LI
+              </button>
+            </div>
+          </div>
         </div>
 
-        {/* Inbound row */}
-        <div>
-          <div className="text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1.5">
-            Inbound
+        {/* Call outcome sub-menu — spans below both columns so the four
+            outcome buttons get room and don't squeeze the Outbound column. */}
+        {showCallOutcomes && (
+          <div className="rounded-md border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/60 dark:bg-emerald-950/30 p-2.5">
+            <div className="text-[11px] text-emerald-900 dark:text-emerald-200 mb-1.5">
+              Pick an outcome — clicking logs the call:
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {OUTCOMES.map((o) => (
+                <button
+                  key={o}
+                  type="button"
+                  onClick={() =>
+                    submit(ContactChannel.CALL, EmailDirection.OUTBOUND, o)
+                  }
+                  disabled={pending}
+                  className="rounded-md border border-emerald-300 dark:border-emerald-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-medium text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {OUTCOME_LABEL[o]}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => submit(ContactChannel.CALL, EmailDirection.INBOUND)}
-              disabled={pending}
-              className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Rec Call
-            </button>
-            <button
-              type="button"
-              onClick={() => submit(ContactChannel.SMS, EmailDirection.INBOUND)}
-              disabled={pending}
-              className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Rec SMS
-            </button>
-            <button
-              type="button"
-              onClick={() => submit(ContactChannel.LINKEDIN, EmailDirection.INBOUND)}
-              disabled={pending}
-              className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Rec LI
-            </button>
-          </div>
-        </div>
+        )}
 
         {error && (
           <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
