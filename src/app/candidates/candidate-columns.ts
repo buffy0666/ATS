@@ -45,6 +45,33 @@ export type ColumnDef = {
   align?: "left" | "right";
 };
 
+/**
+ * Per-column quick-filter map: ColumnKey -> Candidate prisma field used
+ * for a case-insensitive `contains` filter on the row above the table
+ * header. The synthetic `__name__` sentinel fans out across firstName +
+ * lastName for the leading Name column. Only text-typed columns are
+ * listed here — numeric/enum/date filters live in AdvancedFilters.
+ */
+export const QUICK_FILTER_FIELDS: Partial<Record<ColumnKey | "name", string>> = {
+  name: "__name__",
+  email: "email",
+  phone: "phone",
+  altEmail: "alternateEmail",
+  altPhone: "alternatePhone",
+  city: "locationCity",
+  state: "locationState",
+  country: "locationCountry",
+  timezone: "timezone",
+  currentTitle: "currentTitle",
+  currentCompany: "currentCompany",
+  seniority: "seniority",
+  source: "source",
+  summary: "summary",
+  linkedin: "linkedinUrl",
+  github: "githubUrl",
+  portfolio: "portfolioUrl",
+};
+
 export const COLUMN_DEFS: ColumnDef[] = [
   // Core
   { key: "email", label: "Email", category: "Core" },

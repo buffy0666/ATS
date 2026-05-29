@@ -10,6 +10,7 @@ import {
 import { hasSearchInput, searchCandidates } from "@/lib/candidate-search";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 import { prisma } from "@/lib/prisma";
+import { QUICK_FILTER_FIELDS } from "./candidate-columns";
 import { CandidatesView, type CandidateRow } from "./CandidatesView";
 import type { SavedSearchEntry } from "./SavedSearchesMenu";
 import { parseMultiValue, parsePositiveInt } from "./search-params";
@@ -329,10 +330,43 @@ function buildCandidateWhere(sp: SearchParamsShape): Prisma.CandidateWhereInput 
     where.createdAt = { gte: daysAgo(addedDays) };
   }
 
+  // Per-column quick filters (the inputs in the row above the table
+  // header). Any URL key shaped `qcol_<columnKey>=text` adds a
+  // case-insensitive `contains` clause for the mapped Prisma field.
+  for (const clause of buildQuickColumnFilters(sp)) {
+    andClauses.push(clause);
+  }
+
   if (andClauses.length > 0) {
     where.AND = andClauses;
   }
   return where;
+}
+
+function buildQuickColumnFilters(
+  sp: Record<string, unknown>,
+): Prisma.CandidateWhereInput[] {
+  const out: Prisma.CandidateWhereInput[] = [];
+  for (const [k, raw] of Object.entries(sp)) {
+    if (!k.startsWith("qcol_")) continue;
+    if (typeof raw !== "string") continue;
+    const value = raw.trim();
+    if (!value) continue;
+    const colKey = k.slice("qcol_".length);
+    const field = QUICK_FILTER_FIELDS[colKey as keyof typeof QUICK_FILTER_FIELDS];
+    if (!field) continue;
+    if (field === "__name__") {
+      out.push({
+        OR: [
+          { firstName: { contains: value, mode: "insensitive" } },
+          { lastName: { contains: value, mode: "insensitive" } },
+        ],
+      });
+    } else {
+      out.push({ [field]: { contains: value, mode: "insensitive" } } as Prisma.CandidateWhereInput);
+    }
+  }
+  return out;
 }
 
 function filterEnumValues<T extends Record<string, string>>(

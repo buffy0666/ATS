@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CandidateStatus,
   EmploymentType,
@@ -19,6 +19,7 @@ import {
   COLUMN_DEFS,
   COLUMN_STORAGE_KEY,
   DEFAULT_COLUMNS,
+  QUICK_FILTER_FIELDS,
   type ColumnDef,
   type ColumnKey,
 } from "./candidate-columns";
@@ -120,6 +121,39 @@ export function CandidatesView({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [draggingKey, setDraggingKey] = useState<ColumnKey | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<ColumnKey | null>(null);
+
+  // Quick per-column filters (the input row under the header). Seeded
+  // from URL params so a reload/back-button trip preserves the filters,
+  // then locally edited with a debounced push back to the URL.
+  const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
+    const seed: Record<string, string> = {};
+    for (const k of Object.keys(QUICK_FILTER_FIELDS)) {
+      const v = searchParams?.get(`qcol_${k}`) ?? "";
+      if (v) seed[k] = v;
+    }
+    return seed;
+  });
+  const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function updateQuickFilter(key: string, value: string) {
+    setFilterValues((prev) => {
+      const next = { ...prev, [key]: value };
+      if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
+      filterDebounceRef.current = setTimeout(() => {
+        const params = new URLSearchParams(searchParams?.toString() ?? "");
+        for (const k of Object.keys(QUICK_FILTER_FIELDS)) {
+          const val = (next[k] ?? "").trim();
+          if (val) params.set(`qcol_${k}`, val);
+          else params.delete(`qcol_${k}`);
+        }
+        // A new filter set might leave the user on a page that no longer
+        // exists — drop the cursor back to page 1.
+        params.delete("page");
+        const qs = params.toString();
+        router.push(qs ? `?${qs}` : "?");
+      }, 350);
+      return next;
+    });
+  }
 
   // Drop selections for candidates no longer in the visible result set
   // (e.g. when a filter narrows the list). Selections survive column
@@ -435,6 +469,31 @@ export function CandidatesView({
                 })}
                 <th className="px-4 py-2 font-medium text-right w-20"></th>
               </tr>
+              {/* Per-column quick-filter row. Text-typed columns get a
+                  small "Filter…" box; others render an empty cell. */}
+              <tr className="border-t border-zinc-100 bg-zinc-50/60 dark:border-zinc-900 dark:bg-zinc-950/40">
+                <th className="px-3 py-1.5"></th>
+                <th className="px-2 py-1.5">
+                  <QuickFilterInput
+                    value={filterValues.name ?? ""}
+                    onChange={(v) => updateQuickFilter("name", v)}
+                  />
+                </th>
+                {activeColumns.map((c) => {
+                  const filterable = QUICK_FILTER_FIELDS[c.key as keyof typeof QUICK_FILTER_FIELDS];
+                  return (
+                    <th key={c.key} className="px-2 py-1.5">
+                      {filterable ? (
+                        <QuickFilterInput
+                          value={filterValues[c.key] ?? ""}
+                          onChange={(v) => updateQuickFilter(c.key, v)}
+                        />
+                      ) : null}
+                    </th>
+                  );
+                })}
+                <th className="px-3 py-1.5"></th>
+              </tr>
             </thead>
             <tbody>
               {candidates.map((c) => (
@@ -674,6 +733,26 @@ function renderCell(c: CandidateRow, key: ColumnKey): React.ReactNode {
     case "createdAt":
       return fmtDate(c.createdAt);
   }
+}
+
+/** Compact text input used in the quick-filter row above the table data. */
+function QuickFilterInput({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <input
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="Filter…"
+      className="w-full rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs font-normal text-zinc-700 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
+      aria-label="Quick filter"
+    />
+  );
 }
 
 /**
