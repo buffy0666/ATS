@@ -11,6 +11,7 @@ import { getCandidateTool } from "./get-candidate";
 import { getJobTool } from "./get-job";
 import { summarizeCandidateTool } from "./summarize-candidate";
 import { createListTool } from "./create-list";
+import { createSavedSearchTool } from "./create-saved-search";
 import { addToListTool } from "./add-to-list";
 import { tagCandidatesTool } from "./tag-candidates";
 import { enrollInSequenceTool } from "./enroll-in-sequence";
@@ -33,6 +34,7 @@ export const ALL_TOOLS: AssistantTool[] = [
   summarizeCandidateTool,
   // Write (general)
   createListTool,
+  createSavedSearchTool,
   addToListTool,
   tagCandidatesTool,
   enrollInSequenceTool,

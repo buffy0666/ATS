@@ -51,6 +51,13 @@ export const createListTool = defineTool({
       added = result.count;
     }
 
-    return { ok: true, listId: list.id, listName: list.name, addedCount: added };
+    return {
+      ok: true,
+      listId: list.id,
+      listName: list.name,
+      addedCount: added,
+      // The chat panel auto-navigates to this URL when present.
+      navigateTo: `/lists/${list.id}`,
+    };
   },
 });

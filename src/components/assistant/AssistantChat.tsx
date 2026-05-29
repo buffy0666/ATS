@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAssistant } from "./AssistantProvider";
 import { Composer } from "./Composer";
@@ -7,8 +8,24 @@ import { MessageList } from "./MessageList";
 import type { ConversationSummary, Message, StreamEvent, ToolCall } from "./types";
 import { useChatStream } from "./use-chat-stream";
 
+/**
+ * Pull a same-origin URL out of a tool's structured result, if present.
+ * Tools like create_list / create_saved_search return `navigateTo` so the
+ * chat can open the new artifact for the user without an extra click.
+ */
+function extractNavigateTo(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const v = (result as { navigateTo?: unknown }).navigateTo;
+  if (typeof v !== "string") return null;
+  // Only follow relative app paths — never an arbitrary http(s) URL from a
+  // tool result. Prevents a hijacked tool from punting the user off-site.
+  if (!v.startsWith("/") || v.startsWith("//")) return null;
+  return v;
+}
+
 export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
-  const { activeConversationId, setActiveConversationId } = useAssistant();
+  const router = useRouter();
+  const { activeConversationId, setActiveConversationId, setOpen } = useAssistant();
 
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -66,6 +83,19 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
               errorMessage: event.errorMessage,
             };
           });
+          // If the tool succeeded with a same-origin navigateTo URL,
+          // close the panel and route there so the new List / View opens
+          // in front of the user. Defer to next tick so React can finish
+          // applying the state update first.
+          if (event.ok) {
+            const url = extractNavigateTo(event.result);
+            if (url) {
+              setTimeout(() => {
+                if (mode === "panel") setOpen(false);
+                router.push(url);
+              }, 0);
+            }
+          }
           return { ...m, toolCalls };
         }
         if (event.type === "done") {
