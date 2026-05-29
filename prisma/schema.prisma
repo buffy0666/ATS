@@ -348,6 +348,7 @@ model Organization {
   knowledgeItems         KnowledgeItem[]
   emailTemplates         EmailTemplate[]
   emails                 EmailLog[]
+  contactLogs            ContactLog[]
   tasks                  Task[]
   candidateLists         CandidateList[]
   savedSearches          SavedSearch[]
@@ -411,6 +412,7 @@ model User {
   notes                  Note[]
   clientsOwned           Client[]                @relation("ClientOwner")
   emailsSent             EmailLog[]
+  contactLogsLogged      ContactLog[]            @relation("ContactLogLogger")
   emailTemplates         EmailTemplate[]         @relation("EmailTemplateCreator")
   candidatesSourced      Candidate[]             @relation("CandidateSourcer")
   candidatesReferred     Candidate[]             @relation("CandidateReferrerUser")
@@ -801,6 +803,7 @@ model Candidate {
 
   applications    Application[]
   emails          EmailLog[]
+  contactLogs     ContactLog[]
   tags            Tag[]
   references      CandidateReference[]
   documents       CandidateDocument[]
@@ -985,6 +988,29 @@ model EmailLog {
   @@index([organizationId])
   @@index([messageId])
   @@index([candidateId, direction, sentAt])
+}
+
+/// Log of non-email outreach (phone calls, SMS, LinkedIn messages) made
+/// to or received from a candidate. Free-form notes — the recruiter types
+/// what happened ("Left voicemail, mentioned the open Director role") and
+/// hits Sent or Received to stamp it. Direction reuses EmailDirection
+/// (INBOUND/OUTBOUND) so the UI can render it with the same affordances.
+model ContactLog {
+  id             String         @id @default(cuid())
+  candidateId    String
+  candidate      Candidate      @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  /// The recruiter who logged this entry.
+  loggedByUserId String
+  loggedBy       User           @relation("ContactLogLogger", fields: [loggedByUserId], references: [id])
+  direction      EmailDirection
+  notes          String
+  loggedAt       DateTime       @default(now())
+
+  organizationId String?
+  organization   Organization?  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId, loggedAt])
+  @@index([organizationId])
 }
 
 model CandidateReference {

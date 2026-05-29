@@ -16,12 +16,13 @@ import type { CandidateResumeData, Reachability } from "./ResumeViewer";
  * first one that has content.
  */
 
-type TabKey = "email" | "uploaded" | "linkedin" | "facsimile";
+type TabKey = "email" | "contact" | "uploaded" | "linkedin" | "facsimile";
 
 export function ResumeViewerTabs({
   data,
   resumeReachable,
   emailSlot,
+  contactSlot,
 }: {
   data: CandidateResumeData;
   resumeReachable: Reachability;
@@ -33,8 +34,14 @@ export function ResumeViewerTabs({
    * (keeps the component reusable without email context).
    */
   emailSlot?: React.ReactNode;
+  /**
+   * Content for the "Call / SMS / LI" tab (position 2). Renders the
+   * non-email outreach composer + history. Omit to hide the tab.
+   */
+  contactSlot?: React.ReactNode;
 }) {
   const hasEmail = Boolean(emailSlot);
+  const hasContact = Boolean(contactSlot);
   const hasUploaded = resumeReachable.ok;
   // LinkedIn text now lives in its own column. Fall back to resumeText for
   // legacy rows captured before the split (they had pageText stored under
@@ -70,6 +77,15 @@ export function ResumeViewerTabs({
             Email
           </TabButton>
         )}
+        {hasContact && (
+          <TabButton
+            active={active === "contact"}
+            onClick={() => setActive("contact")}
+            present
+          >
+            Call / SMS / LI
+          </TabButton>
+        )}
         <TabButton
           active={active === "uploaded"}
           onClick={() => setActive("uploaded")}
@@ -94,6 +110,7 @@ export function ResumeViewerTabs({
       </div>
 
       {active === "email" && <div className="p-5">{emailSlot}</div>}
+      {active === "contact" && <div>{contactSlot}</div>}
       {active === "uploaded" && <UploadedPane data={data} reachable={resumeReachable} />}
       {active === "linkedin" && <LinkedinTextPane text={linkedinText} />}
       {active === "facsimile" && <FacsimilePane data={data} />}

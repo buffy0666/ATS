@@ -33,8 +33,16 @@ export function EmailHistory({ emails }: { emails: EmailLogRow[] }) {
     return <p className="text-sm text-zinc-500">No emails yet.</p>;
   }
 
+  // Show roughly three rows without scrolling; older emails reachable via
+  // the inner scrollbar so the candidate page doesn't stretch indefinitely
+  // on chatty threads.
+  const MAX_VISIBLE_HEIGHT = "min(60vh, 19rem)";
+
   return (
-    <ul className="space-y-2">
+    <ul
+      className="space-y-2 overflow-y-auto pr-1"
+      style={{ maxHeight: MAX_VISIBLE_HEIGHT }}
+    >
       {emails.map((e) => {
         const inbound = e.direction === EmailDirection.INBOUND;
         return (

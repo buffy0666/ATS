@@ -4,6 +4,7 @@ import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { EmailComposer } from "./EmailComposer";
 import { EmailHistory } from "./EmailHistory";
+import { ContactLogPanel } from "./ContactLogPanel";
 import { NotesSection } from "./NotesSection";
 import { CandidateJobsSection } from "./CandidateJobsSection";
 import { EditableField } from "./EditableField";
@@ -158,6 +159,12 @@ export default async function CandidateDetailPage({
           include: {
             fromUser: { select: { name: true, email: true } },
             application: { select: { job: { select: { title: true } } } },
+          },
+        },
+        contactLogs: {
+          orderBy: { loggedAt: "desc" },
+          include: {
+            loggedBy: { select: { name: true, email: true } },
           },
         },
         tags: true,
@@ -411,6 +418,18 @@ export default async function CandidateDetailPage({
                   </div>
                   <EmailHistory emails={candidate.emails} />
                 </>
+              }
+              contactSlot={
+                <ContactLogPanel
+                  candidateId={candidate.id}
+                  logs={candidate.contactLogs.map((c) => ({
+                    id: c.id,
+                    direction: c.direction,
+                    notes: c.notes,
+                    loggedAt: c.loggedAt,
+                    loggedBy: c.loggedBy,
+                  }))}
+                />
               }
             />
           </section>

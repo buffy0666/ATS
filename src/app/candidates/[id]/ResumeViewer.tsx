@@ -45,14 +45,25 @@ export type CandidateResumeData = {
 export async function ResumeViewer({
   data,
   emailSlot,
+  contactSlot,
 }: {
   data: CandidateResumeData;
   // Server components can pass client elements (EmailComposer/EmailHistory)
   // straight through to the client ResumeViewerTabs as a prop.
   emailSlot?: React.ReactNode;
+  // Same pattern for the new "Call / SMS / LI" tab (position 2): the page
+  // builds the composer + history server-side and passes the JSX through.
+  contactSlot?: React.ReactNode;
 }) {
   const reachable = await checkResume(data.resumeUrl);
-  return <ResumeViewerTabs data={data} resumeReachable={reachable} emailSlot={emailSlot} />;
+  return (
+    <ResumeViewerTabs
+      data={data}
+      resumeReachable={reachable}
+      emailSlot={emailSlot}
+      contactSlot={contactSlot}
+    />
+  );
 }
 
 export type Reachability =
