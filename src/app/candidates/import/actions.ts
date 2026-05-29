@@ -156,17 +156,32 @@ export async function importCandidatesWithMapping(formData: FormData): Promise<I
     );
   }
 
-  // Creating new fields is admin-gated: verify role + password, then create
-  // the CustomField definitions and resolve them to ids for value writes.
+  // Creating new fields is admin-gated, BUT only when a spec actually
+  // produces a brand-new field — drafts whose slugified key already
+  // matches an existing custom field are reused (no creation), so they
+  // bypass the password requirement. Mirrors the client-side gate.
   let resolvedNewFields: ResolvedNewField[] = [];
   if (newFields.length > 0) {
     const valid = newFields.filter((f) => f && headerSet.has(f.header));
     if (valid.length > 0) {
-      const auth = await authorizeFieldCreation(
-        session.user.id ?? null,
-        String(formData.get("adminPassword") ?? ""),
+      const existingKeySet = new Set(
+        (
+          await prisma.customField.findMany({
+            where: { entity: CustomFieldEntity.CANDIDATE, organizationId: orgId },
+            select: { key: true },
+          })
+        ).map((f) => f.key),
       );
-      if (!auth.ok) return failure(auth.error);
+      const actuallyNew = valid.filter((f) => !existingKeySet.has(slugifyFieldKey(f.header)));
+
+      if (actuallyNew.length > 0) {
+        const auth = await authorizeFieldCreation(
+          session.user.id ?? null,
+          String(formData.get("adminPassword") ?? ""),
+        );
+        if (!auth.ok) return failure(auth.error);
+      }
+
       try {
         resolvedNewFields = await ensureCustomFields(valid, orgId);
       } catch (e) {
