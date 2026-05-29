@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { canCreateGlobalAdmin, requireAdminWithOrg } from "@/lib/auth-utils";
+import { UserRowActions } from "./UserRowActions";
+import { InvitationRowActions } from "./InvitationRowActions";
 
 export default async function UsersPage() {
   // Scope to this org — without it, an admin in tenant A could see
@@ -85,6 +87,7 @@ export default async function UsersPage() {
                 <th className="px-4 py-2 font-medium">Name</th>
                 <th className="px-4 py-2 font-medium">Role</th>
                 <th className="px-4 py-2 font-medium">Added</th>
+                <th className="px-4 py-2 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -110,6 +113,13 @@ export default async function UsersPage() {
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
                     {u.createdAt.toLocaleDateString()}
                   </td>
+                  <td className="px-4 py-3">
+                    <UserRowActions
+                      userId={u.id}
+                      email={u.email}
+                      isSelf={u.id === session.user.id}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -128,6 +138,7 @@ export default async function UsersPage() {
                     <th className="px-4 py-2 font-medium">Invited by</th>
                     <th className="px-4 py-2 font-medium">Sent</th>
                     <th className="px-4 py-2 font-medium">Expires</th>
+                    <th className="px-4 py-2 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -150,6 +161,9 @@ export default async function UsersPage() {
                       </td>
                       <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
                         {inv.expiresAt.toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <InvitationRowActions invitationId={inv.id} email={inv.email} />
                       </td>
                     </tr>
                   ))}

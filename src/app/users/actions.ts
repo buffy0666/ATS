@@ -295,6 +295,78 @@ export async function inviteTeammateAction(
   return { ok: true, email: parsed.data.email, inviteUrl, emailSent };
 }
 
+/**
+ * Resend a pending invitation. Generates a fresh token (the old one is
+ * left expired in place for audit), pushes the expiry out by another
+ * 14 days, and re-sends the email. Tenant-scoped — an admin can only
+ * resend invitations from their own workspace.
+ */
+export async function resendInvitation(invitationId: string): Promise<ActionResult> {
+  const { session, orgId, orgName } = await requireAdminWithOrg();
+
+  const inv = await prisma.invitation.findFirst({
+    where: { id: invitationId, organizationId: orgId, acceptedAt: null },
+    select: { id: true, email: true, role: true },
+  });
+  if (!inv) return { ok: false, error: "Invitation not found." };
+
+  // Mark the existing invitation expired (audit trail) and mint a new
+  // one with the same email + role. This re-uses the same flow as the
+  // "duplicate invite" path in inviteTeammateAction.
+  await prisma.invitation.update({
+    where: { id: inv.id },
+    data: { expiresAt: new Date() },
+  });
+
+  const { token } = await createInvitation({
+    email: inv.email,
+    organizationId: orgId,
+    role: inv.role,
+    invitedByUserId: session.user.id,
+    asOwner: false,
+  });
+
+  const appOrigin = await resolveAppOrigin();
+  try {
+    await sendInvitationEmail({
+      to: inv.email,
+      token,
+      appOrigin,
+      organizationName: orgName ?? "your workspace",
+      inviterName: session.user.name ?? session.user.email,
+      asOwner: false,
+    });
+  } catch {
+    // Even if the email fails, the new invitation row is valid — the
+    // admin can copy the link from the page if needed.
+  }
+
+  revalidatePath("/users");
+  return { ok: true };
+}
+
+/**
+ * Revoke a pending invitation by expiring it immediately. The row is
+ * kept (audit trail) but can no longer be redeemed.
+ */
+export async function revokeInvitation(invitationId: string): Promise<ActionResult> {
+  const { orgId } = await requireAdminWithOrg();
+
+  const inv = await prisma.invitation.findFirst({
+    where: { id: invitationId, organizationId: orgId, acceptedAt: null },
+    select: { id: true },
+  });
+  if (!inv) return { ok: false, error: "Invitation not found." };
+
+  await prisma.invitation.update({
+    where: { id: inv.id },
+    data: { expiresAt: new Date() },
+  });
+
+  revalidatePath("/users");
+  return { ok: true };
+}
+
 async function resolveAppOrigin(): Promise<string> {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/+$/, "");
   const h = await headers();
