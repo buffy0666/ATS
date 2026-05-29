@@ -51,10 +51,15 @@ export async function logContact(
 ): Promise<LogContactResult> {
   const { session, orgId } = await requireSessionWithOrg();
 
+  // FormData.get() returns null when the field is absent, but the schema's
+  // optional string fields only accept `string | undefined` — pass through
+  // a null-to-undefined for each so an unset note doesn't fail validation
+  // ("Expected string, received null"). This was the cause of the "Invalid
+  // input" error every time someone clicked a button without typing a note.
   const parsed = logSchema.safeParse({
-    notes: formData.get("notes"),
-    direction: formData.get("direction"),
-    channel: formData.get("channel"),
+    notes: formData.get("notes") ?? undefined,
+    direction: formData.get("direction") ?? undefined,
+    channel: formData.get("channel") ?? undefined,
     outcome: formData.get("outcome") || undefined,
   });
   if (!parsed.success) {
