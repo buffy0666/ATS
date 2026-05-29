@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
  *   "react" AND ("typescript" OR "next.js") -junior
  *   "machine learning" senior
  *   designer OR "ux researcher"
+ *   senior engineer Boston
  *
  * Supported syntax (case-insensitive operators):
  *   - AND, OR, NOT
@@ -18,7 +19,17 @@ import { prisma } from "@/lib/prisma";
  *   - Implicit AND between adjacent terms
  *
  * Compiles to a Postgres tsquery and runs it against the `searchVector`
- * column (defined by a raw SQL migration — Prisma does not model it).
+ * column (defined + maintained by a raw SQL trigger — Prisma does not
+ * model it). Currently indexed:
+ *
+ *   weight A: firstName, lastName, email
+ *   weight B: currentTitle, currentCompany, summary,
+ *             skills, industries, specialties,
+ *             locationCity, locationState
+ *   weight C: notes, resumeText
+ *
+ * The trigger function is `candidate_search_vector_update()`; the trigger
+ * is `candidate_search_vector_trigger`. Update both when adding fields.
  */
 
 const TS_LANG = "english";
