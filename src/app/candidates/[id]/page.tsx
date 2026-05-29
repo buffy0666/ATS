@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { EmailComposer } from "./EmailComposer";
 import { EmailHistory } from "./EmailHistory";
 import { ContactLogPanel } from "./ContactLogPanel";
+import { FloatingResumeSection } from "./FloatingResumeSection";
 import { MeetingsPanel } from "./MeetingsPanel";
 import { NotesSection } from "./NotesSection";
 import { CandidateJobsSection } from "./CandidateJobsSection";
@@ -374,14 +375,12 @@ export default async function CandidateDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-4 mb-4 items-start">
         {/* Left column: resume + everything else, stacked. */}
         <div className="space-y-4 min-w-0">
-          {/* sticky top-4 self-start: pins the tabbed Email / Call-SMS-LI
-              / Resume panel to the viewport as the user scrolls through
-              the metadata and sequences below — matches the Notes column.
-              max-h caps it to viewport so the inner per-tab scrollers
-              (email history, contact history, PDF preview, AI resume…)
-              can do their own scrolling within the pinned panel. z-10
-              keeps it above the metadata that scrolls behind it. */}
-          <section className="sticky top-4 self-start z-10 max-h-[calc(100vh-2rem)] flex flex-col rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+          {/* True-fixed pinning: the panel stays at the top of the viewport
+              regardless of how far the user scrolls — even past the end of
+              this column. Done with `position: fixed` + a sized spacer that
+              mirrors the column slot, so the rest of the metadata flows
+              normally below where the panel "would be". */}
+          <FloatingResumeSection>
             <ResumeViewer
               data={{
                 resumeUrl: candidate.resumeUrl,
@@ -465,7 +464,7 @@ export default async function CandidateDetailPage({
                 />
               }
             />
-          </section>
+          </FloatingResumeSection>
 
           <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
             <div className="border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
