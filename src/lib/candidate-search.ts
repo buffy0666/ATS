@@ -61,6 +61,14 @@ export async function searchCandidates(
   const tsquery = compileTsquery(rawInput);
   if (!tsquery) return null;
 
+  // TEMP DIAGNOSTIC — surface what the prod runtime actually receives,
+  // since the DB shows the index populated and `searchVector @@ to_tsquery`
+  // returns matches via direct psql, yet users report 0 results in the UI.
+  // Logged via console.error so it appears in Vercel function logs.
+  console.error(
+    `[fts] orgId=${orgId} raw=${JSON.stringify(rawInput)} tsquery=${tsquery}`,
+  );
+
   try {
     const rows = await prisma.$queryRaw<{ id: string }[]>`
       SELECT id
@@ -70,14 +78,66 @@ export async function searchCandidates(
       ORDER BY ts_rank("searchVector", to_tsquery(${TS_LANG}, ${tsquery})) DESC, "createdAt" DESC
       LIMIT ${FTS_RESULT_LIMIT}
     `;
+    console.error(`[fts] orgId=${orgId} tsquery=${tsquery} rows=${rows.length}`);
+
+    // Safety net: if FTS legitimately returns 0 (maybe the searchVector
+    // column hasn't been populated for this candidate yet on this DB),
+    // fall back to a simple ILIKE so the user sees something rather than
+    // nothing. This is defensive — the FTS path is the primary.
+    if (rows.length === 0) {
+      const fallback = await ilikeFallback(rawInput, orgId);
+      console.error(
+        `[fts] ilike fallback orgId=${orgId} raw=${JSON.stringify(rawInput)} rows=${fallback.length}`,
+      );
+      if (fallback.length > 0) return fallback;
+    }
     return rows.map((r) => r.id);
   } catch (error) {
     // Most often: tsquery composed only of stop words ("the and a") or
-    // an unfinished operator. Treat as "no matches" rather than failing
-    // the whole page render.
-    console.warn(`[candidate-search] tsquery failed: ${tsquery}`, error);
-    return [];
+    // an unfinished operator. Log the full error + try ILIKE as a
+    // safety net so a broken FTS path doesn't return 0 results.
+    console.error(
+      `[fts] FAILED orgId=${orgId} tsquery=${tsquery}:`,
+      error instanceof Error ? error.message : error,
+    );
+    try {
+      const fallback = await ilikeFallback(rawInput, orgId);
+      console.error(
+        `[fts] catch-path ilike fallback rows=${fallback.length}`,
+      );
+      return fallback;
+    } catch {
+      return [];
+    }
   }
+}
+
+/**
+ * ILIKE-based safety-net search across the same fields the FTS index
+ * covers. Lower-quality than tsquery (no ranking, no boolean ops, no
+ * phrase support), but matches anywhere in the text and doesn't depend
+ * on a tsvector column being populated.
+ */
+async function ilikeFallback(rawInput: string, orgId: string): Promise<string[]> {
+  const term = rawInput.trim().toLowerCase().replace(/[%_]/g, "");
+  if (!term) return [];
+  const like = `%${term}%`;
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id FROM "Candidate"
+    WHERE "organizationId" = ${orgId}
+      AND (
+        lower("firstName")                       LIKE ${like}
+        OR lower("lastName")                     LIKE ${like}
+        OR lower(email)                          LIKE ${like}
+        OR lower(coalesce("currentTitle",''))    LIKE ${like}
+        OR lower(coalesce("currentCompany",''))  LIKE ${like}
+        OR lower(coalesce("locationCity",''))    LIKE ${like}
+        OR lower(coalesce("locationState",''))   LIKE ${like}
+      )
+    ORDER BY "createdAt" DESC
+    LIMIT ${FTS_RESULT_LIMIT}
+  `;
+  return rows.map((r) => r.id);
 }
 
 /** Compile user input into a Postgres tsquery string, or null if empty. */
