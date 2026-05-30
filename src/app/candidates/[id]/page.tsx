@@ -357,12 +357,6 @@ export default async function CandidateDetailPage({
               ))}
             </div>
           )}
-          <div className="ml-auto">
-            <ResumeUploadButton
-              candidateId={candidate.id}
-              hasExistingResume={Boolean(candidate.resumeUrl)}
-            />
-          </div>
         </div>
       </header>
 
@@ -382,6 +376,12 @@ export default async function CandidateDetailPage({
               normally below where the panel "would be". */}
           <FloatingResumeSection>
             <ResumeViewer
+              actionSlot={
+                <ResumeUploadButton
+                  candidateId={candidate.id}
+                  hasExistingResume={Boolean(candidate.resumeUrl)}
+                />
+              }
               data={{
                 resumeUrl: candidate.resumeUrl,
                 resumeText: candidate.resumeText,

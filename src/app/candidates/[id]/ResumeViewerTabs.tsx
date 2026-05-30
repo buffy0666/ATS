@@ -24,6 +24,7 @@ export function ResumeViewerTabs({
   emailSlot,
   contactSlot,
   meetingsSlot,
+  actionSlot,
 }: {
   data: CandidateResumeData;
   resumeReachable: Reachability;
@@ -45,6 +46,12 @@ export function ResumeViewerTabs({
    * interviews and lets the recruiter Schedule or Log one. Omit to hide.
    */
   meetingsSlot?: React.ReactNode;
+  /**
+   * Optional action(s) rendered at the right edge of the tab strip (e.g.
+   * the "Add/Replace resume" button). Pinned right via justify-between so
+   * it stays aligned with the panel frame regardless of how many tabs show.
+   */
+  actionSlot?: React.ReactNode;
 }) {
   const hasEmail = Boolean(emailSlot);
   const hasContact = Boolean(contactSlot);
@@ -84,6 +91,7 @@ export function ResumeViewerTabs({
     // the whole panel growing past the viewport.
     <div className="flex flex-col h-full min-h-0">
       <div className="flex items-center gap-1 border-b border-zinc-200 dark:border-zinc-800 px-2 pt-2 pb-0 bg-zinc-50 dark:bg-zinc-950 shrink-0">
+        <div className="flex items-center gap-1 min-w-0 flex-1">
         {hasEmail && (
           <TabButton active={active === "email"} onClick={() => setActive("email")} present>
             Email
@@ -128,6 +136,10 @@ export function ResumeViewerTabs({
         >
           AI Resume
         </TabButton>
+        </div>
+        {actionSlot && (
+          <div className="shrink-0 self-center pb-1.5 pl-2">{actionSlot}</div>
+        )}
       </div>
 
       {/* flex-1 + overflow-y-auto: this scroll container is what makes the

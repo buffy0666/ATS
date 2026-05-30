@@ -47,6 +47,7 @@ export async function ResumeViewer({
   emailSlot,
   contactSlot,
   meetingsSlot,
+  actionSlot,
 }: {
   data: CandidateResumeData;
   // Server components can pass client elements (EmailComposer/EmailHistory)
@@ -57,6 +58,8 @@ export async function ResumeViewer({
   contactSlot?: React.ReactNode;
   // And again for the Meetings tab (position 3).
   meetingsSlot?: React.ReactNode;
+  // Right-aligned action(s) for the tab strip (e.g. Add/Replace resume).
+  actionSlot?: React.ReactNode;
 }) {
   const reachable = await checkResume(data.resumeUrl);
   return (
@@ -66,6 +69,7 @@ export async function ResumeViewer({
       emailSlot={emailSlot}
       contactSlot={contactSlot}
       meetingsSlot={meetingsSlot}
+      actionSlot={actionSlot}
     />
   );
 }
