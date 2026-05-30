@@ -12,8 +12,10 @@ import { prisma } from "@/lib/prisma";
  *  - channel:   CALL | SMS | LINKEDIN — picked by which button you click.
  *  - direction: INBOUND  ("Rec ...")  or  OUTBOUND ("Log ..."). Reuses
  *               EmailDirection so the UI badge can match the email tab.
- *  - outcome:   only set when channel=CALL and direction=OUTBOUND — one of
- *               Bad Number / Left VM / No Answer / Not Interested.
+ *  - outcome:   only set when channel=CALL (either direction) — a single
+ *               disposition field shared by outbound ("Log Call") and
+ *               inbound ("Rec Call"); the UI offers the subset of values
+ *               appropriate to the direction.
  *  - notes:     optional free-form text. The textarea is shared across all
  *               six buttons; whatever's there at click time is attached.
  *
@@ -34,12 +36,11 @@ const logSchema = z
     outcome: z.nativeEnum(CallOutcome).optional(),
   })
   .refine(
-    // Outcomes only apply to outbound calls; reject obviously-wrong combos
-    // (e.g. SMS + Left VM) so they don't quietly become bad rows.
-    (v) =>
-      !v.outcome ||
-      (v.channel === ContactChannel.CALL && v.direction === EmailDirection.OUTBOUND),
-    { path: ["outcome"], message: "Outcome only applies to outbound calls." },
+    // Outcomes only apply to calls (inbound or outbound); reject obviously
+    // -wrong combos (e.g. SMS + Left Voicemail) so they don't quietly
+    // become bad rows.
+    (v) => !v.outcome || v.channel === ContactChannel.CALL,
+    { path: ["outcome"], message: "Outcome only applies to calls." },
   );
 
 export type LogContactResult = { ok: true; id: string } | { ok: false; error: string };

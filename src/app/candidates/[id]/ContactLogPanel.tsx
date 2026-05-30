@@ -9,8 +9,11 @@ import { logContact, updateContactLog } from "./contact-actions";
  *
  *  - Shared notes textarea on top (optional — the buttons can log
  *    standalone if all you need is the touchpoint stamp).
- *  - Outbound row: Log Call (opens 4 outcome options), Log SMS, Log LI.
- *  - Inbound row:  Rec Call, Rec SMS, Rec LI.
+ *  - Outbound row: Log Call (opens an outcome menu), Log SMS, Log LI.
+ *  - Inbound row:  Rec Call (opens an outcome menu), Rec SMS, Rec LI.
+ *  - Both call menus list Connected outcomes on top and Not Connected
+ *    outcomes on the bottom, writing to the single `outcome` field. The
+ *    outbound and inbound menus offer the subset that fits each direction.
  *  - History below — first ~3 visible, older scroll inside. Each row has
  *    an edit pencil that flips the note into an inline textarea.
  */
@@ -32,18 +35,60 @@ const CHANNEL_LABEL: Record<ContactChannel, string> = {
 };
 
 const OUTCOME_LABEL: Record<CallOutcome, string> = {
-  BAD_NUMBER: "Bad Number",
-  LEFT_VM: "Left VM",
-  NO_ANSWER: "No Answer",
+  // Connected (reached a live person)
+  CONNECTED: "Connected",
+  INTERESTED: "Interested",
+  MEETING_BOOKED: "Meeting Booked",
+  CALLBACK_REQUESTED: "Callback Requested",
   NOT_INTERESTED: "Not Interested",
+  GATEKEEPER: "Gatekeeper",
+  DO_NOT_CALL: "Do Not Call",
+  // Not connected (no live conversation)
+  LEFT_VOICEMAIL: "Left Voicemail",
+  NO_ANSWER: "No Answer",
+  BUSY: "Busy",
+  WRONG_NUMBER: "Wrong Number",
+  NO_LONGER_AT_COMPANY: "No Longer at Company",
+  MISSED_CALL: "Missed Call",
 };
 
-const OUTCOMES: CallOutcome[] = [
-  "BAD_NUMBER",
-  "LEFT_VM",
-  "NO_ANSWER",
-  "NOT_INTERESTED",
-];
+type OutcomeGroups = { connected: CallOutcome[]; notConnected: CallOutcome[] };
+
+// Outbound ("Log Call"): the full disposition set a recruiter dialing out
+// would reach for.
+const OUTBOUND_OUTCOMES: OutcomeGroups = {
+  connected: [
+    "CONNECTED",
+    "INTERESTED",
+    "MEETING_BOOKED",
+    "CALLBACK_REQUESTED",
+    "NOT_INTERESTED",
+    "GATEKEEPER",
+    "DO_NOT_CALL",
+  ],
+  notConnected: [
+    "LEFT_VOICEMAIL",
+    "NO_ANSWER",
+    "BUSY",
+    "WRONG_NUMBER",
+    "NO_LONGER_AT_COMPANY",
+  ],
+};
+
+// Inbound ("Rec Call"): the candidate called us. Drop the dialer-only
+// dispositions (Busy / Wrong Number / Gatekeeper / No Longer at Company)
+// that don't make sense on an inbound, and add Missed Call.
+const INBOUND_OUTCOMES: OutcomeGroups = {
+  connected: [
+    "CONNECTED",
+    "INTERESTED",
+    "MEETING_BOOKED",
+    "CALLBACK_REQUESTED",
+    "NOT_INTERESTED",
+    "DO_NOT_CALL",
+  ],
+  notConnected: ["MISSED_CALL", "LEFT_VOICEMAIL"],
+};
 
 // Pastel-with-depth button styles. Soft tinted fill + colored text + 1px
 // border in the same hue + a layered shadow (1px above, inset hairline
@@ -56,8 +101,12 @@ const OUT_BTN_ACTIVE =
   "inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-100 px-3 py-1.5 text-[13px] font-medium tracking-tight text-emerald-800 shadow-[inset_0_1px_2px_rgba(16,185,129,0.2)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-100";
 const IN_BTN =
   "inline-flex items-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-3 py-1.5 text-[13px] font-medium tracking-tight text-sky-700 shadow-[0_1px_2px_rgba(0,0,0,0.04),inset_0_-1px_0_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-px hover:bg-sky-100 hover:shadow-[0_3px_8px_-2px_rgba(2,132,199,0.2),inset_0_-1px_0_rgba(0,0,0,0.04)] active:translate-y-0 active:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-900/60 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:bg-sky-900/50";
-const OUTCOME_BTN =
+const IN_BTN_ACTIVE =
+  "inline-flex items-center gap-1.5 rounded-md border border-sky-300 bg-sky-100 px-3 py-1.5 text-[13px] font-medium tracking-tight text-sky-800 shadow-[inset_0_1px_2px_rgba(2,132,199,0.2)] disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-800 dark:bg-sky-900/60 dark:text-sky-100";
+const OUTCOME_BTN_EMERALD =
   "inline-flex items-center rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-xs font-medium tracking-tight text-emerald-700 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-px hover:bg-emerald-50 hover:shadow-[0_2px_6px_-2px_rgba(16,185,129,0.2)] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-900/60 dark:bg-zinc-900 dark:text-emerald-200 dark:hover:bg-emerald-950/40";
+const OUTCOME_BTN_SKY =
+  "inline-flex items-center rounded-md border border-sky-200 bg-white px-2.5 py-1 text-xs font-medium tracking-tight text-sky-700 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-px hover:bg-sky-50 hover:shadow-[0_2px_6px_-2px_rgba(2,132,199,0.2)] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 dark:border-sky-900/60 dark:bg-zinc-900 dark:text-sky-200 dark:hover:bg-sky-950/40";
 
 function IconPhone({ className = "h-3.5 w-3.5" }: { className?: string }) {
   return (
@@ -98,7 +147,9 @@ export function ContactLogPanel({
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [showCallOutcomes, setShowCallOutcomes] = useState(false);
+  // Which call-outcome menu is open: outbound ("Log Call"), inbound
+  // ("Rec Call"), or none. Only one is open at a time.
+  const [openMenu, setOpenMenu] = useState<"out" | "in" | null>(null);
 
   function submit(
     channel: ContactChannel,
@@ -115,7 +166,7 @@ export function ContactLogPanel({
       const res = await logContact(candidateId, undefined, fd);
       if (res.ok) {
         setNotes("");
-        setShowCallOutcomes(false);
+        setOpenMenu(null);
       } else {
         setError(res.error);
       }
@@ -150,14 +201,14 @@ export function ContactLogPanel({
           {/* Outbound (emerald) */}
           <button
             type="button"
-            onClick={() => setShowCallOutcomes((v) => !v)}
+            onClick={() => setOpenMenu((m) => (m === "out" ? null : "out"))}
             disabled={pending}
-            aria-expanded={showCallOutcomes}
-            className={showCallOutcomes ? OUT_BTN_ACTIVE : OUT_BTN}
+            aria-expanded={openMenu === "out"}
+            className={openMenu === "out" ? OUT_BTN_ACTIVE : OUT_BTN}
           >
             <IconPhone />
             Log Call
-            <IconCaret open={showCallOutcomes} />
+            <IconCaret open={openMenu === "out"} />
           </button>
           <button
             type="button"
@@ -187,12 +238,14 @@ export function ContactLogPanel({
           {/* Inbound (sky) */}
           <button
             type="button"
-            onClick={() => submit(ContactChannel.CALL, EmailDirection.INBOUND)}
+            onClick={() => setOpenMenu((m) => (m === "in" ? null : "in"))}
             disabled={pending}
-            className={IN_BTN}
+            aria-expanded={openMenu === "in"}
+            className={openMenu === "in" ? IN_BTN_ACTIVE : IN_BTN}
           >
             <IconPhone />
             Rec Call
+            <IconCaret open={openMenu === "in"} />
           </button>
           <button
             type="button"
@@ -214,28 +267,35 @@ export function ContactLogPanel({
           </button>
         </div>
 
-        {/* Call outcome sub-menu — spans below both columns so the four
-            outcome buttons get room and don't squeeze the Outbound column. */}
-        {showCallOutcomes && (
+        {/* Outbound call outcome sub-menu — Connected on top, Not Connected
+            on the bottom. Spans below both columns so the buttons get room. */}
+        {openMenu === "out" && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3 shadow-[0_1px_2px_rgba(16,185,129,0.05),inset_0_0_0_1px_rgba(16,185,129,0.04)] dark:border-emerald-900/60 dark:bg-emerald-950/30">
             <div className="mb-2 text-[11px] font-medium tracking-tight text-emerald-800 dark:text-emerald-200">
-              Pick an outcome — clicking logs the call.
+              Pick a call outcome — clicking logs the call.
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {OUTCOMES.map((o) => (
-                <button
-                  key={o}
-                  type="button"
-                  onClick={() =>
-                    submit(ContactChannel.CALL, EmailDirection.OUTBOUND, o)
-                  }
-                  disabled={pending}
-                  className={OUTCOME_BTN}
-                >
-                  {OUTCOME_LABEL[o]}
-                </button>
-              ))}
+            <OutcomeMenu
+              groups={OUTBOUND_OUTCOMES}
+              accent="emerald"
+              pending={pending}
+              onPick={(o) => submit(ContactChannel.CALL, EmailDirection.OUTBOUND, o)}
+            />
+          </div>
+        )}
+
+        {/* Inbound (received) call outcome sub-menu — same Connected / Not
+            Connected split, with the subset that fits an inbound call. */}
+        {openMenu === "in" && (
+          <div className="rounded-lg border border-sky-200 bg-sky-50/40 p-3 shadow-[0_1px_2px_rgba(2,132,199,0.05),inset_0_0_0_1px_rgba(2,132,199,0.04)] dark:border-sky-900/60 dark:bg-sky-950/30">
+            <div className="mb-2 text-[11px] font-medium tracking-tight text-sky-800 dark:text-sky-200">
+              Pick a call outcome — clicking logs the received call.
             </div>
+            <OutcomeMenu
+              groups={INBOUND_OUTCOMES}
+              accent="sky"
+              pending={pending}
+              onPick={(o) => submit(ContactChannel.CALL, EmailDirection.INBOUND, o)}
+            />
           </div>
         )}
 
@@ -246,6 +306,59 @@ export function ContactLogPanel({
 
       {/* History ------------------------------------------------------------ */}
       <ContactLogHistory logs={logs} />
+    </div>
+  );
+}
+
+/**
+ * Renders a call-outcome menu: a "Connected" group of buttons on top and a
+ * "Not Connected" group on the bottom. Both write to the same `outcome`
+ * field via `onPick`. `accent` tints the buttons to match the outbound
+ * (emerald) or inbound (sky) palette of the parent menu.
+ */
+function OutcomeMenu({
+  groups,
+  accent,
+  pending,
+  onPick,
+}: {
+  groups: OutcomeGroups;
+  accent: "emerald" | "sky";
+  pending: boolean;
+  onPick: (o: CallOutcome) => void;
+}) {
+  const btn = accent === "emerald" ? OUTCOME_BTN_EMERALD : OUTCOME_BTN_SKY;
+  const heading =
+    accent === "emerald"
+      ? "text-emerald-700 dark:text-emerald-300"
+      : "text-sky-700 dark:text-sky-300";
+
+  const section = (title: string, outcomes: CallOutcome[]) =>
+    outcomes.length > 0 ? (
+      <div>
+        <div className={`mb-1.5 text-[10px] font-semibold uppercase tracking-wide ${heading}`}>
+          {title}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {outcomes.map((o) => (
+            <button
+              key={o}
+              type="button"
+              onClick={() => onPick(o)}
+              disabled={pending}
+              className={btn}
+            >
+              {OUTCOME_LABEL[o]}
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
+  return (
+    <div className="space-y-2.5">
+      {section("Connected", groups.connected)}
+      {section("Not Connected", groups.notConnected)}
     </div>
   );
 }

@@ -4,8 +4,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -1008,14 +1009,28 @@ enum ContactChannel {
   LINKEDIN
 }
 
-/// Outcome of an outbound phone call — only meaningful when channel=CALL
-/// and direction=OUTBOUND. Picked from a small fixed menu so dispositions
-/// stay consistent (Bad Number / Left VM / No Answer / Not Interested).
+/// Disposition of a logged phone call. A single shared field for both
+/// outbound ("Log Call") and inbound ("Rec Call") touchpoints — the UI
+/// shows the subset of values appropriate to each direction. Values are
+/// grouped into "connected" (reached a live person) and "not connected"
+/// (no live conversation) so the menu can render Connected on top and Not
+/// Connected on the bottom. Only meaningful when channel=CALL.
 enum CallOutcome {
-  BAD_NUMBER
-  LEFT_VM
-  NO_ANSWER
+  // --- Connected (reached a live person) ---
+  CONNECTED
+  INTERESTED
+  MEETING_BOOKED
+  CALLBACK_REQUESTED
   NOT_INTERESTED
+  GATEKEEPER
+  DO_NOT_CALL
+  // --- Not connected (no live conversation) ---
+  LEFT_VOICEMAIL
+  NO_ANSWER
+  BUSY
+  WRONG_NUMBER
+  NO_LONGER_AT_COMPANY
+  MISSED_CALL
 }
 
 /// Log of non-email outreach (phone calls, SMS, LinkedIn messages) made
