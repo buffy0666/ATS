@@ -1,5 +1,6 @@
 import "server-only";
 
+import { Prisma } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -114,29 +115,54 @@ export async function searchCandidates(
 
 /**
  * ILIKE-based safety-net search across the same fields the FTS index
- * covers. Lower-quality than tsquery (no ranking, no boolean ops, no
- * phrase support), but matches anywhere in the text and doesn't depend
- * on a tsvector column being populated.
+ * covers. Lower-quality than tsquery (no ranking, no proper boolean
+ * algebra, no phrase support) but matches anywhere in the text and
+ * doesn't depend on the tsvector column being populated.
+ *
+ * Boolean handling: AND / OR / NOT keywords and "-term" syntax are
+ * treated as TERM SEPARATORS. The remaining terms are implicit-AND'd
+ * — every term must appear in at least one indexed field. That's good
+ * enough for the common case ("react typescript", "senior engineer
+ * boston", "james AND king") to find what the user expects. Phrase
+ * search and explicit OR / NOT fall back to plain AND here.
  */
 async function ilikeFallback(rawInput: string, orgId: string): Promise<string[]> {
-  const term = rawInput.trim().toLowerCase().replace(/[%_]/g, "");
-  if (!term) return [];
-  const like = `%${term}%`;
-  const rows = await prisma.$queryRaw<{ id: string }[]>`
+  // Strip quotes (so "machine learning" becomes one bigram → two terms),
+  // then split on whitespace, drop operator keywords + leading '-'.
+  const stripped = rawInput.replace(/"/g, " ").toLowerCase();
+  const terms = stripped
+    .split(/\s+/)
+    .map((s) => s.replace(/^-+/, "").replace(/[^\p{L}\p{N}_-]/gu, ""))
+    .filter(
+      (s) =>
+        s.length > 0 &&
+        s !== "and" &&
+        s !== "or" &&
+        s !== "not",
+    );
+  if (terms.length === 0) return [];
+
+  // Each term must match somewhere → implicit AND between conditions.
+  const conditions = terms.map((t) => {
+    const like = `%${t}%`;
+    return Prisma.sql`(
+      lower("firstName")                       LIKE ${like}
+      OR lower("lastName")                     LIKE ${like}
+      OR lower(email)                          LIKE ${like}
+      OR lower(coalesce("currentTitle",''))    LIKE ${like}
+      OR lower(coalesce("currentCompany",''))  LIKE ${like}
+      OR lower(coalesce("locationCity",''))    LIKE ${like}
+      OR lower(coalesce("locationState",''))   LIKE ${like}
+    )`;
+  });
+
+  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT id FROM "Candidate"
     WHERE "organizationId" = ${orgId}
-      AND (
-        lower("firstName")                       LIKE ${like}
-        OR lower("lastName")                     LIKE ${like}
-        OR lower(email)                          LIKE ${like}
-        OR lower(coalesce("currentTitle",''))    LIKE ${like}
-        OR lower(coalesce("currentCompany",''))  LIKE ${like}
-        OR lower(coalesce("locationCity",''))    LIKE ${like}
-        OR lower(coalesce("locationState",''))   LIKE ${like}
-      )
+      AND ${Prisma.join(conditions, " AND ")}
     ORDER BY "createdAt" DESC
     LIMIT ${FTS_RESULT_LIMIT}
-  `;
+  `);
   return rows.map((r) => r.id);
 }
 

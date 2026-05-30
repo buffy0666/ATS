@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 export function KeywordSearchBar() {
@@ -10,20 +10,34 @@ export function KeywordSearchBar() {
   const [value, setValue] = useState(initialQ);
   const [showHelp, setShowHelp] = useState(false);
 
-  // Keep local state in sync if the URL changes externally (e.g. user clicks
-  // a saved search).
+  // Track what WE last pushed to the URL ourselves, so the sync-from-URL
+  // effect below can tell our own push apart from a real external nav
+  // (e.g. clicking a saved search). Without this, every debounced push
+  // bounced back into setValue() and could overwrite characters the user
+  // typed in the gap between debounce-fire and URL-update settling —
+  // i.e. fast typists saw characters "disappear" mid-word.
+  const ownPushRef = useRef<string>(initialQ);
+
+  // Sync local state from the URL when it changes *externally*. Skip our
+  // own pushes by comparing against ownPushRef.
   useEffect(() => {
-    setValue(searchParams.get("q") ?? "");
+    const urlValue = searchParams.get("q") ?? "";
+    if (urlValue === ownPushRef.current) return;
+    ownPushRef.current = urlValue;
+    setValue(urlValue);
   }, [searchParams]);
 
   // Debounce so we don't navigate on every keystroke.
   useEffect(() => {
-    if (value === (searchParams.get("q") ?? "")) return;
+    const trimmed = value.trim();
+    if (trimmed === (searchParams.get("q") ?? "")) return;
     const t = setTimeout(() => {
       const next = new URLSearchParams(searchParams.toString());
-      const trimmed = value.trim();
       if (trimmed) next.set("q", trimmed);
       else next.delete("q");
+      // Mark this value as our own push *before* navigating so the
+      // sync-from-URL effect skips it when the new URL settles.
+      ownPushRef.current = trimmed;
       router.push(`/candidates${next.toString() ? `?${next.toString()}` : ""}`, {
         scroll: false,
       });
