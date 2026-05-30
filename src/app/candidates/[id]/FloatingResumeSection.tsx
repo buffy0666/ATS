@@ -26,7 +26,13 @@ export function FloatingResumeSection({
   children: React.ReactNode;
 }) {
   const slotRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [geom, setGeom] = useState<{ left: number; width: number } | null>(null);
+  // Actual rendered height of the floating panel. The spacer mirrors this so
+  // the metadata below sits flush under the panel instead of under a fixed
+  // 560px reservation — short tabs (e.g. empty Email) no longer leave a tall
+  // gap above the Profile card.
+  const [panelH, setPanelH] = useState<number | null>(null);
   // Height of the impersonation banner (sticky at the very top of the page,
   // z-50, ~36px). 0 when not impersonating. We measure it so the floating
   // panel sits BELOW it instead of being covered by it.
@@ -43,18 +49,24 @@ export function FloatingResumeSection({
     const update = () => {
       const r = el.getBoundingClientRect();
       const bh = banner ? banner.getBoundingClientRect().height : 0;
+      // Measure the panel's own content height so the spacer can mirror it.
+      const ph = panelRef.current?.getBoundingClientRect().height ?? null;
       // window.scrollY shouldn't affect left/width but Safari sometimes
       // reports stale rects when called before layout flush — measure on
       // requestAnimationFrame to be safe.
       requestAnimationFrame(() => {
         setGeom({ left: r.left, width: r.width });
         setBannerH(bh);
+        if (ph != null) setPanelH(ph);
       });
     };
     update();
 
     const ro = new ResizeObserver(update);
     ro.observe(el);
+    // Observe the panel too — switching tabs or loading content changes its
+    // height, and the spacer must follow so the gap below stays correct.
+    if (panelRef.current) ro.observe(panelRef.current);
     // Observe the banner too — its content can wrap on narrow screens and
     // grow taller, which would push the panel further down.
     if (banner) ro.observe(banner);
@@ -72,33 +84,36 @@ export function FloatingResumeSection({
   // panel. Matches the 1rem gap used elsewhere on the page.
   const topPx = bannerH + 16;
 
-  // Height budget for the panel. We deliberately don't take the full
-  // viewport — that would push the Profile + metadata sections below it
-  // entirely off-screen on first paint, forcing the user to scroll past
-  // a wall of panel just to see the candidate's details. 60% of viewport
-  // (capped at 560px) leaves ~40% of the screen below the panel for the
-  // Profile card and the rest of the left column.
-  const panelHeight = `min(60vh, calc(100vh - ${topPx + 16}px), 560px)`;
+  // Upper bound on the panel height. The panel sizes to its content but
+  // never grows past this — so a tall tab (e.g. an inline PDF) still leaves
+  // ~40% of the screen below for the Profile card, while a short tab
+  // (e.g. empty Email) renders compactly with no dead space. 60% of
+  // viewport, capped at 560px.
+  const panelMaxHeight = `min(60vh, calc(100vh - ${topPx + 16}px), 560px)`;
 
   return (
     <>
-      {/* Spacer: occupies the column slot so metadata sections below
-          don't shift under where the floating panel sits. */}
+      {/* Spacer: occupies the column slot so metadata sections below don't
+          shift under the fixed panel. Mirrors the panel's MEASURED height
+          (not the max budget) so short tabs don't reserve a tall gap. Falls
+          back to the max cap before the first measurement. */}
       <div
         ref={slotRef}
         aria-hidden
-        style={{ height: panelHeight }}
+        style={{ height: panelH != null ? `${panelH}px` : panelMaxHeight }}
       />
 
-      {/* The floating panel itself. */}
+      {/* The floating panel itself. No fixed height — it shrinks to content,
+          capped by maxHeight; the inner scroll container handles overflow. */}
       <div
+        ref={panelRef}
         className="flex flex-col rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden shadow-sm"
         style={{
           position: "fixed",
           top: `${topPx}px`,
           left: geom?.left ?? 0,
           width: geom?.width ?? 0,
-          maxHeight: panelHeight,
+          maxHeight: panelMaxHeight,
           zIndex: 30,
           visibility: geom ? "visible" : "hidden",
         }}
