@@ -28,11 +28,12 @@ export function FloatingResumeSection({
   const slotRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const [geom, setGeom] = useState<{ left: number; width: number } | null>(null);
-  // Actual rendered height of the floating panel. The spacer mirrors this so
-  // the metadata below sits flush under the panel instead of under a fixed
-  // 560px reservation — short tabs (e.g. empty Email) no longer leave a tall
-  // gap above the Profile card.
-  const [panelH, setPanelH] = useState<number | null>(null);
+  // Height the spacer should reserve so the Profile card below starts flush
+  // at the floating panel's visual bottom. Because the panel is fixed (pinned
+  // near the viewport top) while the spacer sits lower in normal flow, we
+  // can't just mirror the panel's own height — we align the spacer's BOTTOM
+  // to the panel's bottom. Computed scroll-independently in the effect.
+  const [spacerH, setSpacerH] = useState<number | null>(null);
   // Height of the impersonation banner (sticky at the very top of the page,
   // z-50, ~36px). 0 when not impersonating. We measure it so the floating
   // panel sits BELOW it instead of being covered by it.
@@ -49,15 +50,24 @@ export function FloatingResumeSection({
     const update = () => {
       const r = el.getBoundingClientRect();
       const bh = banner ? banner.getBoundingClientRect().height : 0;
-      // Measure the panel's own content height so the spacer can mirror it.
-      const ph = panelRef.current?.getBoundingClientRect().height ?? null;
+      // Align the spacer's bottom with the panel's rendered bottom so the
+      // Profile card sits flush under the panel with no leftover gap.
+      //   panelBottom (viewport, constant — panel is fixed) = pRect.bottom
+      //   spacerDocTop                                       = r.top + scrollY
+      // spacerHeight = panelBottom − spacerDocTop is scroll-independent:
+      // the +scrollY in the doc-top term cancels the viewport-fixed panel.
+      const pRect = panelRef.current?.getBoundingClientRect();
+      const nextSpacerH =
+        pRect && r.width > 0
+          ? Math.max(0, pRect.bottom - (r.top + window.scrollY))
+          : null;
       // window.scrollY shouldn't affect left/width but Safari sometimes
       // reports stale rects when called before layout flush — measure on
       // requestAnimationFrame to be safe.
       requestAnimationFrame(() => {
         setGeom({ left: r.left, width: r.width });
         setBannerH(bh);
-        if (ph != null) setPanelH(ph);
+        if (nextSpacerH != null) setSpacerH(nextSpacerH);
       });
     };
     update();
@@ -100,7 +110,7 @@ export function FloatingResumeSection({
       <div
         ref={slotRef}
         aria-hidden
-        style={{ height: panelH != null ? `${panelH}px` : panelMaxHeight }}
+        style={{ height: spacerH != null ? `${spacerH}px` : panelMaxHeight }}
       />
 
       {/* The floating panel itself. No fixed height — it shrinks to content,

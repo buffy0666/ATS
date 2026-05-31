@@ -594,7 +594,6 @@ export default async function CandidateDetailPage({
 
               <DetailGrid title="Source & ownership">
                 <EditableField candidateId={candidate.id} field="status" label="Status" type="select" value={candidate.status} options={statusOptions} required />
-                <EditableField candidateId={candidate.id} field="rating" label="Rating" type="select" value={intStr(candidate.rating)} options={ratingOptions} />
                 <EditableField candidateId={candidate.id} field="source" label="Source" type="select" value={candidate.source} options={sourceSelectOptions} />
                 <EditableField candidateId={candidate.id} field="sourceDetail" label="Source detail" type="text" value={candidate.sourceDetail} />
                 <Detail
@@ -727,27 +726,43 @@ export default async function CandidateDetailPage({
             the left column. `self-start` lets the sidebar stay at its
             natural height instead of stretching to match the (much taller)
             left column. */}
-        <aside
-          className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col overflow-hidden sticky top-4 self-start"
+        {/* Right column: Rating card on top, then the Notes sidebar filling
+            the rest. The whole stack is sticky + viewport-tall so it follows
+            the user as they scroll the left column; Notes scrolls internally. */}
+        <div
+          className="flex flex-col gap-4 sticky top-4 self-start"
           style={{ maxHeight: "calc(100vh - 2rem)" }}
         >
-          <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            Notes
-          </div>
-          <div className="flex-1 min-h-0 p-5">
-            <NotesSection
+          <div className="shrink-0">
+            <EditableField
               candidateId={candidate.id}
-              notes={notes}
-              applications={candidate.applications.map((a) => ({
-                id: a.id,
-                jobTitle: a.job.title,
-                stage: a.stage,
-              }))}
-              currentUserId={session?.user?.id ?? ""}
-              currentUserIsAdmin={session?.user?.role === Role.ADMIN || session?.user?.role === Role.OWNER}
+              field="rating"
+              label="Rating"
+              type="select"
+              value={intStr(candidate.rating)}
+              options={ratingOptions}
             />
           </div>
-        </aside>
+
+          <aside className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col overflow-hidden flex-1 min-h-0">
+            <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Notes
+            </div>
+            <div className="flex-1 min-h-0 p-5">
+              <NotesSection
+                candidateId={candidate.id}
+                notes={notes}
+                applications={candidate.applications.map((a) => ({
+                  id: a.id,
+                  jobTitle: a.job.title,
+                  stage: a.stage,
+                }))}
+                currentUserId={session?.user?.id ?? ""}
+                currentUserIsAdmin={session?.user?.role === Role.ADMIN || session?.user?.role === Role.OWNER}
+              />
+            </div>
+          </aside>
+        </div>
       </div>
     </main>
   );
