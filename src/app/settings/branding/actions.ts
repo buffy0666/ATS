@@ -5,8 +5,8 @@ import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { removeAttachmentFile, saveAttachment } from "@/lib/uploads";
 
-const MAX_LOGO_BYTES = 2 * 1024 * 1024; // 2 MB
-const ALLOWED_LOGO_TYPES = new Set(["image/jpeg", "image/png"]);
+const MAX_LOGO_BYTES = 5 * 1024 * 1024; // 5 MB
+const ALLOWED_LOGO_TYPES = new Set(["image/jpeg", "image/png", "image/gif"]);
 
 export type LogoActionResult =
   | { ok: true; logoUrl: string | null; message: string }
@@ -20,16 +20,16 @@ export async function uploadOrgLogo(formData: FormData): Promise<LogoActionResul
 
   const file = formData.get("logo");
   if (!(file instanceof File) || file.size === 0) {
-    return { ok: false, message: "Choose a JPG or PNG file to upload." };
+    return { ok: false, message: "Choose a JPG, PNG or GIF file to upload." };
   }
   if (file.size > MAX_LOGO_BYTES) {
     return {
       ok: false,
-      message: `Logo too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max is 2 MB.`,
+      message: `Logo too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max is 5 MB.`,
     };
   }
   if (file.type && !ALLOWED_LOGO_TYPES.has(file.type)) {
-    return { ok: false, message: "Logo must be JPG or PNG." };
+    return { ok: false, message: "Logo must be JPG, PNG or GIF." };
   }
 
   let saved;

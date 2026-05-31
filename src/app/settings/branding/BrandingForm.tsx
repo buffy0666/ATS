@@ -87,13 +87,13 @@ export function BrandingForm({
         >
           <div>
             <label className="block text-sm font-medium mb-1" htmlFor="logo">
-              Upload a JPG or PNG
+              Upload a JPG, PNG or GIF
             </label>
             <input
               id="logo"
               name="logo"
               type="file"
-              accept="image/jpeg,image/png"
+              accept="image/jpeg,image/png,image/gif"
               disabled={!isAdmin || pending}
               onChange={handleFileChange}
               className="block w-full text-sm file:mr-3 file:rounded-md file:border-0 file:bg-zinc-900 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-white dark:file:bg-zinc-100 dark:file:text-zinc-900"
@@ -102,15 +102,15 @@ export function BrandingForm({
 
           <ul className="text-xs text-zinc-500 space-y-0.5 list-disc list-inside">
             <li>
-              <strong>Format:</strong> JPG or PNG only. (PNG with a transparent background looks
-              best in dark mode.)
+              <strong>Format:</strong> JPG, PNG or GIF. (PNG with a transparent background looks
+              best in dark mode; animated GIFs are supported.)
             </li>
             <li>
               <strong>Recommended size:</strong> ~256 × 256 px (square) or 512 × 128 px (wide).
               We resize to fit; oversized files just waste bandwidth.
             </li>
             <li>
-              <strong>Max file size:</strong> 2 MB.
+              <strong>Max file size:</strong> 5 MB.
             </li>
             <li>
               <strong>Where it shows:</strong> top-left of the sidebar (~40 px tall) and on the
