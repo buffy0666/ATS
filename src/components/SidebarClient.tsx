@@ -161,7 +161,10 @@ export function SidebarClient({
                 ‹
               </button>
             </div>
-            {organizationName && (
+            {/* Only show the org name as text when there's no logo image —
+                otherwise the logo already conveys the brand and the text line
+                reads as a redundant duplicate beneath it. */}
+            {organizationName && !organizationLogoUrl && (
               <div
                 className="mt-0.5 text-xs text-zinc-500 truncate"
                 title={organizationName}
