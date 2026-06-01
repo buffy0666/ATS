@@ -5,7 +5,7 @@ import { z } from "zod";
 import { KnowledgeStatus } from "@/generated/prisma";
 import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
-import { saveAttachment } from "@/lib/uploads";
+import { removeAttachmentFile, saveAttachment } from "@/lib/uploads";
 import { KNOWLEDGE_TYPES } from "./constants";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -40,15 +40,21 @@ const inputSchema = z.object({
   status: z.nativeEnum(KnowledgeStatus).optional().default(KnowledgeStatus.UNDER_REVIEW),
 });
 
-async function saveKnowledgeFile(file: File): Promise<string> {
+type SavedKnowledgeFile = {
+  url: string;
+  name: string;
+  size: number;
+  mimeType: string | null;
+};
+
+async function saveKnowledgeFile(file: File): Promise<SavedKnowledgeFile> {
   if (file.size > MAX_FILE_BYTES) {
-    throw new Error("File exceeds 20 MB limit.");
+    throw new Error(`"${file.name}" exceeds the 20 MB limit.`);
   }
   if (file.type && !ALLOWED_FILE_TYPES.has(file.type)) {
-    throw new Error("Unsupported file type.");
+    throw new Error(`"${file.name}" is an unsupported file type.`);
   }
-  const result = await saveAttachment(file, "knowledge");
-  return result.url;
+  return saveAttachment(file, "knowledge");
 }
 
 export type AddKnowledgeResult = { ok: true } | { ok: false; error: string };
@@ -68,20 +74,23 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
   }
   const data = parsed.data;
 
-  const file = formData.get("file") as File | null;
-  let finalUrl = "";
+  // Multiple files may be attached at once (input name="file" with `multiple`).
+  // Empty placeholder File entries (size 0) are ignored.
+  const files = (formData.getAll("file") as File[]).filter(
+    (f) => f instanceof File && f.size > 0,
+  );
 
-  // Attachment is optional. If a file is provided it wins; otherwise use the
-  // URL if given; otherwise save a name/description-only entry (empty url).
+  let saved: SavedKnowledgeFile[] = [];
   try {
-    if (file && file.size > 0) {
-      finalUrl = await saveKnowledgeFile(file);
-    } else if (data.url) {
-      finalUrl = data.url;
-    }
+    saved = await Promise.all(files.map((f) => saveKnowledgeFile(f)));
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save the attachment." };
   }
+
+  // `url` keeps the external link if one was given; otherwise it carries the
+  // first uploaded file for back-compat with the list's "Link / File" column.
+  // All uploaded files are also recorded as KnowledgeAttachment rows.
+  const finalUrl = data.url || saved[0]?.url || "";
 
   // Only admins (or owners) can set the initial status to APPROVED;
   // everyone else has it forced to UNDER_REVIEW regardless of what they
@@ -98,10 +107,113 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
       status,
       createdById: session.user.id,
       organizationId: orgId,
+      attachments:
+        saved.length > 0
+          ? {
+              create: saved.map((s) => ({
+                name: s.name,
+                url: s.url,
+                size: s.size,
+                mimeType: s.mimeType,
+                uploadedById: session.user.id ?? null,
+              })),
+            }
+          : undefined,
     },
   });
 
   revalidatePath("/knowledge");
+  return { ok: true };
+}
+
+/**
+ * Add one or more documents to an existing knowledge item. Org-scoped: the
+ * item must belong to the caller's org. Creator or admin only (same gate as
+ * delete) since attachments are content edits.
+ */
+export async function addKnowledgeAttachments(
+  itemId: string,
+  formData: FormData,
+): Promise<AddKnowledgeResult> {
+  const { session, orgId } = await requireSessionWithOrg();
+
+  const item = await prisma.knowledgeItem.findFirst({
+    where: { id: itemId, organizationId: orgId },
+    select: { id: true, createdById: true, url: true },
+  });
+  if (!item) return { ok: false, error: "Item not found." };
+
+  const isAdmin = isAdminOrAbove(session.user.role);
+  const isCreator = item.createdById === session.user.id;
+  if (!isAdmin && !isCreator) {
+    return { ok: false, error: "Only the item's creator or an admin can add files." };
+  }
+
+  const files = (formData.getAll("file") as File[]).filter(
+    (f) => f instanceof File && f.size > 0,
+  );
+  if (files.length === 0) return { ok: false, error: "Choose at least one file." };
+
+  let saved: SavedKnowledgeFile[];
+  try {
+    saved = await Promise.all(files.map((f) => saveKnowledgeFile(f)));
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not save the attachment." };
+  }
+
+  await prisma.knowledgeAttachment.createMany({
+    data: saved.map((s) => ({
+      knowledgeItemId: item.id,
+      name: s.name,
+      url: s.url,
+      size: s.size,
+      mimeType: s.mimeType,
+      uploadedById: session.user.id ?? null,
+    })),
+  });
+
+  // Back-fill the item's primary url if it had none, so the list view still
+  // shows a "File" link.
+  if (!item.url && saved[0]) {
+    await prisma.knowledgeItem.update({
+      where: { id: item.id },
+      data: { url: saved[0].url },
+    });
+  }
+
+  revalidatePath("/knowledge");
+  revalidatePath(`/knowledge/${item.id}`);
+  return { ok: true };
+}
+
+/**
+ * Remove a single attachment from a knowledge item. Creator or admin only.
+ * Best-effort deletes the underlying blob/file too.
+ */
+export async function deleteKnowledgeAttachment(
+  attachmentId: string,
+): Promise<AddKnowledgeResult> {
+  const { session, orgId } = await requireSessionWithOrg();
+
+  const attachment = await prisma.knowledgeAttachment.findFirst({
+    where: { id: attachmentId, knowledgeItem: { organizationId: orgId } },
+    select: { id: true, url: true, knowledgeItemId: true, knowledgeItem: { select: { createdById: true } } },
+  });
+  if (!attachment) return { ok: false, error: "Attachment not found." };
+
+  const isAdmin = isAdminOrAbove(session.user.role);
+  const isCreator = attachment.knowledgeItem.createdById === session.user.id;
+  if (!isAdmin && !isCreator) {
+    return { ok: false, error: "Only the item's creator or an admin can remove files." };
+  }
+
+  await prisma.knowledgeAttachment.delete({ where: { id: attachment.id } });
+  await removeAttachmentFile(attachment.url).catch(() => {
+    // Orphaned blob is acceptable; the row is already gone.
+  });
+
+  revalidatePath("/knowledge");
+  revalidatePath(`/knowledge/${attachment.knowledgeItemId}`);
   return { ok: true };
 }
 

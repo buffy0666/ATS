@@ -437,6 +437,7 @@ model User {
   tasksCreated           Task[]                  @relation("TaskCreator")
   tasksAssigned          Task[]                  @relation("TaskAssignee")
   knowledgeItemsCreated  KnowledgeItem[]         @relation("KnowledgeItemCreator")
+  knowledgeAttachments   KnowledgeAttachment[]   @relation("KnowledgeAttachmentUploader")
   taskAttachments        TaskAttachment[]        @relation("TaskAttachmentUploader")
   lists                  CandidateList[]
   listMembersAdded       CandidateListMember[]   @relation("ListMemberAdder")
@@ -905,6 +906,9 @@ model KnowledgeItem {
   name        String
   description String?
   type        String // "document" | "link"
+  // Optional primary link/URL. Multiple uploaded documents now live in the
+  // KnowledgeAttachment child table; `url` is kept for the single external
+  // link case (and back-compat with rows created before attachments existed).
   url         String
   status      KnowledgeStatus @default(UNDER_REVIEW)
   createdById String?
@@ -912,12 +916,33 @@ model KnowledgeItem {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
+  attachments KnowledgeAttachment[]
+
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@index([createdById])
   @@index([organizationId])
+}
+
+// Files attached to a KnowledgeItem. Many per item — mirrors the
+// TaskAttachment pattern. The file blob is stored via lib/uploads
+// (Vercel Blob in prod, public/uploads in dev) and `url` points at it.
+model KnowledgeAttachment {
+  id              String   @id @default(cuid())
+  knowledgeItemId String
+  name            String
+  url             String
+  size            Int
+  mimeType        String?
+  uploadedById    String?
+  uploadedAt      DateTime @default(now())
+
+  knowledgeItem KnowledgeItem @relation(fields: [knowledgeItemId], references: [id], onDelete: Cascade)
+  uploadedBy    User?         @relation("KnowledgeAttachmentUploader", fields: [uploadedById], references: [id])
+
+  @@index([knowledgeItemId])
 }
 
 model EmailTemplate {

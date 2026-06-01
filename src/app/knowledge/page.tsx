@@ -12,6 +12,7 @@ export default async function KnowledgeBase() {
     orderBy: { createdAt: "desc" },
     include: {
       createdBy: { select: { id: true, name: true, email: true } },
+      _count: { select: { attachments: true } },
     },
   });
 
@@ -24,6 +25,7 @@ export default async function KnowledgeBase() {
     status: it.status,
     createdAt: it.createdAt,
     createdBy: it.createdBy,
+    attachmentCount: it._count.attachments,
   }));
 
   return (

@@ -16,6 +16,7 @@ export type KnowledgeRow = {
   status: KnowledgeStatus;
   createdAt: Date;
   createdBy: { id: string; name: string | null; email: string } | null;
+  attachmentCount: number;
 };
 
 const STATUS_LABEL: Record<KnowledgeStatus, string> = {
@@ -177,10 +178,22 @@ export function KnowledgeTable({
                     className="border-t border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-950"
                   >
                     <td className="px-4 py-3">
-                      <div className="font-medium">{item.name}</div>
-                      <span className="mt-1 inline-block rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200 px-2 py-0.5 text-[10px] font-medium">
-                        {item.type}
-                      </span>
+                      <Link
+                        href={`/knowledge/${item.id}`}
+                        className="font-medium hover:underline"
+                      >
+                        {item.name}
+                      </Link>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <span className="inline-block rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200 px-2 py-0.5 text-[10px] font-medium">
+                          {item.type}
+                        </span>
+                        {item.attachmentCount > 0 && (
+                          <span className="inline-block rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 px-2 py-0.5 text-[10px] font-medium">
+                            {item.attachmentCount} file{item.attachmentCount === 1 ? "" : "s"}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 max-w-md">
                       {item.description ? (

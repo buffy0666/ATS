@@ -96,15 +96,16 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
 
       <div>
         <label className="block text-sm font-medium mb-1" htmlFor="file">
-          Upload Document <span className="font-normal text-zinc-400">(optional)</span>
+          Upload Documents <span className="font-normal text-zinc-400">(optional)</span>
         </label>
         <input
           id="file"
           type="file"
           name="file"
+          multiple
           className="block w-full text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-zinc-100 dark:file:bg-zinc-800 file:px-4 file:py-2 file:text-sm file:font-medium hover:file:bg-zinc-200 dark:hover:file:bg-zinc-700"
         />
-        <p className="text-xs text-zinc-500 mt-1">PDF, DOC/DOCX, XLS/XLSX, TXT up to 20MB. A file takes priority over a link.</p>
+        <p className="text-xs text-zinc-500 mt-1">PDF, DOC/DOCX, XLS/XLSX, TXT up to 20MB each. Select multiple files to attach several at once. You can add more later from the item&apos;s page.</p>
       </div>
 
       <div>
