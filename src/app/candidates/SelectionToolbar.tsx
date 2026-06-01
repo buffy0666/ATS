@@ -7,12 +7,16 @@ import {
   addCandidatesToJob,
   addCandidatesToList,
   addTagsToCandidates,
+  bulkEditCandidates,
+  choiceOptionsForBulk,
+  createChoiceForBulk,
   createListForBulk,
   listsVisibleToCurrentUser,
   openJobsForBulk,
   removeCandidatesFromList,
   type BulkActionResult,
 } from "./bulk-actions";
+import { BULK_EDIT_FIELDS, type BulkEditFieldDef } from "./bulk-edit-fields";
 import { enrollCandidatesInSequence } from "../sequences/actions";
 import { TagInput } from "@/components/TagInput";
 
@@ -21,7 +25,7 @@ type JobOption = { id: string; title: string };
 type SequenceOption = { id: string; name: string };
 type TagOption = { id: string; name: string; color: string };
 
-type ModalKind = "list" | "job" | "tag" | "sequence" | null;
+type ModalKind = "list" | "job" | "tag" | "sequence" | "edit" | null;
 
 export function SelectionToolbar({
   selectedIds,
@@ -77,7 +81,7 @@ export function SelectionToolbar({
   return (
     <>
       <div
-        className="selection-shimmer selection-shimmer-border fixed bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full border-2 px-4 py-2 flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-100"
+        className="selection-shimmer-border fixed bottom-4 left-1/2 -translate-x-1/2 z-30 rounded-full border-2 px-4 py-2 flex items-center gap-2 text-sm text-zinc-900 dark:text-zinc-100 bg-white dark:bg-zinc-900 shadow-xl"
         role="region"
         aria-label="Bulk actions"
       >
@@ -93,6 +97,9 @@ export function SelectionToolbar({
         </ToolbarButton>
         <ToolbarButton onClick={() => setModal("tag")} disabled={pending}>
           Add tag…
+        </ToolbarButton>
+        <ToolbarButton onClick={() => setModal("edit")} disabled={pending}>
+          Edit fields…
         </ToolbarButton>
         <ToolbarButton onClick={() => setModal("sequence")} disabled={pending}>
           Enroll in sequence…
@@ -177,7 +184,259 @@ export function SelectionToolbar({
           selectedIds={selectedIds}
         />
       )}
+      {modal === "edit" && (
+        <EditFieldsModal
+          onClose={() => setModal(null)}
+          onResult={(r) => {
+            handleResult(r, true);
+            setModal(null);
+          }}
+          selectedCount={selectedIds.length}
+          selectedIds={selectedIds}
+        />
+      )}
     </>
+  );
+}
+
+function EditFieldsModal({
+  onClose,
+  onResult,
+  selectedCount,
+  selectedIds,
+}: {
+  onClose: () => void;
+  onResult: (r: BulkActionResult) => void;
+  selectedCount: number;
+  selectedIds: string[];
+}) {
+  const [fieldKey, setFieldKey] = useState<string>(BULK_EDIT_FIELDS[0].key);
+  const def: BulkEditFieldDef =
+    BULK_EDIT_FIELDS.find((f) => f.key === fieldKey) ?? BULK_EDIT_FIELDS[0];
+
+  // Single-value fields (enumSelect / choiceSelect / rating / bool).
+  const [value, setValue] = useState<string>("");
+  // Multi-value fields (enumMulti).
+  const [values, setValues] = useState<string[]>([]);
+
+  // choiceSelect options loaded from the ChoiceOption registry.
+  const [choices, setChoices] = useState<{ id: string; name: string }[] | null>(null);
+  const [addingChoice, setAddingChoice] = useState(false);
+  const [newChoice, setNewChoice] = useState("");
+
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset the value state whenever the chosen field changes.
+  useEffect(() => {
+    setValue("");
+    setValues([]);
+    setError(null);
+    setAddingChoice(false);
+    setNewChoice("");
+    setChoices(null);
+    if (def.type === "choiceSelect" && def.choiceField) {
+      choiceOptionsForBulk(def.choiceField).then((opts) => {
+        setChoices(opts);
+        if (opts.length > 0) setValue(opts[0].name);
+      });
+    } else if (def.type === "enumSelect" && def.options && def.options.length > 0) {
+      setValue(def.options[0].value);
+    } else if (def.type === "rating" && def.options && def.options.length > 0) {
+      setValue(def.options[0].value);
+    } else if (def.type === "bool") {
+      setValue("true");
+    }
+  }, [def]);
+
+  function addChoiceInline() {
+    const name = newChoice.trim();
+    if (!name || !def.choiceField) return;
+    setError(null);
+    startTransition(async () => {
+      const r = await createChoiceForBulk(def.choiceField!, name);
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      setChoices((prev) => {
+        const next = prev ? [...prev] : [];
+        if (!next.some((o) => o.name === r.name)) next.push({ id: r.name, name: r.name });
+        return next;
+      });
+      setValue(r.name);
+      setAddingChoice(false);
+      setNewChoice("");
+    });
+  }
+
+  function submit() {
+    setError(null);
+    startTransition(async () => {
+      const r = await bulkEditCandidates(selectedIds, fieldKey, value, values);
+      onResult(r);
+    });
+  }
+
+  function toggleMulti(v: string) {
+    setValues((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
+  }
+
+  const selectClass =
+    "w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm";
+
+  return (
+    <ModalShell
+      title={`Edit a field on ${selectedCount} candidate${selectedCount === 1 ? "" : "s"}`}
+      onClose={onClose}
+    >
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-sm font-medium">Field</label>
+          <select
+            value={fieldKey}
+            onChange={(e) => setFieldKey(e.target.value)}
+            className={selectClass}
+          >
+            {BULK_EDIT_FIELDS.map((f) => (
+              <option key={f.key} value={f.key}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium">New value</label>
+
+          {def.type === "enumSelect" && (
+            <select value={value} onChange={(e) => setValue(e.target.value)} className={selectClass}>
+              {def.options?.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+              {def.nullable && <option value="__CLEAR__">— Clear —</option>}
+            </select>
+          )}
+
+          {def.type === "choiceSelect" &&
+            (choices === null ? (
+              <p className="text-sm text-zinc-500">Loading options…</p>
+            ) : addingChoice ? (
+              <div className="flex items-center gap-2">
+                <input
+                  value={newChoice}
+                  onChange={(e) => setNewChoice(e.target.value)}
+                  placeholder={`New ${def.label.toLowerCase()}…`}
+                  className={selectClass}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addChoiceInline();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={addChoiceInline}
+                  disabled={pending || !newChoice.trim()}
+                  className="shrink-0 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-3 py-2 text-sm font-medium disabled:opacity-50"
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddingChoice(false);
+                    setNewChoice("");
+                  }}
+                  className="shrink-0 rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <select
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  className={selectClass}
+                >
+                  {choices.map((o) => (
+                    <option key={o.id} value={o.name}>
+                      {o.name}
+                    </option>
+                  ))}
+                  {def.nullable && <option value="__CLEAR__">— Clear —</option>}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setAddingChoice(true)}
+                  className="shrink-0 rounded-md border border-zinc-300 dark:border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                >
+                  + New
+                </button>
+              </div>
+            ))}
+
+          {def.type === "enumMulti" && (
+            <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-zinc-200 dark:border-zinc-800 p-2">
+              {def.options?.map((o) => (
+                <label
+                  key={o.value}
+                  className="flex items-center gap-2 px-1.5 py-1 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-950 rounded cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={values.includes(o.value)}
+                    onChange={() => toggleMulti(o.value)}
+                  />
+                  {o.label}
+                </label>
+              ))}
+              <p className="px-1.5 pt-1 text-xs text-zinc-500">
+                Replaces the existing selection. Leave all unchecked to clear it.
+              </p>
+            </div>
+          )}
+
+          {def.type === "rating" && (
+            <select value={value} onChange={(e) => setValue(e.target.value)} className={selectClass}>
+              {def.options?.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+              <option value="__CLEAR__">— Clear —</option>
+            </select>
+          )}
+
+          {def.type === "bool" && (
+            <select value={value} onChange={(e) => setValue(e.target.value)} className={selectClass}>
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          )}
+        </div>
+
+        <p className="text-xs text-zinc-500">
+          This sets <strong>{def.label}</strong> to the chosen value on all{" "}
+          {selectedCount} selected candidate{selectedCount === 1 ? "" : "s"}, overwriting
+          any current value.
+        </p>
+
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <ModalFooter
+          onClose={onClose}
+          onSubmit={submit}
+          pending={pending}
+          submitLabel="Apply"
+        />
+      </div>
+    </ModalShell>
   );
 }
 
