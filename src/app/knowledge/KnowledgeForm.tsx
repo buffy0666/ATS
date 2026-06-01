@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { KnowledgeStatus } from "@/generated/prisma";
 import { addKnowledgeItem } from "./actions";
@@ -10,11 +10,38 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Managed file list so picks accumulate (the native multiple input replaces
+  // its selection on each click). Each pick appends; users can remove any.
+  const [files, setFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function addFiles(picked: FileList | null) {
+    if (!picked || picked.length === 0) return;
+    setFiles((prev) => {
+      const next = [...prev];
+      for (const f of Array.from(picked)) {
+        // De-dupe by name+size so re-picking the same file doesn't double it.
+        if (!next.some((e) => e.name === f.name && e.size === f.size)) {
+          next.push(f);
+        }
+      }
+      return next;
+    });
+    // Reset the input so picking the same filename again still fires onChange.
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function removeFile(index: number) {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  }
 
   return (
     <form
       action={(fd) => {
         setError(null);
+        // The file input carries no name; append the managed list under
+        // "file" so the server action's getAll("file") sees every pick.
+        for (const f of files) fd.append("file", f);
         startTransition(async () => {
           try {
             const res = await addKnowledgeItem(fd);
@@ -117,14 +144,45 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
         <label className="block text-sm font-medium mb-1" htmlFor="file">
           Upload Documents <span className="font-normal text-zinc-400">(optional)</span>
         </label>
+
+        {files.length > 0 && (
+          <ul className="mb-2 divide-y divide-zinc-200 dark:divide-zinc-800 rounded-lg border border-zinc-200 dark:border-zinc-800">
+            {files.map((f, i) => (
+              <li
+                key={`${f.name}-${f.size}-${i}`}
+                className="flex items-center justify-between gap-3 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm">{f.name}</div>
+                  <div className="text-xs text-zinc-500">{formatBytes(f.size)}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeFile(i)}
+                  disabled={pending}
+                  className="shrink-0 rounded-md border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 px-2 py-1 text-xs hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
         <input
+          ref={fileInputRef}
           id="file"
           type="file"
-          name="file"
           multiple
+          onChange={(e) => addFiles(e.target.files)}
           className="block w-full text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-zinc-100 dark:file:bg-zinc-800 file:px-4 file:py-2 file:text-sm file:font-medium hover:file:bg-zinc-200 dark:hover:file:bg-zinc-700"
         />
-        <p className="text-xs text-zinc-500 mt-1">PDF, DOC/DOCX, XLS/XLSX, TXT up to 20MB each. Select multiple files to attach several at once. You can add more later from the item&apos;s page.</p>
+        <p className="text-xs text-zinc-500 mt-1">
+          {files.length > 0
+            ? `${files.length} file${files.length === 1 ? "" : "s"} ready. Choose more to add to the list.`
+            : "PDF, DOC/DOCX, XLS/XLSX, CSV, TXT, or images (PNG/JPG/GIF/WebP) up to 20MB each."}{" "}
+          You can also add or remove files later from the item&apos;s page.
+        </p>
       </div>
 
       <div>
@@ -167,4 +225,10 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
       </div>
     </form>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

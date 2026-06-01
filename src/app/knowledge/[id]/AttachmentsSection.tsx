@@ -123,7 +123,7 @@ export function AttachmentsSection({
               {pending ? "Uploading…" : "Upload"}
             </button>
             <span className="text-xs text-zinc-500">
-              PDF, DOC/DOCX, XLS/XLSX, TXT up to 20MB each.
+              PDF, DOC/DOCX, XLS/XLSX, CSV, TXT, or images (PNG/JPG/GIF/WebP) up to 20MB each.
             </span>
           </div>
         </form>

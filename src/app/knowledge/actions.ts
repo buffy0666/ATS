@@ -16,6 +16,12 @@ const ALLOWED_FILE_TYPES = new Set([
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "text/plain",
+  "text/csv",
+  // Images — screenshots, diagrams, logos, etc.
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
 ]);
 
 const inputSchema = z.object({
