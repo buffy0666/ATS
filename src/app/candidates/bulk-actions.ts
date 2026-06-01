@@ -4,7 +4,14 @@ import { revalidatePath } from "next/cache";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { tagColorForName } from "@/lib/tag-colors";
-import { Stage } from "@/generated/prisma";
+import { Prisma, Stage } from "@/generated/prisma";
+import { ensureChoiceDefaults, loadChoiceOptions, CHOICE_FIELDS } from "@/lib/choices";
+import {
+  getBulkEditField,
+  SENIORITY_CHOICE_FIELD,
+  SOURCE_CHOICE_FIELD,
+  type BulkEditFieldDef,
+} from "./bulk-edit-fields";
 
 const MAX_BULK = 500;
 
@@ -282,4 +289,161 @@ export async function activeSequencesForBulk(): Promise<{ id: string; name: stri
     select: { id: true, name: true },
     take: 200,
   });
+}
+
+// ----- Bulk "Edit fields" -------------------------------------------------
+
+/**
+ * Load the current options for a ChoiceOption-backed field (source / seniority)
+ * so the bulk-edit modal can show them. Lazily seeds the per-org defaults the
+ * same way /settings/choices does, so a fresh tenant still gets a usable list.
+ */
+export async function choiceOptionsForBulk(
+  choiceField: string,
+): Promise<{ id: string; name: string }[]> {
+  const { orgId } = await requireSessionWithOrg();
+  const known =
+    choiceField === SOURCE_CHOICE_FIELD
+      ? CHOICE_FIELDS.candidateSource
+      : choiceField === SENIORITY_CHOICE_FIELD
+        ? CHOICE_FIELDS.candidateSeniority
+        : null;
+  if (!known) return [];
+  await ensureChoiceDefaults(known.key, known.defaults, orgId);
+  const rows = await loadChoiceOptions(known.key, orgId);
+  return rows.map((r) => ({ id: r.id, name: r.name }));
+}
+
+/**
+ * Create a new ChoiceOption for source/seniority in the moment (so the user
+ * doesn't have to leave the bulk-edit modal to add a missing option). Returns
+ * the canonical name to use. Idempotent-ish: if it already exists we just
+ * return it rather than erroring.
+ */
+export async function createChoiceForBulk(
+  choiceField: string,
+  rawName: string,
+): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
+  const { orgId } = await requireSessionWithOrg();
+  if (choiceField !== SOURCE_CHOICE_FIELD && choiceField !== SENIORITY_CHOICE_FIELD) {
+    return { ok: false, error: "Unknown field." };
+  }
+  const name = rawName.trim();
+  if (!name) return { ok: false, error: "Name is required." };
+  if (name.length > 80) return { ok: false, error: "Name too long (max 80)." };
+
+  const existing = await prisma.choiceOption.findFirst({
+    where: { field: choiceField, name, organizationId: orgId },
+    select: { id: true },
+  });
+  if (existing) return { ok: true, name };
+
+  const max = await prisma.choiceOption.findFirst({
+    where: { field: choiceField, organizationId: orgId },
+    orderBy: { sortOrder: "desc" },
+    select: { sortOrder: true },
+  });
+  try {
+    await prisma.choiceOption.create({
+      data: {
+        field: choiceField,
+        name,
+        sortOrder: (max?.sortOrder ?? -1) + 1,
+        organizationId: orgId,
+      },
+    });
+  } catch {
+    // Pre-Phase-6 the unique index on (field,name) is still global; if another
+    // org already owns that name the create throws. The candidate column only
+    // stores the string, so we can still use the name regardless.
+    return { ok: true, name };
+  }
+  revalidatePath("/settings/choices");
+  return { ok: true, name };
+}
+
+/**
+ * Coerce the raw string value(s) from the modal into the typed Prisma update
+ * payload for a single bulk-edit field. Returns null when the value is invalid
+ * for the field (so the action can reject rather than write garbage).
+ */
+function buildFieldData(
+  def: BulkEditFieldDef,
+  value: string,
+  values: string[],
+): Prisma.CandidateUpdateManyMutationInput | null {
+  const isClear = value === "" || value === "__CLEAR__";
+
+  switch (def.type) {
+    case "enumSelect":
+    case "choiceSelect": {
+      if (isClear) {
+        if (!def.nullable) return null;
+        return { [def.key]: null } as Prisma.CandidateUpdateManyMutationInput;
+      }
+      // enumSelect: value must be one of the known options. choiceSelect: any
+      // non-empty string is allowed (it's a free registry, validated upstream).
+      if (def.type === "enumSelect" && !def.options?.some((o) => o.value === value)) {
+        return null;
+      }
+      return { [def.key]: value } as Prisma.CandidateUpdateManyMutationInput;
+    }
+    case "enumMulti": {
+      const valid = (def.options ?? []).map((o) => o.value);
+      const picked = values.filter((v) => valid.includes(v));
+      // Empty selection = clear the array.
+      return { [def.key]: { set: picked } } as Prisma.CandidateUpdateManyMutationInput;
+    }
+    case "rating": {
+      if (isClear) return { rating: null };
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < 1 || n > 5) return null;
+      return { rating: n };
+    }
+    case "bool": {
+      if (value !== "true" && value !== "false") return null;
+      return { [def.key]: value === "true" } as Prisma.CandidateUpdateManyMutationInput;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Apply a single field value to every selected candidate. Org-scoped: the
+ * updateMany where-clause includes organizationId, so ids smuggled from
+ * another tenant simply don't match and are left untouched.
+ */
+export async function bulkEditCandidates(
+  candidateIds: string[],
+  fieldKey: string,
+  value: string,
+  values: string[] = [],
+): Promise<BulkActionResult> {
+  const { orgId } = await requireSessionWithOrg();
+  const ids = sanitizeIds(candidateIds);
+  if (ids.length === 0) {
+    return { ok: false, message: "Pick at least one candidate.", affected: 0 };
+  }
+
+  const def = getBulkEditField(fieldKey);
+  if (!def) return { ok: false, message: "Unknown field.", affected: 0 };
+
+  const data = buildFieldData(def, value, values);
+  if (!data) {
+    return { ok: false, message: `Invalid value for ${def.label}.`, affected: 0 };
+  }
+
+  const result = await prisma.candidate.updateMany({
+    where: { id: { in: ids }, organizationId: orgId },
+    data,
+  });
+
+  revalidatePath("/candidates");
+
+  return {
+    ok: true,
+    message: `Updated ${def.label} on ${result.count} candidate${result.count === 1 ? "" : "s"}.`,
+    affected: result.count,
+  };
 }
