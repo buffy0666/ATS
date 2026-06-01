@@ -312,6 +312,11 @@ enum AuditAction {
   USER_REACTIVATE
   AI_CONFIG_CHANGE
   EXPORT
+  // Two duplicate candidate records merged into one (see
+  // src/app/candidates/merge/actions.ts). Appended additively — the
+  // shared DB needs `ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS
+  // 'CANDIDATE_MERGE'` applied before this value can be written.
+  CANDIDATE_MERGE
 }
 
 /// A tenant in the multi-tenant SaaS sense — every business object (Client,

@@ -97,6 +97,16 @@ export function SelectionToolbar({
         <ToolbarButton onClick={() => setModal("sequence")} disabled={pending}>
           Enroll in sequence…
         </ToolbarButton>
+        {selectedIds.length === 2 && (
+          <ToolbarButton
+            onClick={() =>
+              router.push(`/candidates/merge?a=${selectedIds[0]}&b=${selectedIds[1]}`)
+            }
+            disabled={pending}
+          >
+            Merge…
+          </ToolbarButton>
+        )}
         {listId && (
           <ToolbarButton tone="danger" onClick={removeFromList} disabled={pending}>
             Remove from list

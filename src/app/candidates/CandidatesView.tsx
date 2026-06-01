@@ -383,15 +383,36 @@ export function CandidatesView({
         />
       </div>
 
-      <Paginator
-        searchParams={searchParams}
-        page={page}
-        pageSize={pageSize}
-        totalCount={totalCount}
-        pageSizeOptions={pageSizeOptions}
-        visibleRows={candidates.length}
-        location="top"
-      />
+      <div className="flex items-center justify-between gap-3">
+        <Paginator
+          searchParams={searchParams}
+          page={page}
+          pageSize={pageSize}
+          totalCount={totalCount}
+          pageSizeOptions={pageSizeOptions}
+          visibleRows={candidates.length}
+          location="top"
+        />
+        {selectedIds.size === 2 ? (
+          <button
+            type="button"
+            onClick={() => {
+              const [a, b] = [...selectedIds];
+              router.push(`/candidates/merge?a=${a}&b=${b}`);
+            }}
+            className="shrink-0 text-xs font-medium text-zinc-500 underline-offset-2 hover:text-zinc-900 hover:underline dark:hover:text-zinc-100"
+          >
+            Merge selected →
+          </button>
+        ) : (
+          <span
+            className="shrink-0 text-xs text-zinc-400"
+            title="Select exactly two candidates to merge them into one record."
+          >
+            Merge: select exactly two
+          </span>
+        )}
+      </div>
 
       {candidates.length === 0 ? (
         <p className="text-sm text-zinc-500">

@@ -43,6 +43,7 @@ const ACTION_LABEL: Record<AuditAction, string> = {
   USER_REACTIVATE: "User reactivated",
   AI_CONFIG_CHANGE: "AI config changed",
   EXPORT: "Data exported",
+  CANDIDATE_MERGE: "Candidates merged",
 };
 
 const ACTION_BADGE: Record<AuditAction, string> = {
@@ -61,6 +62,7 @@ const ACTION_BADGE: Record<AuditAction, string> = {
   USER_REACTIVATE: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
   AI_CONFIG_CHANGE: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
   EXPORT: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
+  CANDIDATE_MERGE: "bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-950/40 dark:text-fuchsia-300",
 };
 
 const ACTION_VALUES = Object.values(AuditAction);
