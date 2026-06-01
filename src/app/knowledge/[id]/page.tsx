@@ -65,6 +65,11 @@ export default async function KnowledgeItemPage({
         <span className="rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200 px-2 py-0.5 text-xs font-medium">
           {item.type}
         </span>
+        {item.category && (
+          <span className="rounded-full bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-200 px-2 py-0.5 text-xs font-medium">
+            {item.category}
+          </span>
+        )}
       </div>
 
       <div className="mt-1 text-xs text-zinc-500">
@@ -73,7 +78,7 @@ export default async function KnowledgeItemPage({
       </div>
 
       {item.description && (
-        <p className="mt-4 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap">
+        <p className="mt-4 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300 whitespace-pre-wrap break-words">
           {item.description}
         </p>
       )}

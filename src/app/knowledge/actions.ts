@@ -6,7 +6,7 @@ import { KnowledgeStatus } from "@/generated/prisma";
 import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { removeAttachmentFile, saveAttachment } from "@/lib/uploads";
-import { KNOWLEDGE_TYPES } from "./constants";
+import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_TYPES } from "./constants";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const ALLOWED_FILE_TYPES = new Set([
@@ -29,6 +29,8 @@ const inputSchema = z.object({
     .transform((v) => v || null),
   // What kind of knowledge this is.
   type: z.enum(KNOWLEDGE_TYPES),
+  // Department this item belongs to.
+  category: z.enum(KNOWLEDGE_CATEGORIES),
   url: z
     .string()
     .trim()
@@ -66,6 +68,7 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
     name: formData.get("name"),
     description: formData.get("description"),
     type: formData.get("type"),
+    category: formData.get("category"),
     url: formData.get("url"),
     status: formData.get("status") || KnowledgeStatus.UNDER_REVIEW,
   });
@@ -103,6 +106,7 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
       name: data.name,
       description: data.description,
       type: data.type,
+      category: data.category,
       url: finalUrl,
       status,
       createdById: session.user.id,

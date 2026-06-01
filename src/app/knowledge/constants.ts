@@ -4,3 +4,8 @@
 export const KNOWLEDGE_TYPES = ["How To", "FYI", "Policies"] as const;
 
 export type KnowledgeType = (typeof KNOWLEDGE_TYPES)[number];
+
+// Department a knowledge item belongs to.
+export const KNOWLEDGE_CATEGORIES = ["Sales", "Recruiting", "Admin"] as const;
+
+export type KnowledgeCategory = (typeof KNOWLEDGE_CATEGORIES)[number];

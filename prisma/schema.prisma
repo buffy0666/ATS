@@ -905,6 +905,9 @@ model KnowledgeItem {
   id          String          @id @default(cuid())
   name        String
   description String?
+  // Department this item belongs to: "Sales" | "Recruiting" | "Admin".
+  // Nullable for back-compat with rows created before the field existed.
+  category    String?
   type        String // "document" | "link"
   // Optional primary link/URL. Multiple uploaded documents now live in the
   // KnowledgeAttachment child table; `url` is kept for the single external

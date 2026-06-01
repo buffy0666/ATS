@@ -21,6 +21,7 @@ export default async function KnowledgeBase() {
     name: it.name,
     description: it.description,
     type: it.type,
+    category: it.category,
     url: it.url,
     status: it.status,
     createdAt: it.createdAt,

@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { KnowledgeStatus } from "@/generated/prisma";
 import { addKnowledgeItem } from "./actions";
-import { KNOWLEDGE_TYPES } from "./constants";
+import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_TYPES } from "./constants";
 
 export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
@@ -65,6 +65,25 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
             ))}
           </select>
         </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1" htmlFor="category">
+            Category *
+          </label>
+          <select
+            id="category"
+            name="category"
+            required
+            defaultValue={KNOWLEDGE_CATEGORIES[0]}
+            className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
+          >
+            {KNOWLEDGE_CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div>
@@ -74,10 +93,10 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
         <textarea
           id="description"
           name="description"
-          rows={3}
+          rows={8}
           maxLength={2000}
           placeholder="What is this — and when should someone use it?"
-          className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
+          className="w-full resize-y rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm leading-relaxed min-h-40 whitespace-pre-wrap break-words"
         />
       </div>
 

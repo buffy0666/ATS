@@ -5,13 +5,14 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { KnowledgeStatus, Role } from "@/generated/prisma";
 import { deleteKnowledgeItem, setKnowledgeStatus } from "./actions";
-import { KNOWLEDGE_TYPES } from "./constants";
+import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_TYPES } from "./constants";
 
 export type KnowledgeRow = {
   id: string;
   name: string;
   description: string | null;
   type: string; // "document" | "link"
+  category: string | null;
   url: string;
   status: KnowledgeStatus;
   createdAt: Date;
@@ -43,6 +44,7 @@ export function KnowledgeTable({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | KnowledgeStatus>("ALL");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   // ADMIN or OWNER can approve / delete any item; recruiters can only
   // delete their own and never approve.
@@ -53,6 +55,7 @@ export function KnowledgeTable({
     return items.filter((it) => {
       if (statusFilter !== "ALL" && it.status !== statusFilter) return false;
       if (typeFilter !== "all" && it.type !== typeFilter) return false;
+      if (categoryFilter !== "all" && it.category !== categoryFilter) return false;
       if (q) {
         const hay =
           `${it.name} ${it.description ?? ""} ${it.createdBy?.name ?? ""} ${it.createdBy?.email ?? ""}`.toLowerCase();
@@ -60,7 +63,7 @@ export function KnowledgeTable({
       }
       return true;
     });
-  }, [items, query, statusFilter, typeFilter]);
+  }, [items, query, statusFilter, typeFilter, categoryFilter]);
 
   function approve(itemId: string) {
     startTransition(async () => {
@@ -127,13 +130,26 @@ export function KnowledgeTable({
             </option>
           ))}
         </select>
-        {(query || statusFilter !== "ALL" || typeFilter !== "all") && (
+        <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value as typeof categoryFilter)}
+          className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
+        >
+          <option value="all">All categories</option>
+          {KNOWLEDGE_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        {(query || statusFilter !== "ALL" || typeFilter !== "all" || categoryFilter !== "all") && (
           <button
             type="button"
             onClick={() => {
               setQuery("");
               setStatusFilter("ALL");
               setTypeFilter("all");
+              setCategoryFilter("all");
             }}
             className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline"
           >
@@ -184,10 +200,15 @@ export function KnowledgeTable({
                       >
                         {item.name}
                       </Link>
-                      <div className="mt-1 flex items-center gap-1.5">
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         <span className="inline-block rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200 px-2 py-0.5 text-[10px] font-medium">
                           {item.type}
                         </span>
+                        {item.category && (
+                          <span className="inline-block rounded-full bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-200 px-2 py-0.5 text-[10px] font-medium">
+                            {item.category}
+                          </span>
+                        )}
                         {item.attachmentCount > 0 && (
                           <span className="inline-block rounded-full bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 px-2 py-0.5 text-[10px] font-medium">
                             {item.attachmentCount} file{item.attachmentCount === 1 ? "" : "s"}
