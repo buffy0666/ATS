@@ -1,8 +1,30 @@
 import Link from "next/link";
-import { createList } from "../actions";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { prisma } from "@/lib/prisma";
 import { ListScope } from "@/generated/prisma";
+import { EntityMultiSelect } from "@/components/EntityMultiSelect";
+import { createList } from "../actions";
 
-export default function NewListPage() {
+export default async function NewListPage() {
+  const { orgId } = await requireSessionWithOrg();
+
+  const [jobs, users] = await Promise.all([
+    prisma.job.findMany({
+      where: { organizationId: orgId },
+      orderBy: { title: "asc" },
+      select: { id: true, title: true },
+      take: 500,
+    }),
+    prisma.user.findMany({
+      where: { organizationId: orgId, active: true },
+      orderBy: [{ name: "asc" }, { email: "asc" }],
+      select: { id: true, name: true, email: true },
+    }),
+  ]);
+
+  const jobOptions = jobs.map((j) => ({ id: j.id, label: j.title }));
+  const userOptions = users.map((u) => ({ id: u.id, label: u.name ?? u.email }));
+
   return (
     <main className="flex-1 max-w-xl mx-auto w-full px-6 py-10">
       <Link href="/lists" className="text-sm text-zinc-500 hover:underline">
@@ -38,6 +60,22 @@ export default function NewListPage() {
             maxLength={2000}
             placeholder="What this list is for (optional)…"
             className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Jobs</label>
+          <EntityMultiSelect
+            name="jobIds"
+            options={jobOptions}
+            placeholder="Link this list to job(s)…"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-sm font-medium">Assigned to</label>
+          <EntityMultiSelect
+            name="assigneeIds"
+            options={userOptions}
+            placeholder="Assign teammate(s)…"
           />
         </div>
         <fieldset>

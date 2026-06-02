@@ -1,16 +1,22 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ListScope } from "@/generated/prisma";
 import { deleteList, updateList } from "../actions";
 import { EnrollListInSequenceButton } from "./EnrollListInSequenceButton";
+import { EntityMultiSelect, type EntityOption } from "@/components/EntityMultiSelect";
 
 export function ListHeader({
   list,
   memberCount,
   isOwner,
   ownerLabel,
+  selectedJobs,
+  selectedAssignees,
+  jobOptions,
+  userOptions,
 }: {
   list: {
     id: string;
@@ -21,6 +27,10 @@ export function ListHeader({
   memberCount: number;
   isOwner: boolean;
   ownerLabel: string;
+  selectedJobs: EntityOption[];
+  selectedAssignees: EntityOption[];
+  jobOptions: EntityOption[];
+  userOptions: EntityOption[];
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -29,11 +39,15 @@ export function ListHeader({
   const [name, setName] = useState(list.name);
   const [description, setDescription] = useState(list.description ?? "");
   const [scope, setScope] = useState<ListScope>(list.scope);
+  const [jobs, setJobs] = useState<EntityOption[]>(selectedJobs);
+  const [assignees, setAssignees] = useState<EntityOption[]>(selectedAssignees);
 
   function startEdit() {
     setName(list.name);
     setDescription(list.description ?? "");
     setScope(list.scope);
+    setJobs(selectedJobs);
+    setAssignees(selectedAssignees);
     setError(null);
     setEditing(true);
   }
@@ -53,6 +67,8 @@ export function ListHeader({
     fd.set("name", trimmed);
     fd.set("description", description);
     fd.set("scope", scope);
+    jobs.forEach((j) => fd.append("jobIds", j.id));
+    assignees.forEach((a) => fd.append("assigneeIds", a.id));
     startTransition(async () => {
       try {
         await updateList(list.id, fd);
@@ -143,6 +159,26 @@ export function ListHeader({
               </label>
             </div>
           </fieldset>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Jobs</label>
+            <EntityMultiSelect
+              name="jobIds"
+              options={jobOptions}
+              value={jobs}
+              onChange={setJobs}
+              placeholder="Link this list to job(s)…"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">Assigned to</label>
+            <EntityMultiSelect
+              name="assigneeIds"
+              options={userOptions}
+              value={assignees}
+              onChange={setAssignees}
+              placeholder="Assign teammate(s)…"
+            />
+          </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <div className="flex gap-2">
             <button
@@ -211,6 +247,35 @@ export function ListHeader({
         <p className="mt-2 max-w-3xl text-sm text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap">
           {list.description}
         </p>
+      )}
+
+      {selectedJobs.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-sm">
+          <span className="text-zinc-500">Jobs:</span>
+          {selectedJobs.map((j) => (
+            <Link
+              key={j.id}
+              href={`/jobs/${j.id}`}
+              className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 hover:underline dark:bg-zinc-800 dark:text-zinc-300"
+            >
+              {j.label}
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {selectedAssignees.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
+          <span className="text-zinc-500">Assigned to:</span>
+          {selectedAssignees.map((a) => (
+            <span
+              key={a.id}
+              className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+            >
+              {a.label}
+            </span>
+          ))}
+        </div>
       )}
 
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

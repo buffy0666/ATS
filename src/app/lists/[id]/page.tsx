@@ -18,6 +18,10 @@ export default async function ListDetailPage({
     where: { id, organizationId: orgId },
     include: {
       owner: { select: { id: true, name: true, email: true } },
+      jobs: { include: { job: { select: { id: true, title: true } } } },
+      assignees: {
+        include: { user: { select: { id: true, name: true, email: true } } },
+      },
       _count: { select: { members: true } },
     },
   });
@@ -27,7 +31,7 @@ export default async function ListDetailPage({
     redirect("/lists?error=not-found");
   }
 
-  const [candidates, availableTags, sourceOptions, seniorityOptions] = await Promise.all([
+  const [candidates, availableTags, sourceOptions, seniorityOptions, allJobs, allUsers] = await Promise.all([
     prisma.candidate.findMany({
       where: {
         organizationId: orgId,
@@ -60,6 +64,17 @@ export default async function ListDetailPage({
     }),
     loadChoiceOptions(CHOICE_FIELDS.candidateSource.key, orgId),
     loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
+    prisma.job.findMany({
+      where: { organizationId: orgId },
+      orderBy: { title: "asc" },
+      select: { id: true, title: true },
+      take: 500,
+    }),
+    prisma.user.findMany({
+      where: { organizationId: orgId, active: true },
+      orderBy: [{ name: "asc" }, { email: "asc" }],
+      select: { id: true, name: true, email: true },
+    }),
   ]);
 
   const rows: CandidateRow[] = candidates.map((c) => ({
@@ -135,6 +150,13 @@ export default async function ListDetailPage({
         memberCount={list._count.members}
         isOwner={isOwner}
         ownerLabel={ownerLabel}
+        selectedJobs={list.jobs.map((j) => ({ id: j.job.id, label: j.job.title }))}
+        selectedAssignees={list.assignees.map((a) => ({
+          id: a.user.id,
+          label: a.user.name ?? a.user.email,
+        }))}
+        jobOptions={allJobs.map((j) => ({ id: j.id, label: j.title }))}
+        userOptions={allUsers.map((u) => ({ id: u.id, label: u.name ?? u.email }))}
       />
 
       <div className="mt-6">

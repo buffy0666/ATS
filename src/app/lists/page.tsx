@@ -13,6 +13,10 @@ export default async function ListsPage() {
     orderBy: [{ updatedAt: "desc" }],
     include: {
       owner: { select: { id: true, name: true, email: true } },
+      jobs: { include: { job: { select: { id: true, title: true } } } },
+      assignees: {
+        include: { user: { select: { id: true, name: true, email: true } } },
+      },
       _count: { select: { members: true } },
     },
   });
@@ -40,7 +44,10 @@ export default async function ListsPage() {
               <tr>
                 <th className="px-4 py-2 font-medium">Name</th>
                 <th className="px-4 py-2 font-medium">Scope</th>
-                <th className="px-4 py-2 font-medium">Owner</th>
+                <th className="px-4 py-2 font-medium">Jobs</th>
+                <th className="px-4 py-2 font-medium">Assigned to</th>
+                <th className="px-4 py-2 font-medium">Created by</th>
+                <th className="px-4 py-2 font-medium">Created</th>
                 <th className="px-4 py-2 font-medium text-right">Members</th>
                 <th className="px-4 py-2 font-medium">Updated</th>
               </tr>
@@ -73,7 +80,36 @@ export default async function ListsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                      {l.jobs.length === 0 ? (
+                        <span className="text-zinc-400">—</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {l.jobs.map((j) => (
+                            <Link
+                              key={j.job.id}
+                              href={`/jobs/${j.job.id}`}
+                              className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 hover:underline dark:bg-zinc-800 dark:text-zinc-300"
+                            >
+                              {j.job.title}
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                      {l.assignees.length === 0 ? (
+                        <span className="text-zinc-400">—</span>
+                      ) : (
+                        l.assignees
+                          .map((a) => a.user.name ?? a.user.email)
+                          .join(", ")
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
                       {isMine ? "You" : l.owner.name ?? l.owner.email}
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                      {l.createdAt.toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3 text-right tabular-nums">{l._count.members}</td>
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
