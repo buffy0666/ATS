@@ -44,6 +44,10 @@ type ResolvedNewField = {
 export async function importCandidatesCsv(formData: FormData): Promise<ImportResult> {
   const { session, orgId } = await requireSessionWithOrg();
 
+  const importName = readImportName(formData);
+  const nameError = validateImportName(importName);
+  if (nameError) return failure(nameError);
+
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
     return failure("Choose a CSV file before importing.");
@@ -81,7 +85,26 @@ export async function importCandidatesCsv(formData: FormData): Promise<ImportRes
     );
   }
 
-  return runImport(records, headers, orgId, session.user.id ?? null, undefined, [], readMode(formData));
+  const batch = await prisma.candidateImport.create({
+    data: {
+      name: importName,
+      mode: readMode(formData),
+      organizationId: orgId,
+      importedById: session.user.id ?? null,
+    },
+    select: { id: true },
+  });
+
+  return runImport(
+    records,
+    headers,
+    orgId,
+    session.user.id ?? null,
+    undefined,
+    [],
+    readMode(formData),
+    batch.id,
+  );
 }
 
 /**
@@ -92,6 +115,10 @@ export async function importCandidatesCsv(formData: FormData): Promise<ImportRes
  */
 export async function importCandidatesWithMapping(formData: FormData): Promise<ImportResult> {
   const { session, orgId } = await requireSessionWithOrg();
+
+  const importName = readImportName(formData);
+  const nameError = validateImportName(importName);
+  if (nameError) return failure(nameError);
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
@@ -199,6 +226,16 @@ export async function importCandidatesWithMapping(formData: FormData): Promise<I
     return out;
   });
 
+  const batch = await prisma.candidateImport.create({
+    data: {
+      name: importName,
+      mode: readMode(formData),
+      organizationId: orgId,
+      importedById: session.user.id ?? null,
+    },
+    select: { id: true },
+  });
+
   // Keep the original rows + headers for the errored-row download so it
   // mirrors the user's actual file, not the remapped shape.
   return runImport(
@@ -209,6 +246,7 @@ export async function importCandidatesWithMapping(formData: FormData): Promise<I
     records,
     resolvedNewFields,
     readMode(formData),
+    batch.id,
   );
 }
 
@@ -323,6 +361,7 @@ async function runImport(
   rawRecords?: Record<string, string>[],
   newFields: ResolvedNewField[] = [],
   mode: ImportMode = "create",
+  importId: string | null = null,
 ): Promise<ImportResult> {
   const rowResults: RowResult[] = [];
   let created = 0;
@@ -421,6 +460,7 @@ async function runImport(
           ...parsed.data,
           sourcedById,
           organizationId: orgId,
+          importId: importId ?? undefined,
           tags: tagIds.length ? { connect: tagIds.map((id) => ({ id })) } : undefined,
         },
         select: { id: true },
@@ -446,6 +486,20 @@ async function runImport(
   }
 
   if (created > 0 || updated > 0) revalidatePath("/candidates");
+
+  // Record the per-run tally on the import batch so /candidates/imports can
+  // show what each named import did.
+  if (importId) {
+    await prisma.candidateImport.update({
+      where: { id: importId },
+      data: {
+        createdCount: created,
+        updatedCount: updated,
+        skippedCount: skipped,
+        erroredCount: errored,
+      },
+    });
+  }
 
   return {
     status: "success",
@@ -494,6 +548,25 @@ function failure(message: string): ImportResult {
 function readMode(formData: FormData): ImportMode {
   const raw = String(formData.get("mode") ?? "create");
   return raw === "upsert" || raw === "update-only" ? raw : "create";
+}
+
+const MAX_IMPORT_NAME = 200;
+
+/** Trimmed "Name this import" value from the form. */
+function readImportName(formData: FormData): string {
+  return String(formData.get("importName") ?? "").trim();
+}
+
+/**
+ * Validate the required import name. Returns an error string if invalid,
+ * otherwise null. Kept separate so both entry actions enforce it identically.
+ */
+function validateImportName(name: string): string | null {
+  if (!name) return "Name this import before continuing.";
+  if (name.length > MAX_IMPORT_NAME) {
+    return `Import name is too long (max ${MAX_IMPORT_NAME} characters).`;
+  }
+  return null;
 }
 
 /**

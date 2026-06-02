@@ -79,6 +79,7 @@ export function MappingImportForm({
   existingCustomFields?: ExistingCustomField[];
 }) {
   const [file, setFile] = useState<File | null>(null);
+  const [importName, setImportName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [previewRow, setPreviewRow] = useState<Record<string, string>>({});
   const [columnValues, setColumnValues] = useState<Record<string, string[]>>({});
@@ -313,6 +314,7 @@ export function MappingImportForm({
 
   function handleImport() {
     if (!file) return;
+    if (!importName.trim()) return;
     const newFields = selectedNewHeaders.map((h) => {
       const d = draftFor(h);
       const base = { header: h, label: d.label.trim() || h, type: d.type };
@@ -324,6 +326,7 @@ export function MappingImportForm({
     });
     const fd = new FormData();
     fd.set("file", file);
+    fd.set("importName", importName.trim());
     fd.set("mode", importMode);
     fd.set("mapping", JSON.stringify(mapping));
     fd.set("newFields", JSON.stringify(newFields));
@@ -359,6 +362,24 @@ export function MappingImportForm({
   return (
     <div className="mt-6 space-y-5">
       <div className="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+        <div>
+          <label className="mb-2 block text-sm font-medium" htmlFor="mapImportName">
+            Name this import <span className="text-red-500">*</span>
+          </label>
+          <input
+            id="mapImportName"
+            type="text"
+            value={importName}
+            onChange={(e) => setImportName(e.target.value)}
+            maxLength={200}
+            disabled={pending}
+            placeholder="e.g. LinkedIn export — May 2026"
+            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+          />
+          <p className="mt-1 text-xs text-zinc-500">
+            A label for this batch. We record it with who imported and when.
+          </p>
+        </div>
         <div>
           <label className="mb-2 block text-sm font-medium" htmlFor="mapfile">
             CSV file (any column layout)
@@ -663,16 +684,19 @@ export function MappingImportForm({
               onClick={handleImport}
               disabled={
                 pending ||
+                !importName.trim() ||
                 missingRequired.length > 0 ||
                 passwordMissing ||
                 unresolvedChoiceHeaders.length > 0
               }
               title={
-                passwordMissing
-                  ? "Enter your admin password to create the new fields"
-                  : unresolvedChoiceHeaders.length > 0
-                    ? `Confirm high-cardinality choice fields: ${unresolvedChoiceHeaders.join(", ")}`
-                    : undefined
+                !importName.trim()
+                  ? "Name this import before continuing"
+                  : passwordMissing
+                    ? "Enter your admin password to create the new fields"
+                    : unresolvedChoiceHeaders.length > 0
+                      ? `Confirm high-cardinality choice fields: ${unresolvedChoiceHeaders.join(", ")}`
+                      : undefined
               }
               className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
             >

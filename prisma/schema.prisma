@@ -378,6 +378,7 @@ model Organization {
   announcements          Announcement[]
   announcementTargets    AnnouncementTarget[]
   importMappings         ImportMapping[]
+  candidateImports       CandidateImport[]
 }
 
 model Tag {
@@ -491,6 +492,7 @@ model User {
 
   importMappingsCreated ImportMapping[] @relation("ImportMappingCreator")
   importMappingsUpdated ImportMapping[] @relation("ImportMappingUpdater")
+  candidateImportsRun   CandidateImport[] @relation("CandidateImporter")
 
   // Multi-tenant: every user belongs to exactly one Organization. Nullable
   // during the staged migration (current users get assigned to the Default
@@ -892,6 +894,13 @@ model Candidate {
   // Threaded notes (per-application or candidate-level). Named differently
   // from the legacy `notes String?` free-form field above.
   noteThreads     Note[]                @relation("CandidateNoteThreads")
+
+  // The named CSV import batch this candidate was created by, if any.
+  // SetNull so deleting an import record doesn't take its candidates with
+  // it. Only stamped on rows the import CREATED — an update-mode import
+  // leaves an existing candidate's original provenance intact.
+  importId String?
+  import   CandidateImport? @relation(fields: [importId], references: [id], onDelete: SetNull)
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1780,4 +1789,29 @@ model ImportMapping {
 
   @@unique([organizationId, headersFingerprint])
   @@index([organizationId])
+}
+
+/// One named CSV import run. Captures the user-supplied name (required at
+/// import), who ran it, when, the on-match mode, and per-run counts. Each
+/// candidate the run CREATES points back here via Candidate.importId.
+model CandidateImport {
+  id             String   @id @default(cuid())
+  organizationId String
+  // User-supplied label for this import (required in the UI).
+  name           String
+  // "create" | "upsert" | "update-only" — what the run did on email match.
+  mode           String   @default("create")
+  createdCount   Int      @default(0)
+  updatedCount   Int      @default(0)
+  skippedCount   Int      @default(0)
+  erroredCount   Int      @default(0)
+  // Who ran the import. Nullable so the run survives the user being deleted.
+  importedById   String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  importedBy   User?        @relation("CandidateImporter", fields: [importedById], references: [id])
+  candidates   Candidate[]
+
+  @@index([organizationId, createdAt])
 }
