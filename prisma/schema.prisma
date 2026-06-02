@@ -420,6 +420,24 @@ model User {
   // while preventing sign-in. Set by the assistant's deactivate_user tool.
   active          Boolean   @default(true)
   deactivatedAt   DateTime?
+
+  // --- Technology section (admin-managed on /users/[id]) ---
+  // Free-text notes about the user's tooling/setup.
+  technologyComments String?
+  // Phone system(s) the user is on. Plain strings from the app-defined
+  // option list (PHONE_SYSTEM_OPTIONS in src/app/users/user-fields.ts);
+  // "Other" is just one of the options. Stored as a scalar list so a user
+  // can be on more than one.
+  phoneSystems       String[] @default([])
+  // The actual phone number the user dials from.
+  phoneNumber        String?
+  // A second free-text notes field for the Technology section.
+  technologyNotes    String?
+
+  // --- User Profile section ---
+  // Free-text profile notes.
+  profileComments    String?
+
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
