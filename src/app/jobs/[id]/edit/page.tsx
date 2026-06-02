@@ -4,6 +4,7 @@ import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { updateJob } from "../../actions";
 import { SalaryFeeFields } from "../../SalaryFeeFields";
+import { JobExtraFields } from "../../JobExtraFields";
 
 export default async function EditJobPage({
   params,
@@ -14,7 +15,13 @@ export default async function EditJobPage({
   const { orgId } = await requireSessionWithOrg();
 
   const [job, clients] = await Promise.all([
-    prisma.job.findFirst({ where: { id, organizationId: orgId } }),
+    prisma.job.findFirst({
+      where: { id, organizationId: orgId },
+      include: {
+        hiringManagers: { orderBy: { createdAt: "asc" } },
+        contracts: { orderBy: { uploadedAt: "asc" } },
+      },
+    }),
     prisma.client.findMany({
       where: { organizationId: orgId },
       orderBy: { name: "asc" },
@@ -88,6 +95,23 @@ export default async function EditJobPage({
           defaultLow={job.salaryLow}
           defaultHigh={job.salaryHigh}
           defaultPercent={job.placementFeePercent}
+        />
+        <JobExtraFields
+          jobId={job.id}
+          defaultHiringProcess={job.hiringProcess}
+          defaultJobType={job.jobType}
+          defaultManagers={job.hiringManagers.map((m) => ({
+            name: m.name,
+            email: m.email ?? "",
+            phone: m.phone ?? "",
+            chat: m.chat ?? "",
+          }))}
+          existingContracts={job.contracts.map((c) => ({
+            id: c.id,
+            name: c.name,
+            url: c.url,
+            size: c.size,
+          }))}
         />
         <div className="flex gap-2">
           <button

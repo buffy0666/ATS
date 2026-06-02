@@ -7,6 +7,8 @@ import { auditCreate, auditDelete, auditUpdate } from "@/lib/audit/write";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { JobStatus, Stage } from "@/generated/prisma";
+import { removeAttachmentFile, saveAttachment } from "@/lib/uploads";
+import { CONTRACT_ALLOWED_TYPES, CONTRACT_MAX_BYTES, JOB_TYPES } from "./constants";
 
 const optionalInt = (min: number, max: number) =>
   z.preprocess((v) => {
@@ -27,7 +29,74 @@ const jobSchema = z.object({
   salaryLow: optionalInt(0, 100_000_000),
   salaryHigh: optionalInt(0, 100_000_000),
   placementFeePercent: optionalInt(0, 100),
+  hiringProcess: z.string().max(10_000).optional().or(z.literal("")).transform((v) => v || null),
+  jobType: z
+    .enum(JOB_TYPES)
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => v || null),
 });
+
+const hiringManagerSchema = z.object({
+  name: z.string().trim().max(160),
+  email: z.string().trim().max(200),
+  phone: z.string().trim().max(60),
+  chat: z.string().trim().max(300),
+});
+
+// Parse the serialized hiring-manager list from the hidden JSON form field.
+// Drops fully-empty rows; tolerates malformed JSON by returning [].
+function parseHiringManagers(raw: FormDataEntryValue | null): {
+  name: string;
+  email: string | null;
+  phone: string | null;
+  chat: string | null;
+}[] {
+  if (typeof raw !== "string" || !raw.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const result: { name: string; email: string | null; phone: string | null; chat: string | null }[] = [];
+  for (const row of parsed) {
+    const m = hiringManagerSchema.safeParse(row);
+    if (!m.success) continue;
+    const { name, email, phone, chat } = m.data;
+    if (!name && !email && !phone && !chat) continue;
+    result.push({
+      name: name || "(unnamed)",
+      email: email || null,
+      phone: phone || null,
+      chat: chat || null,
+    });
+  }
+  return result;
+}
+
+type SavedContract = { name: string; url: string; size: number; mimeType: string | null };
+
+// Save each uploaded contract file (validating size + type). Throws on the
+// first invalid file so the caller can surface a clean error.
+async function saveContractFiles(formData: FormData): Promise<SavedContract[]> {
+  const files = (formData.getAll("contract") as File[]).filter(
+    (f) => f instanceof File && f.size > 0,
+  );
+  const saved: SavedContract[] = [];
+  for (const file of files) {
+    if (file.size > CONTRACT_MAX_BYTES) {
+      throw new Error(`"${file.name}" exceeds the 20 MB limit.`);
+    }
+    if (file.type && !CONTRACT_ALLOWED_TYPES.has(file.type)) {
+      throw new Error(`"${file.name}" is an unsupported file type.`);
+    }
+    const r = await saveAttachment(file, "job-contracts");
+    saved.push({ name: r.name, url: r.url, size: r.size, mimeType: r.mimeType });
+  }
+  return saved;
+}
 
 export async function createJob(formData: FormData) {
   const { session, orgId } = await requireSessionWithOrg();
@@ -42,7 +111,12 @@ export async function createJob(formData: FormData) {
     salaryLow: formData.get("salaryLow"),
     salaryHigh: formData.get("salaryHigh"),
     placementFeePercent: formData.get("placementFeePercent"),
+    hiringProcess: formData.get("hiringProcess"),
+    jobType: formData.get("jobType"),
   });
+
+  const managers = parseHiringManagers(formData.get("hiringManagers"));
+  const contracts = await saveContractFiles(formData);
 
   // Cross-tenant guard: if a clientId was picked, it must belong to this
   // org. Otherwise drop it (the form's <select> is org-scoped so this is
@@ -56,7 +130,24 @@ export async function createJob(formData: FormData) {
   }
 
   const job = await prisma.job.create({
-    data: { ...data, createdById: session.user.id, organizationId: orgId },
+    data: {
+      ...data,
+      createdById: session.user.id,
+      organizationId: orgId,
+      hiringManagers: managers.length > 0 ? { create: managers } : undefined,
+      contracts:
+        contracts.length > 0
+          ? {
+              create: contracts.map((c) => ({
+                name: c.name,
+                url: c.url,
+                size: c.size,
+                mimeType: c.mimeType,
+                uploadedById: session.user.id ?? null,
+              })),
+            }
+          : undefined,
+    },
   });
   await auditCreate("Job", job as unknown as Record<string, unknown>);
 
@@ -92,7 +183,7 @@ export async function addCandidateToJob(jobId: string, candidateId: string) {
 }
 
 export async function updateJob(jobId: string, formData: FormData) {
-  const { orgId } = await requireSessionWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
 
   const data = jobSchema.parse({
     title: formData.get("title"),
@@ -104,7 +195,12 @@ export async function updateJob(jobId: string, formData: FormData) {
     salaryLow: formData.get("salaryLow"),
     salaryHigh: formData.get("salaryHigh"),
     placementFeePercent: formData.get("placementFeePercent"),
+    hiringProcess: formData.get("hiringProcess"),
+    jobType: formData.get("jobType"),
   });
+
+  const managers = parseHiringManagers(formData.get("hiringManagers"));
+  const newContracts = await saveContractFiles(formData);
 
   // Verify the job belongs to this org; reject otherwise.
   const existing = await prisma.job.findFirst({
@@ -123,9 +219,31 @@ export async function updateJob(jobId: string, formData: FormData) {
   }
 
   const before = await prisma.job.findUnique({ where: { id: jobId } });
-  const job = await prisma.job.update({
-    where: { id: jobId },
-    data,
+  const job = await prisma.$transaction(async (tx) => {
+    const updated = await tx.job.update({ where: { id: jobId }, data });
+    // Replace the hiring-manager set with whatever the form submitted (the UI
+    // sends the full current list).
+    await tx.jobHiringManager.deleteMany({ where: { jobId } });
+    if (managers.length > 0) {
+      await tx.jobHiringManager.createMany({
+        data: managers.map((m) => ({ ...m, jobId })),
+      });
+    }
+    // Append any newly uploaded contracts (existing ones are removed via the
+    // dedicated deleteJobContract action, not here).
+    if (newContracts.length > 0) {
+      await tx.jobContract.createMany({
+        data: newContracts.map((c) => ({
+          jobId,
+          name: c.name,
+          url: c.url,
+          size: c.size,
+          mimeType: c.mimeType,
+          uploadedById: session.user.id ?? null,
+        })),
+      });
+    }
+    return updated;
   });
   await auditUpdate(
     "Job",
@@ -172,4 +290,26 @@ export async function updateApplicationStage(applicationId: string, stage: Stage
   });
 
   revalidatePath(`/jobs/${app.jobId}`);
+}
+
+/**
+ * Remove a single contract attachment from a job. Org-scoped via the parent
+ * job; best-effort deletes the underlying blob too.
+ */
+export async function deleteJobContract(contractId: string) {
+  const { orgId } = await requireSessionWithOrg();
+
+  const contract = await prisma.jobContract.findFirst({
+    where: { id: contractId, job: { organizationId: orgId } },
+    select: { id: true, url: true, jobId: true },
+  });
+  if (!contract) throw new Error("Contract not found.");
+
+  await prisma.jobContract.delete({ where: { id: contract.id } });
+  await removeAttachmentFile(contract.url).catch(() => {
+    // Orphaned blob is acceptable; the row is already gone.
+  });
+
+  revalidatePath(`/jobs/${contract.jobId}`);
+  revalidatePath(`/jobs/${contract.jobId}/edit`);
 }

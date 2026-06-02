@@ -438,6 +438,7 @@ model User {
   tasksAssigned          Task[]                  @relation("TaskAssignee")
   knowledgeItemsCreated  KnowledgeItem[]         @relation("KnowledgeItemCreator")
   knowledgeAttachments   KnowledgeAttachment[]   @relation("KnowledgeAttachmentUploader")
+  jobContracts           JobContract[]           @relation("JobContractUploader")
   taskAttachments        TaskAttachment[]        @relation("TaskAttachmentUploader")
   lists                  CandidateList[]
   listMembersAdded       CandidateListMember[]   @relation("ListMemberAdder")
@@ -614,12 +615,19 @@ model Job {
   location    String?
   description String
   status      JobStatus @default(OPEN)
+  // Free-form notes on how this role is filled (steps, interview loop, etc).
+  hiringProcess String?
+  // Engagement tier: "Urgent" | "Normal" | "Luxury". Free-form string with a
+  // fixed picker in the UI; nullable for back-compat with existing rows.
+  jobType       String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   createdById  String?
   createdBy    User?         @relation("JobCreator", fields: [createdById], references: [id])
   applications Application[]
+  hiringManagers JobHiringManager[]
+  contracts      JobContract[]
 
   clientId String?
   client   Client? @relation(fields: [clientId], references: [id])
@@ -636,6 +644,40 @@ model Job {
   @@index([status])
   @@index([clientId])
   @@index([organizationId])
+}
+
+// Hiring-side contacts for a job. Many per job. `chat` is free-form (a Teams/
+// Slack/WhatsApp handle or a chat URL).
+model JobHiringManager {
+  id        String   @id @default(cuid())
+  jobId     String
+  name      String
+  email     String?
+  phone     String?
+  chat      String?
+  createdAt DateTime @default(now())
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+}
+
+// Contract documents attached to a job. Many per job. Blob stored via
+// lib/uploads (Vercel Blob in prod, public/uploads in dev).
+model JobContract {
+  id           String   @id @default(cuid())
+  jobId        String
+  name         String
+  url          String
+  size         Int
+  mimeType     String?
+  uploadedById String?
+  uploadedAt   DateTime @default(now())
+
+  job        Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  uploadedBy User? @relation("JobContractUploader", fields: [uploadedById], references: [id])
+
+  @@index([jobId])
 }
 
 model Client {

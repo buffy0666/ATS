@@ -3,6 +3,7 @@ import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { createJob } from "../actions";
 import { SalaryFeeFields } from "../SalaryFeeFields";
+import { JobExtraFields } from "../JobExtraFields";
 
 export default async function NewJobPage({
   searchParams,
@@ -82,6 +83,7 @@ export default async function NewJobPage({
           </select>
         </div>
         <SalaryFeeFields />
+        <JobExtraFields />
         <button
           type="submit"
           className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-4 py-2 text-sm font-medium"
