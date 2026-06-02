@@ -176,6 +176,13 @@ export default async function CandidateDetailPage({
           },
         },
         tags: true,
+        import: {
+          select: {
+            name: true,
+            createdAt: true,
+            importedBy: { select: { name: true, email: true } },
+          },
+        },
         sourcedBy: { select: { id: true, name: true, email: true } },
         referredByUser: { select: { id: true, name: true, email: true } },
         referredByContact: {
@@ -637,6 +644,16 @@ export default async function CandidateDetailPage({
                   value={candidate.unsubscribedAt ? "Unsubscribed" : "Subscribed"}
                 />
                 <Detail label="Added" value={candidate.createdAt.toLocaleDateString()} />
+                {candidate.import && (
+                  <Detail
+                    label="Imported"
+                    value={`${candidate.import.name} · ${
+                      candidate.import.importedBy?.name ??
+                      candidate.import.importedBy?.email ??
+                      "unknown"
+                    } · ${candidate.import.createdAt.toLocaleDateString()}`}
+                  />
+                )}
               </DetailGrid>
 
               <EditableField

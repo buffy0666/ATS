@@ -54,6 +54,24 @@ export function ImportForm({ importMode = "create" }: { importMode?: ImportMode 
       >
         <input type="hidden" name="mode" value={importMode} />
         <div>
+          <label className="mb-2 block text-sm font-medium" htmlFor="importName">
+            Name this import <span className="text-red-500">*</span>
+          </label>
+          <input
+            id="importName"
+            name="importName"
+            type="text"
+            required
+            maxLength={200}
+            disabled={pending}
+            placeholder="e.g. LinkedIn export — May 2026"
+            className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+          />
+          <p className="mt-1 text-xs text-zinc-500">
+            A label for this batch. We record it with who imported and when.
+          </p>
+        </div>
+        <div>
           <label className="mb-2 block text-sm font-medium" htmlFor="file">
             CSV file (template format)
           </label>
