@@ -49,3 +49,6 @@ next-env.d.ts
 .vercel
 .env.local
 .env.*.local
+
+# Packaged Chrome-extension build artifacts (source lives in /chrome-extension)
+hikinex-chrome-extension-*.zip
