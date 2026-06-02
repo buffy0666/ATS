@@ -673,6 +673,7 @@ model JobHiringManager {
   email     String?
   phone     String?
   chat      String?
+  comments  String?
   createdAt DateTime @default(now())
 
   job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)

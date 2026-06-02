@@ -123,6 +123,11 @@ export default async function JobDetailPage({
                     )}
                     {m.chat && <div className="break-all">{m.chat}</div>}
                   </div>
+                  {m.comments && (
+                    <p className="mt-2 whitespace-pre-wrap text-xs text-zinc-500">
+                      {m.comments}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>

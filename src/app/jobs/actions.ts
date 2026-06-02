@@ -42,6 +42,7 @@ const hiringManagerSchema = z.object({
   email: z.string().trim().max(200),
   phone: z.string().trim().max(60),
   chat: z.string().trim().max(300),
+  comments: z.string().trim().max(5000).optional().default(""),
 });
 
 // Parse the serialized hiring-manager list from the hidden JSON form field.
@@ -51,6 +52,7 @@ function parseHiringManagers(raw: FormDataEntryValue | null): {
   email: string | null;
   phone: string | null;
   chat: string | null;
+  comments: string | null;
 }[] {
   if (typeof raw !== "string" || !raw.trim()) return [];
   let parsed: unknown;
@@ -60,17 +62,24 @@ function parseHiringManagers(raw: FormDataEntryValue | null): {
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  const result: { name: string; email: string | null; phone: string | null; chat: string | null }[] = [];
+  const result: {
+    name: string;
+    email: string | null;
+    phone: string | null;
+    chat: string | null;
+    comments: string | null;
+  }[] = [];
   for (const row of parsed) {
     const m = hiringManagerSchema.safeParse(row);
     if (!m.success) continue;
-    const { name, email, phone, chat } = m.data;
-    if (!name && !email && !phone && !chat) continue;
+    const { name, email, phone, chat, comments } = m.data;
+    if (!name && !email && !phone && !chat && !comments) continue;
     result.push({
       name: name || "(unnamed)",
       email: email || null,
       phone: phone || null,
       chat: chat || null,
+      comments: comments || null,
     });
   }
   return result;

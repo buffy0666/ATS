@@ -10,6 +10,7 @@ export type HiringManagerInput = {
   email: string;
   phone: string;
   chat: string;
+  comments: string;
 };
 
 export type ExistingContract = {
@@ -56,7 +57,7 @@ export function JobExtraFields({
   const [managers, setManagers] = useState<HiringManagerInput[]>(
     defaultManagers && defaultManagers.length > 0
       ? defaultManagers
-      : [{ name: "", email: "", phone: "", chat: "" }],
+      : [{ name: "", email: "", phone: "", chat: "", comments: "" }],
   );
   const [contractFiles, setContractFiles] = useState<File[]>([]);
   const contractInputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +67,7 @@ export function JobExtraFields({
     setManagers((prev) => prev.map((m, idx) => (idx === i ? { ...m, [field]: value } : m)));
   }
   function addManager() {
-    setManagers((prev) => [...prev, { name: "", email: "", phone: "", chat: "" }]);
+    setManagers((prev) => [...prev, { name: "", email: "", phone: "", chat: "", comments: "" }]);
   }
   function removeManager(i: number) {
     setManagers((prev) => (prev.length === 1 ? prev : prev.filter((_, idx) => idx !== i)));
@@ -105,8 +106,9 @@ export function JobExtraFields({
         email: m.email.trim(),
         phone: m.phone.trim(),
         chat: m.chat.trim(),
+        comments: m.comments.trim(),
       }))
-      .filter((m) => m.name || m.email || m.phone || m.chat),
+      .filter((m) => m.name || m.email || m.phone || m.chat || m.comments),
   );
 
   return (
@@ -169,6 +171,13 @@ export function JobExtraFields({
                 className={inputClass}
               />
             </div>
+            <textarea
+              value={m.comments}
+              onChange={(e) => updateManager(i, "comments", e.target.value)}
+              placeholder="Comments (preferences, availability, notes about this hiring manager)…"
+              rows={2}
+              className="w-full resize-y rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm leading-relaxed"
+            />
           </div>
         ))}
         <button
