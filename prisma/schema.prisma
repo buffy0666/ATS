@@ -979,6 +979,10 @@ model KnowledgeItem {
   // Nullable for back-compat with rows created before the field existed.
   category    String?
   type        String // "document" | "link"
+  // Rich article body — sanitized HTML produced by the portable rich editor
+  // (src/components/rich-editor). Nullable; rendered read-only on the article
+  // home view and editable in the pop-out editor.
+  content     String?
   // Optional primary link/URL. Multiple uploaded documents now live in the
   // KnowledgeAttachment child table; `url` is kept for the single external
   // link case (and back-compat with rows created before attachments existed).

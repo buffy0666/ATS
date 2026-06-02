@@ -172,3 +172,63 @@ body {
     animation: none;
   }
 }
+
+/*
+ * Rich-editor content styling. Shared by the WYSIWYG editor body and the
+ * read-only viewer (both use .rich-content). Tailwind's preflight resets
+ * heading/list styling, so we restore a readable document look here.
+ */
+.rich-content {
+  font-size: 0.9375rem;
+  line-height: 1.65;
+  word-break: break-word;
+}
+.rich-content h1 { font-size: 1.6rem; font-weight: 700; margin: 1.1em 0 0.4em; line-height: 1.25; }
+.rich-content h2 { font-size: 1.3rem; font-weight: 700; margin: 1em 0 0.35em; line-height: 1.3; }
+.rich-content h3 { font-size: 1.1rem; font-weight: 600; margin: 0.9em 0 0.3em; }
+.rich-content h4 { font-size: 1rem; font-weight: 600; margin: 0.8em 0 0.3em; }
+.rich-content p { margin: 0.5em 0; }
+.rich-content ul { list-style: disc; padding-left: 1.5em; margin: 0.5em 0; }
+.rich-content ol { list-style: decimal; padding-left: 1.5em; margin: 0.5em 0; }
+.rich-content li { margin: 0.2em 0; }
+.rich-content li > ul, .rich-content li > ol { margin: 0.2em 0; }
+.rich-content blockquote {
+  border-left: 3px solid rgb(212 212 216);
+  padding-left: 1em;
+  margin: 0.6em 0;
+  color: rgb(113 113 122);
+}
+.dark .rich-content blockquote { border-left-color: rgb(63 63 70); color: rgb(161 161 170); }
+.rich-content a { color: rgb(37 99 235); text-decoration: underline; }
+.dark .rich-content a { color: rgb(96 165 250); }
+.rich-content mark { background: rgb(254 240 138); color: inherit; padding: 0 0.1em; border-radius: 2px; }
+.dark .rich-content mark { background: rgba(234 179 8 / 0.4); }
+.rich-content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  background: rgb(244 244 245);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+}
+.dark .rich-content code { background: rgb(39 39 42); }
+.rich-content pre {
+  background: rgb(244 244 245);
+  padding: 0.8em 1em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.dark .rich-content pre { background: rgb(24 24 27); }
+.rich-content pre code { background: none; padding: 0; font-size: 0.85em; }
+.rich-content img { max-width: 100%; height: auto; border-radius: 6px; margin: 0.6em 0; }
+.rich-content iframe { max-width: 100%; aspect-ratio: 16 / 9; height: auto; border-radius: 6px; margin: 0.6em 0; border: 0; }
+.rich-content hr { border: 0; border-top: 1px solid rgb(228 228 231); margin: 1em 0; }
+.dark .rich-content hr { border-top-color: rgb(39 39 42); }
+/* Placeholder for the empty editor (Tiptap Placeholder extension). */
+.rich-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: rgb(161 161 170);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

@@ -4,6 +4,7 @@ import { KnowledgeStatus, Role } from "@/generated/prisma";
 import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { AttachmentsSection, type AttachmentRow } from "./AttachmentsSection";
+import { ContentSection } from "./ContentSection";
 
 const STATUS_LABEL: Record<KnowledgeStatus, string> = {
   UNDER_REVIEW: "Under review",
@@ -100,6 +101,14 @@ export default async function KnowledgeItemPage({
           </div>
         </div>
       )}
+
+      <div className="mt-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <ContentSection
+          itemId={item.id}
+          initialContent={item.content ?? ""}
+          canEdit={canModify}
+        />
+      </div>
 
       <div className="mt-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
         <AttachmentsSection itemId={item.id} attachments={attachments} canModify={canModify} />

@@ -259,3 +259,86 @@ export async function deleteKnowledgeItem(itemId: string) {
   await prisma.knowledgeItem.delete({ where: { id: itemId } });
   revalidatePath("/knowledge");
 }
+
+// ----- Rich article content -----
+
+const MAX_CONTENT_CHARS = 500_000;
+
+/**
+ * Save the rich-text article body (sanitized HTML from the editor). Creator or
+ * admin only. The editor sanitizes on the client; we re-validate length here
+ * and the viewer sanitizes again on render (defense in depth).
+ */
+export async function saveKnowledgeContent(
+  itemId: string,
+  html: string,
+): Promise<AddKnowledgeResult> {
+  const { session, orgId } = await requireSessionWithOrg();
+
+  const item = await prisma.knowledgeItem.findFirst({
+    where: { id: itemId, organizationId: orgId },
+    select: { id: true, createdById: true },
+  });
+  if (!item) return { ok: false, error: "Item not found." };
+
+  const isAdmin = isAdminOrAbove(session.user.role);
+  const isCreator = item.createdById === session.user.id;
+  if (!isAdmin && !isCreator) {
+    return { ok: false, error: "Only the item's creator or an admin can edit content." };
+  }
+
+  if (typeof html !== "string" || html.length > MAX_CONTENT_CHARS) {
+    return { ok: false, error: "Content is too large." };
+  }
+
+  await prisma.knowledgeItem.update({
+    where: { id: item.id },
+    data: { content: html },
+  });
+
+  revalidatePath("/knowledge");
+  revalidatePath(`/knowledge/${item.id}`);
+  return { ok: true };
+}
+
+/**
+ * Upload an image pasted/inserted into the rich editor and return its public
+ * URL. This is the host-supplied uploader the portable editor calls — the
+ * editor itself never imports storage code. Creator or admin only.
+ */
+export async function uploadKnowledgeImage(
+  itemId: string,
+  formData: FormData,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const { session, orgId } = await requireSessionWithOrg();
+
+  const item = await prisma.knowledgeItem.findFirst({
+    where: { id: itemId, organizationId: orgId },
+    select: { id: true, createdById: true },
+  });
+  if (!item) return { ok: false, error: "Item not found." };
+
+  const isAdmin = isAdminOrAbove(session.user.role);
+  const isCreator = item.createdById === session.user.id;
+  if (!isAdmin && !isCreator) {
+    return { ok: false, error: "Only the item's creator or an admin can add images." };
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "No image provided." };
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    return { ok: false, error: "Image exceeds the 10 MB limit." };
+  }
+  if (file.type && !file.type.startsWith("image/")) {
+    return { ok: false, error: "Only image files are allowed." };
+  }
+
+  try {
+    const saved = await saveAttachment(file, "knowledge-images");
+    return { ok: true, url: saved.url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Upload failed." };
+  }
+}
