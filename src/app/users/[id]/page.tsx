@@ -1,23 +1,37 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { Role } from "@/generated/prisma";
 import { RoleSelector } from "./RoleSelector";
 import { ResetPasswordForm } from "./ResetPasswordForm";
 import { DeleteUserButton } from "./DeleteUserButton";
+import { UserProfileFieldsForm } from "./UserProfileFieldsForm";
 
 export default async function EditUserPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const session = await requireAdmin();
+  const { session, orgId } = await requireAdminWithOrg();
   const { id } = await params;
 
-  const user = await prisma.user.findUnique({
-    where: { id },
-    select: { id: true, email: true, name: true, role: true, createdAt: true },
+  // findFirst (not findUnique) so we can compose id + organizationId —
+  // an admin can only view/manage users in their own workspace.
+  const user = await prisma.user.findFirst({
+    where: { id, organizationId: orgId },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      createdAt: true,
+      technologyComments: true,
+      phoneSystems: true,
+      phoneNumber: true,
+      technologyNotes: true,
+      profileComments: true,
+    },
   });
   if (!user) notFound();
 
@@ -57,6 +71,17 @@ export default async function EditUserPage({
           </h2>
           <ResetPasswordForm userId={user.id} />
         </section>
+
+        <UserProfileFieldsForm
+          userId={user.id}
+          values={{
+            technologyComments: user.technologyComments,
+            phoneSystems: user.phoneSystems,
+            phoneNumber: user.phoneNumber,
+            technologyNotes: user.technologyNotes,
+            profileComments: user.profileComments,
+          }}
+        />
 
         {!isSelf && (
           <section className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-950/20 p-5">

@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { Role } from "@/generated/prisma";
 import { sendEmail } from "@/lib/email";
 import { createInvitation, sendInvitationEmail } from "@/lib/invitations";
+import { sanitizePhoneSystems } from "./user-fields";
 
 const passwordPolicy = z.string().min(8, "Password must be at least 8 characters.");
 
@@ -194,6 +195,70 @@ export async function updateUserRole(
   }
 
   await prisma.user.update({ where: { id: userId }, data: { role } });
+  revalidatePath("/users");
+  revalidatePath(`/users/${userId}`);
+  return { ok: true };
+}
+
+// ---- Technology / User Profile fields -----------------------------------
+
+const MAX_FIELD_TEXT = 5000;
+const optionalText = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .optional()
+    .transform((v) => (v && v.trim() ? v.trim() : null));
+
+const profileFieldsSchema = z.object({
+  technologyComments: optionalText(MAX_FIELD_TEXT),
+  phoneNumber: optionalText(60),
+  technologyNotes: optionalText(MAX_FIELD_TEXT),
+  profileComments: optionalText(MAX_FIELD_TEXT),
+});
+
+/**
+ * Save the Technology + User Profile fields for a user. Admin-only and
+ * org-scoped — an admin can only edit users inside their own workspace.
+ * Writes are auto-audited via the Prisma audit extension (request context
+ * is stamped by requireAdminWithOrg → requireSession).
+ */
+export async function updateUserProfileFields(
+  userId: string,
+  _prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { orgId } = await requireAdminWithOrg();
+
+  const target = await prisma.user.findFirst({
+    where: { id: userId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!target) return { ok: false, error: "User not found in your workspace." };
+
+  const parsed = profileFieldsSchema.safeParse({
+    technologyComments: formData.get("technologyComments") ?? undefined,
+    phoneNumber: formData.get("phoneNumber") ?? undefined,
+    technologyNotes: formData.get("technologyNotes") ?? undefined,
+    profileComments: formData.get("profileComments") ?? undefined,
+  });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+  }
+
+  const phoneSystems = sanitizePhoneSystems(formData.getAll("phoneSystems").map(String));
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      technologyComments: parsed.data.technologyComments,
+      phoneNumber: parsed.data.phoneNumber,
+      technologyNotes: parsed.data.technologyNotes,
+      profileComments: parsed.data.profileComments,
+      phoneSystems,
+    },
+  });
+
   revalidatePath("/users");
   revalidatePath(`/users/${userId}`);
   return { ok: true };

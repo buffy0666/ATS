@@ -21,7 +21,19 @@ export default async function UsersPage() {
         email: { not: { endsWith: ".platform-default.local" } },
       },
       orderBy: { createdAt: "asc" },
-      select: { id: true, email: true, name: true, role: true, createdAt: true, active: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+        active: true,
+        technologyComments: true,
+        phoneSystems: true,
+        phoneNumber: true,
+        technologyNotes: true,
+        profileComments: true,
+      },
     }),
     prisma.invitation.findMany({
       where: {
@@ -79,13 +91,18 @@ export default async function UsersPage() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-zinc-50 dark:bg-zinc-950 text-left text-xs uppercase text-zinc-500">
               <tr>
                 <th className="px-4 py-2 font-medium">Email</th>
                 <th className="px-4 py-2 font-medium">Name</th>
                 <th className="px-4 py-2 font-medium">Role</th>
+                <th className="px-4 py-2 font-medium">Phone system</th>
+                <th className="px-4 py-2 font-medium">Phone number</th>
+                <th className="px-4 py-2 font-medium">Tech comments</th>
+                <th className="px-4 py-2 font-medium">Tech comments (2)</th>
+                <th className="px-4 py-2 font-medium">Profile comments</th>
                 <th className="px-4 py-2 font-medium">Added</th>
                 <th className="px-4 py-2 font-medium text-right">Actions</th>
               </tr>
@@ -110,7 +127,35 @@ export default async function UsersPage() {
                       {u.role}
                     </span>
                   </td>
+                  <td className="px-4 py-3">
+                    {u.phoneSystems.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {u.phoneSystems.map((ps) => (
+                          <span
+                            key={ps}
+                            className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-xs"
+                          >
+                            {ps}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-zinc-400">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                    {u.phoneNumber ?? <span className="text-zinc-400">—</span>}
+                  </td>
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                    <TruncatedText text={u.technologyComments} />
+                  </td>
+                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                    <TruncatedText text={u.technologyNotes} />
+                  </td>
+                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                    <TruncatedText text={u.profileComments} />
+                  </td>
+                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
                     {u.createdAt.toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3">
@@ -173,5 +218,18 @@ export default async function UsersPage() {
           </div>
         )}
     </main>
+  );
+}
+
+/**
+ * Render a free-text cell truncated to one line, with the full value on
+ * hover (title). Keeps the (now wide) users table readable.
+ */
+function TruncatedText({ text }: { text: string | null }) {
+  if (!text || !text.trim()) return <span className="text-zinc-400">—</span>;
+  return (
+    <span className="block max-w-[16rem] truncate" title={text}>
+      {text}
+    </span>
   );
 }
