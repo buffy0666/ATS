@@ -33,17 +33,37 @@ export function SelectionToolbar({
   onAfterAction,
   listId,
   availableTags,
+  confirmLarge = false,
 }: {
   selectedIds: string[];
   onClear: () => void;
   onAfterAction: () => void;
   listId?: string;
   availableTags: TagOption[];
+  /** When true (e.g. "all matching" is selected), prompt for confirmation
+   *  before opening any bulk action — these touch many records at once. */
+  confirmLarge?: boolean;
 }) {
   const router = useRouter();
   const [modal, setModal] = useState<ModalKind>(null);
   const [banner, setBanner] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // Gate opening a bulk-action modal behind an "are you sure" confirm when a
+  // large (all-matching) selection is active. Bulk field edits overwrite data
+  // and can't be undone, so we make the user acknowledge the scope first.
+  function openModal(kind: ModalKind) {
+    if (
+      confirmLarge &&
+      !window.confirm(
+        `This will affect all ${selectedIds.length.toLocaleString()} selected candidates. ` +
+          `This cannot be undone. Are you sure you want to continue?`,
+      )
+    ) {
+      return;
+    }
+    setModal(kind);
+  }
 
   // Auto-clear the banner after a few seconds.
   useEffect(() => {
@@ -89,19 +109,19 @@ export function SelectionToolbar({
           {selectedIds.length} selected
         </span>
         <span className="text-zinc-300 dark:text-zinc-700">|</span>
-        <ToolbarButton onClick={() => setModal("list")} disabled={pending}>
+        <ToolbarButton onClick={() => openModal("list")} disabled={pending}>
           Add to list…
         </ToolbarButton>
-        <ToolbarButton onClick={() => setModal("job")} disabled={pending}>
+        <ToolbarButton onClick={() => openModal("job")} disabled={pending}>
           Associate with job…
         </ToolbarButton>
-        <ToolbarButton onClick={() => setModal("tag")} disabled={pending}>
+        <ToolbarButton onClick={() => openModal("tag")} disabled={pending}>
           Add tag…
         </ToolbarButton>
-        <ToolbarButton onClick={() => setModal("edit")} disabled={pending}>
+        <ToolbarButton onClick={() => openModal("edit")} disabled={pending}>
           Edit fields…
         </ToolbarButton>
-        <ToolbarButton onClick={() => setModal("sequence")} disabled={pending}>
+        <ToolbarButton onClick={() => openModal("sequence")} disabled={pending}>
           Enroll in sequence…
         </ToolbarButton>
         {selectedIds.length === 2 && (

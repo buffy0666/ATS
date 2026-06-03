@@ -25,6 +25,7 @@ import {
 } from "./candidate-columns";
 import { ADVANCED_FILTER_KEYS } from "./search-params";
 import { SelectionToolbar } from "./SelectionToolbar";
+import { selectAllMatchingIds } from "./bulk-actions";
 
 type Tag = { id: string; name: string; color: string };
 type ChoiceOption = { id: string; name: string };
@@ -119,8 +120,59 @@ export function CandidatesView({
   const [hydrated, setHydrated] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // "Select all matching the filter" (across pages) state.
+  const [selectAllActive, setSelectAllActive] = useState(false);
+  const [allMatchingIds, setAllMatchingIds] = useState<string[]>([]);
+  const [selectAllPending, setSelectAllPending] = useState(false);
+  const [selectAllCapped, setSelectAllCapped] = useState(false);
   const [draggingKey, setDraggingKey] = useState<ColumnKey | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<ColumnKey | null>(null);
+
+  // Top horizontal scrollbar synced with the table's scroll container.
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const [scrollWidth, setScrollWidth] = useState(0);
+  const syncingRef = useRef(false);
+
+  useEffect(() => {
+    const table = tableScrollRef.current;
+    if (!table) return;
+    const measure = () => setScrollWidth(table.scrollWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(table);
+    const inner = table.firstElementChild;
+    if (inner) ro.observe(inner);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [candidates, columnOrder]);
+
+  function onTopScroll() {
+    if (syncingRef.current) {
+      syncingRef.current = false;
+      return;
+    }
+    const table = tableScrollRef.current;
+    const top = topScrollRef.current;
+    if (!table || !top) return;
+    syncingRef.current = true;
+    table.scrollLeft = top.scrollLeft;
+  }
+
+  function onTableScroll() {
+    if (syncingRef.current) {
+      syncingRef.current = false;
+      return;
+    }
+    const table = tableScrollRef.current;
+    const top = topScrollRef.current;
+    if (!table || !top) return;
+    syncingRef.current = true;
+    top.scrollLeft = table.scrollLeft;
+  }
 
   // Quick per-column filters (the input row under the header). Seeded
   // from URL params so a reload/back-button trip preserves the filters,
@@ -159,6 +211,10 @@ export function CandidatesView({
   // (e.g. when a filter narrows the list). Selections survive column
   // changes since the candidate ID set doesn't change.
   useEffect(() => {
+    // A changed result set invalidates "all matching" mode (filters/page moved).
+    setSelectAllActive(false);
+    setAllMatchingIds([]);
+    setSelectAllCapped(false);
     setSelectedIds((prev) => {
       if (prev.size === 0) return prev;
       const visible = new Set(candidates.map((c) => c.id));
@@ -169,7 +225,14 @@ export function CandidatesView({
     });
   }, [candidates]);
 
+  function exitSelectAll() {
+    setSelectAllActive(false);
+    setAllMatchingIds([]);
+    setSelectAllCapped(false);
+  }
+
   function toggleRow(id: string) {
+    exitSelectAll();
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -179,14 +242,40 @@ export function CandidatesView({
   }
 
   function toggleAll() {
+    exitSelectAll();
     setSelectedIds((prev) => {
       if (prev.size === candidates.length && candidates.length > 0) return new Set();
       return new Set(candidates.map((c) => c.id));
     });
   }
 
+  function clearSelection() {
+    exitSelectAll();
+    setSelectedIds(new Set());
+  }
+
+  function selectAllMatching() {
+    setSelectAllPending(true);
+    const sp = Object.fromEntries(new URLSearchParams(searchParams?.toString() ?? ""));
+    selectAllMatchingIds(sp)
+      .then(({ ids, capped }) => {
+        setAllMatchingIds(ids);
+        setSelectAllActive(true);
+        setSelectAllCapped(capped);
+      })
+      .catch(() => {})
+      .finally(() => setSelectAllPending(false));
+  }
+
   const allSelected = candidates.length > 0 && selectedIds.size === candidates.length;
   const someSelected = selectedIds.size > 0 && !allSelected;
+
+  const effectiveSelectedIds = selectAllActive ? allMatchingIds : [...selectedIds];
+  const showSelectAllOffer =
+    !selectAllActive &&
+    allSelected &&
+    totalCount !== undefined &&
+    totalCount > candidates.length;
 
   const knownKeys = useMemo(() => new Set(COLUMN_DEFS.map((c) => c.key)), []);
 
@@ -414,22 +503,75 @@ export function CandidatesView({
         )}
       </div>
 
+      {/* Select-all-across-pages banner. */}
+      {(showSelectAllOffer || selectAllActive) && (
+        <div className="mb-2 flex flex-wrap items-center justify-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          {selectAllActive ? (
+            <>
+              <span>
+                All <strong>{allMatchingIds.length.toLocaleString()}</strong> candidates
+                matching this filter are selected.
+                {selectAllCapped && " (capped at the maximum of 20,000)"}
+              </span>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="font-medium underline underline-offset-2 hover:text-amber-950 dark:hover:text-white"
+              >
+                Clear selection
+              </button>
+            </>
+          ) : (
+            <>
+              <span>
+                All <strong>{candidates.length}</strong> on this page are selected.
+              </span>
+              <button
+                type="button"
+                onClick={selectAllMatching}
+                disabled={selectAllPending}
+                className="font-medium underline underline-offset-2 hover:text-amber-950 disabled:opacity-50 dark:hover:text-white"
+              >
+                {selectAllPending
+                  ? "Selecting…"
+                  : `Select all ${(totalCount ?? 0).toLocaleString()} matching this filter`}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {candidates.length === 0 ? (
         <p className="text-sm text-zinc-500">
           {anyFilterActive ? "No candidates match these filters." : "No candidates yet."}
         </p>
       ) : (
-        // Bounded scroll pane so the header can freeze: overflow-auto (both
-        // axes) makes THIS div the scroll container, so the sticky <thead>
-        // below pins to its top while rows scroll under it (and scrolls
-        // horizontally in sync with the body). max-height leaves room for the
-        // page header / filters / pagination above — tune the offset if your
-        // chrome is taller.
-        <div className={`rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-auto max-h-[calc(100vh-14rem)] ${selectedIds.size > 0 ? "pb-20" : ""}`}>
+        <>
+        {/* Top horizontal scrollbar, mirrors the table's. */}
+        <div
+          ref={topScrollRef}
+          onScroll={onTopScroll}
+          className="overflow-x-auto overflow-y-hidden"
+          aria-hidden="true"
+        >
+          <div style={{ width: scrollWidth, height: 1 }} />
+        </div>
+
+        {/* Bounded scroll pane so the header can freeze: overflow-auto (both
+            axes) makes THIS div the scroll container, so the sticky <thead>
+            below pins to its top while rows scroll under it (and scrolls
+            horizontally in sync with the body). max-height leaves room for the
+            page header / filters / pagination above — tune the offset if your
+            chrome is taller. */}
+        <div
+          ref={tableScrollRef}
+          onScroll={onTableScroll}
+          className={`rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-auto max-h-[calc(100vh-14rem)] ${selectedIds.size > 0 || selectAllActive ? "pb-20" : ""}`}
+        >
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-20 bg-zinc-50 dark:bg-zinc-950 text-left text-xs uppercase text-zinc-500">
               <tr>
-                <th className="px-3 py-2 w-9">
+                <th className="px-3 py-2 w-9 sticky left-0 z-30 bg-zinc-50 dark:bg-zinc-950">
                   <input
                     type="checkbox"
                     aria-label="Select all candidates on this page"
@@ -441,7 +583,9 @@ export function CandidatesView({
                     className="rounded border-zinc-300 dark:border-zinc-700"
                   />
                 </th>
-                <th className="px-4 py-2 font-medium whitespace-nowrap">Name</th>
+                <th className="px-4 py-2 font-medium whitespace-nowrap sticky left-9 z-30 bg-zinc-50 dark:bg-zinc-950 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-zinc-200 dark:after:bg-zinc-800">
+                  Name
+                </th>
                 {activeColumns.map((c) => {
                   const isDragging = draggingKey === c.key;
                   const isDropTarget = dropTargetKey === c.key && draggingKey !== c.key;
@@ -499,8 +643,8 @@ export function CandidatesView({
               {/* Per-column quick-filter row. Text-typed columns get a
                   small "Filter…" box; others render an empty cell. */}
               <tr className="border-t border-zinc-100 bg-zinc-50/60 dark:border-zinc-900 dark:bg-zinc-950/40">
-                <th className="px-3 py-1.5"></th>
-                <th className="px-2 py-1.5">
+                <th className="px-3 py-1.5 sticky left-0 z-30 bg-zinc-50 dark:bg-zinc-950"></th>
+                <th className="px-2 py-1.5 sticky left-9 z-30 bg-zinc-50 dark:bg-zinc-950 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-zinc-200 dark:after:bg-zinc-800">
                   <QuickFilterInput
                     value={filterValues.name ?? ""}
                     onChange={(v) => updateQuickFilter("name", v)}
@@ -526,11 +670,17 @@ export function CandidatesView({
               {candidates.map((c) => (
                 <tr
                   key={c.id}
-                  className={`border-t border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-950 ${
+                  className={`group border-t border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-950 ${
                     selectedIds.has(c.id) ? "bg-zinc-50 dark:bg-zinc-950" : ""
                   }`}
                 >
-                  <td className="px-3 py-3 w-9">
+                  {/* Frozen checkbox + Name columns (opaque bg matching row /
+                      selected / hover so scrolled columns pass behind). */}
+                  <td
+                    className={`px-3 py-3 w-9 sticky left-0 z-10 group-hover:bg-zinc-50 dark:group-hover:bg-zinc-950 ${
+                      selectedIds.has(c.id) ? "bg-zinc-50 dark:bg-zinc-950" : "bg-white dark:bg-zinc-900"
+                    }`}
+                  >
                     <input
                       type="checkbox"
                       aria-label={`Select ${c.firstName} ${c.lastName}`}
@@ -540,7 +690,11 @@ export function CandidatesView({
                       className="rounded border-zinc-300 dark:border-zinc-700"
                     />
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
+                  <td
+                    className={`px-4 py-3 whitespace-nowrap sticky left-9 z-10 group-hover:bg-zinc-50 dark:group-hover:bg-zinc-950 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-zinc-200 dark:after:bg-zinc-800 ${
+                      selectedIds.has(c.id) ? "bg-zinc-50 dark:bg-zinc-950" : "bg-white dark:bg-zinc-900"
+                    }`}
+                  >
                     <Link href={`/candidates/${c.id}`} className="font-medium hover:underline">
                       {c.firstName} {c.lastName}
                     </Link>
@@ -565,6 +719,7 @@ export function CandidatesView({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       <Paginator
@@ -578,11 +733,12 @@ export function CandidatesView({
       />
 
       <SelectionToolbar
-        selectedIds={[...selectedIds]}
-        onClear={() => setSelectedIds(new Set())}
-        onAfterAction={() => setSelectedIds(new Set())}
+        selectedIds={effectiveSelectedIds}
+        onClear={clearSelection}
+        onAfterAction={clearSelection}
         listId={listId}
         availableTags={availableTags}
+        confirmLarge={selectAllActive}
       />
     </main>
   );

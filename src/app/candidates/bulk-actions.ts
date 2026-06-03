@@ -12,8 +12,13 @@ import {
   SOURCE_CHOICE_FIELD,
   type BulkEditFieldDef,
 } from "./bulk-edit-fields";
+import { hasSearchInput, searchCandidates } from "@/lib/candidate-search";
+import { buildCandidateWhere, type SearchParamsShape } from "./candidate-filter";
 
-const MAX_BULK = 500;
+// Upper bound on how many candidates a single bulk action will touch. Raised
+// well above the page size so "select all matching this filter" (which can be
+// thousands) is honored rather than silently truncated at the old 500 cap.
+const MAX_BULK = 20_000;
 
 /**
  * Strip out invalid cuids AND cap to MAX_BULK. Every bulk action also
@@ -446,4 +451,43 @@ export async function bulkEditCandidates(
     message: `Updated ${def.label} on ${result.count} candidate${result.count === 1 ? "" : "s"}.`,
     affected: result.count,
   };
+}
+
+/**
+ * Resolve EVERY candidate id matching the current list filter (across all
+ * pages), org-scoped. Backs the "Select all N matching" affordance — the UI
+ * sends the same URL search params the list page uses, and we run the exact
+ * same filter (buildCandidateWhere + FTS) so the selection matches what's
+ * displayed. Capped at MAX_BULK; returns the cap so the UI can warn if the
+ * match set was larger.
+ */
+export async function selectAllMatchingIds(
+  sp: SearchParamsShape,
+): Promise<{ ids: string[]; capped: boolean }> {
+  const { orgId } = await requireSessionWithOrg();
+
+  const where: Prisma.CandidateWhereInput = {
+    organizationId: orgId,
+    ...buildCandidateWhere(sp),
+  };
+
+  // Mirror the page's FTS intersection so keyword search is honored too.
+  if (hasSearchInput(sp.q)) {
+    const ftsIds = await searchCandidates(sp.q, orgId);
+    if (!ftsIds || ftsIds.length === 0) return { ids: [], capped: false };
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      { id: { in: ftsIds } },
+    ];
+  }
+
+  const rows = await prisma.candidate.findMany({
+    where,
+    select: { id: true },
+    orderBy: { createdAt: "desc" },
+    take: MAX_BULK + 1,
+  });
+
+  const capped = rows.length > MAX_BULK;
+  return { ids: rows.slice(0, MAX_BULK).map((r) => r.id), capped };
 }
