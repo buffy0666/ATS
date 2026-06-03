@@ -45,6 +45,13 @@ const inputSchema = z.object({
     .optional()
     .or(z.literal(""))
     .transform((v) => v || ""),
+  // Rich article body (sanitized HTML) authored in the create form's editor.
+  content: z
+    .string()
+    .max(500_000)
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => v || null),
   status: z.nativeEnum(KnowledgeStatus).optional().default(KnowledgeStatus.UNDER_REVIEW),
 });
 
@@ -65,7 +72,12 @@ async function saveKnowledgeFile(file: File): Promise<SavedKnowledgeFile> {
   return saveAttachment(file, "knowledge");
 }
 
-export type AddKnowledgeResult = { ok: true } | { ok: false; error: string };
+export type AddKnowledgeResult =
+  | { ok: true; id: string }
+  | { ok: false; error: string };
+
+// For mutations that don't return a new id (attachments, content save, etc).
+export type KnowledgeOpResult = { ok: true } | { ok: false; error: string };
 
 export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledgeResult> {
   const { session, orgId } = await requireSessionWithOrg();
@@ -76,6 +88,7 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
     type: formData.get("type"),
     category: formData.get("category"),
     url: formData.get("url"),
+    content: formData.get("content"),
     status: formData.get("status") || KnowledgeStatus.UNDER_REVIEW,
   });
   if (!parsed.success) {
@@ -107,13 +120,14 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
   const canApprove = isAdminOrAbove(session.user.role);
   const status = canApprove ? data.status : KnowledgeStatus.UNDER_REVIEW;
 
-  await prisma.knowledgeItem.create({
+  const created = await prisma.knowledgeItem.create({
     data: {
       name: data.name,
       description: data.description,
       type: data.type,
       category: data.category,
       url: finalUrl,
+      content: data.content,
       status,
       createdById: session.user.id,
       organizationId: orgId,
@@ -130,10 +144,11 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
             }
           : undefined,
     },
+    select: { id: true },
   });
 
   revalidatePath("/knowledge");
-  return { ok: true };
+  return { ok: true, id: created.id };
 }
 
 /**
@@ -144,7 +159,7 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
 export async function addKnowledgeAttachments(
   itemId: string,
   formData: FormData,
-): Promise<AddKnowledgeResult> {
+): Promise<KnowledgeOpResult> {
   const { session, orgId } = await requireSessionWithOrg();
 
   const item = await prisma.knowledgeItem.findFirst({
@@ -202,7 +217,7 @@ export async function addKnowledgeAttachments(
  */
 export async function deleteKnowledgeAttachment(
   attachmentId: string,
-): Promise<AddKnowledgeResult> {
+): Promise<KnowledgeOpResult> {
   const { session, orgId } = await requireSessionWithOrg();
 
   const attachment = await prisma.knowledgeAttachment.findFirst({
@@ -272,7 +287,7 @@ const MAX_CONTENT_CHARS = 500_000;
 export async function saveKnowledgeContent(
   itemId: string,
   html: string,
-): Promise<AddKnowledgeResult> {
+): Promise<KnowledgeOpResult> {
   const { session, orgId } = await requireSessionWithOrg();
 
   const item = await prisma.knowledgeItem.findFirst({
@@ -323,6 +338,36 @@ export async function uploadKnowledgeImage(
   if (!isAdmin && !isCreator) {
     return { ok: false, error: "Only the item's creator or an admin can add images." };
   }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "No image provided." };
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    return { ok: false, error: "Image exceeds the 10 MB limit." };
+  }
+  if (file.type && !file.type.startsWith("image/")) {
+    return { ok: false, error: "Only image files are allowed." };
+  }
+
+  try {
+    const saved = await saveAttachment(file, "knowledge-images");
+    return { ok: true, url: saved.url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Upload failed." };
+  }
+}
+
+/**
+ * Image uploader for the CREATE form, where the knowledge item doesn't exist
+ * yet (so there's no itemId to gate on). Any signed-in org member composing a
+ * new article can upload; the image just lands in blob storage and its URL is
+ * embedded in the draft content that gets saved with the item.
+ */
+export async function uploadKnowledgeImageDraft(
+  formData: FormData,
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  await requireSessionWithOrg();
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {

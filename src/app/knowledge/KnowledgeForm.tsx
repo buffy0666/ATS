@@ -3,13 +3,16 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { KnowledgeStatus } from "@/generated/prisma";
-import { addKnowledgeItem } from "./actions";
+import { addKnowledgeItem, uploadKnowledgeImageDraft } from "./actions";
 import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_TYPES } from "./constants";
+import { RichEditor } from "@/components/rich-editor/RichEditor";
 
 export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // Rich article body (sanitized HTML) authored inline on this form.
+  const [content, setContent] = useState("");
   // Managed file list so picks accumulate (the native multiple input replaces
   // its selection on each click). Each pick appends; users can remove any.
   const [files, setFiles] = useState<File[]>([]);
@@ -35,6 +38,17 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
+  // Host-supplied image uploader for the article editor. On the create form
+  // there's no item yet, so we use the draft uploader (just stores the blob and
+  // returns its URL to embed in the content).
+  async function uploadImage(file: File): Promise<{ url: string }> {
+    const fd = new FormData();
+    fd.set("file", file);
+    const res = await uploadKnowledgeImageDraft(fd);
+    if (!res.ok) throw new Error(res.error);
+    return { url: res.url };
+  }
+
   return (
     <form
       action={(fd) => {
@@ -42,11 +56,15 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
         // The file input carries no name; append the managed list under
         // "file" so the server action's getAll("file") sees every pick.
         for (const f of files) fd.append("file", f);
+        // The article body lives in React state (RichEditor), not a form
+        // field — append it so the action persists it on create.
+        fd.set("content", content);
         startTransition(async () => {
           try {
             const res = await addKnowledgeItem(fd);
             if (res.ok) {
-              router.push("/knowledge");
+              // Land on the new article so the saved content is right there.
+              router.push(`/knowledge/${res.id}`);
               router.refresh();
             } else {
               setError(res.error);
@@ -115,16 +133,32 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
 
       <div>
         <label className="block text-sm font-medium mb-1" htmlFor="description">
-          Description
+          Brief Description
         </label>
         <textarea
           id="description"
           name="description"
-          rows={8}
+          rows={2}
           maxLength={2000}
-          placeholder="What is this — and when should someone use it?"
-          className="w-full resize-y rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm leading-relaxed min-h-40 whitespace-pre-wrap break-words"
+          placeholder="One or two lines — what is this and when to use it?"
+          className="w-full resize-y rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words"
         />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-1">
+          Article <span className="font-normal text-zinc-400">(optional)</span>
+        </label>
+        <RichEditor
+          value={content}
+          onChange={setContent}
+          onUploadImage={uploadImage}
+          placeholder="Write the full article — use the toolbar for formatting, paste images, embed YouTube…"
+        />
+        <p className="text-xs text-zinc-500 mt-1">
+          Rich content with headings, images, links and video. You can keep editing it
+          from the article page after saving.
+        </p>
       </div>
 
       <div>
