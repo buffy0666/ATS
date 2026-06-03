@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams, type ReadonlyURLSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CandidateStatus,
   EmploymentType,
@@ -18,8 +18,11 @@ import { SavedSearchesMenu, type SavedSearchEntry } from "./SavedSearchesMenu";
 import {
   COLUMN_DEFS,
   COLUMN_STORAGE_KEY,
+  COLUMN_WIDTHS_STORAGE_KEY,
   DEFAULT_COLUMNS,
+  MIN_COLUMN_WIDTH,
   QUICK_FILTER_FIELDS,
+  defaultColumnWidth,
   type ColumnDef,
   type ColumnKey,
 } from "./candidate-columns";
@@ -174,6 +177,57 @@ export function CandidatesView({
     top.scrollLeft = table.scrollLeft;
   }
 
+  // Per-column widths (px), keyed by ColumnKey or the "name" sentinel.
+  // Persisted separately from column order. An entry is only present once
+  // the user has dragged that column; everything else uses its default.
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  // Truthy while a resize drag is in flight. A ref (not state) so the
+  // header's onDragStart can bail out instantly when a resize is starting,
+  // without waiting for a re-render — otherwise the reorder drag fires too.
+  const resizeRef = useRef<string | null>(null);
+  const [resizingKey, setResizingKey] = useState<string | null>(null);
+
+  const colWidth = useCallback(
+    (key: ColumnKey | "name") => columnWidths[key] ?? defaultColumnWidth(key),
+    [columnWidths],
+  );
+
+  // Begin a column resize. The move/up handlers are local closures so they
+  // capture this drag's start point and tear themselves down on mouseup —
+  // no cross-referencing module-level callbacks.
+  const startResize = useCallback(
+    (key: ColumnKey | "name", startWidth: number, e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = e.clientX;
+      resizeRef.current = key;
+      setResizingKey(key);
+      const move = (ev: MouseEvent) => {
+        const next = Math.max(MIN_COLUMN_WIDTH, startWidth + (ev.clientX - startX));
+        setColumnWidths((prev) => ({ ...prev, [key]: next }));
+      };
+      const up = () => {
+        resizeRef.current = null;
+        setResizingKey(null);
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    },
+    [],
+  );
+
+  // Double-click a resize handle to reset that column to its default width.
+  const resetColumnWidth = useCallback((key: ColumnKey | "name") => {
+    setColumnWidths((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
   // Quick per-column filters (the input row under the header). Seeded
   // from URL params so a reload/back-button trip preserves the filters,
   // then locally edited with a debounced push back to the URL.
@@ -302,6 +356,23 @@ export function CandidatesView({
     } catch {
       // ignore
     }
+    // Load persisted column widths in the same mount pass so they're in
+    // place before `hydrated` flips and the save effect below could fire.
+    try {
+      const rawW = localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
+      if (rawW) {
+        const obj = JSON.parse(rawW);
+        if (obj && typeof obj === "object") {
+          const cleaned: Record<string, number> = {};
+          for (const [k, v] of Object.entries(obj)) {
+            if (typeof v === "number" && v > 0) cleaned[k] = v;
+          }
+          setColumnWidths(cleaned);
+        }
+      }
+    } catch {
+      // ignore
+    }
     setHydrated(true);
   }, [knownKeys]);
 
@@ -315,6 +386,16 @@ export function CandidatesView({
     }
   }, [columnOrder, hydrated]);
 
+  // Persist column widths.
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(columnWidths));
+    } catch {
+      // ignore
+    }
+  }, [columnWidths, hydrated]);
+
   function toggleColumn(key: ColumnKey) {
     setColumnOrder((prev) =>
       prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
@@ -323,6 +404,7 @@ export function CandidatesView({
 
   function resetColumns() {
     setColumnOrder([...DEFAULT_COLUMNS]);
+    setColumnWidths({});
   }
 
   function showAllColumns() {
@@ -348,6 +430,22 @@ export function CandidatesView({
       .map((k) => byKey.get(k))
       .filter((c): c is ColumnDef => Boolean(c));
   }, [columnOrder]);
+
+  // Fixed widths for the non-resizable checkbox + actions columns. The
+  // checkbox is 36px to match its `w-9` cell and the Name column's
+  // `left-9` frozen offset.
+  const CHECKBOX_COL_W = 36;
+  const ACTIONS_COL_W = 64;
+  // Total table width drives table-layout:fixed. When it exceeds the pane
+  // the wrapper scrolls horizontally; when narrower, minWidth:100% fills it.
+  const totalTableWidth = useMemo(
+    () =>
+      CHECKBOX_COL_W +
+      colWidth("name") +
+      activeColumns.reduce((sum, c) => sum + colWidth(c.key), 0) +
+      ACTIONS_COL_W,
+    [activeColumns, colWidth],
+  );
 
   const groupedColumns = useMemo(() => {
     const groups = new Map<string, ColumnDef[]>();
@@ -568,10 +666,14 @@ export function CandidatesView({
           onScroll={onTableScroll}
           className={`rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-auto max-h-[calc(100vh-14rem)] ${selectedIds.size > 0 || selectAllActive ? "pb-20" : ""}`}
         >
-          <table className="w-full text-sm">
+          {/* table-fixed honors our explicit column widths so cells wrap
+              within them instead of forcing the table wider. Width = sum of
+              column widths; minWidth 100% fills the pane when that's narrow. */}
+          <table className="table-fixed text-sm" style={{ width: totalTableWidth, minWidth: "100%" }}>
             <thead className="sticky top-0 z-20 bg-zinc-50 dark:bg-zinc-950 text-left text-xs uppercase text-zinc-500">
               <tr>
                 <th className="px-3 py-2 w-9 sticky left-0 z-30 bg-zinc-50 dark:bg-zinc-950">
+
                   <input
                     type="checkbox"
                     aria-label="Select all candidates on this page"
@@ -583,8 +685,19 @@ export function CandidatesView({
                     className="rounded border-zinc-300 dark:border-zinc-700"
                   />
                 </th>
-                <th className="px-4 py-2 font-medium whitespace-nowrap sticky left-9 z-30 bg-zinc-50 dark:bg-zinc-950 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-zinc-200 dark:after:bg-zinc-800">
+                <th
+                  className="px-4 py-2 font-medium break-words sticky left-9 z-30 bg-zinc-50 dark:bg-zinc-950 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-zinc-200 dark:after:bg-zinc-800"
+                  style={{ width: colWidth("name") }}
+                >
                   Name
+                  <span
+                    role="separator"
+                    aria-orientation="vertical"
+                    title="Drag to resize · double-click to reset"
+                    onMouseDown={(e) => startResize("name", colWidth("name"), e)}
+                    onDoubleClick={() => resetColumnWidth("name")}
+                    className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none hover:bg-zinc-300 dark:hover:bg-zinc-700"
+                  />
                 </th>
                 {activeColumns.map((c) => {
                   const isDragging = draggingKey === c.key;
@@ -594,6 +707,13 @@ export function CandidatesView({
                       key={c.key}
                       draggable
                       onDragStart={(e) => {
+                        // A resize is starting on this header's handle — don't
+                        // also kick off a reorder drag. resizeRef is set
+                        // synchronously in startResize, so this check is reliable.
+                        if (resizeRef.current) {
+                          e.preventDefault();
+                          return;
+                        }
                         e.dataTransfer.setData("text/plain", c.key);
                         e.dataTransfer.effectAllowed = "move";
                         setDraggingKey(c.key);
@@ -622,7 +742,8 @@ export function CandidatesView({
                         setDropTargetKey(null);
                       }}
                       title="Drag to reorder"
-                      className={`px-4 py-2 font-medium whitespace-nowrap select-none cursor-grab active:cursor-grabbing ${
+                      style={{ width: colWidth(c.key) }}
+                      className={`relative px-4 py-2 font-medium break-words select-none cursor-grab active:cursor-grabbing ${
                         c.align === "right" ? "text-right" : ""
                       } ${isDragging ? "opacity-40" : ""} ${
                         isDropTarget ? "border-l-2 border-zinc-900 dark:border-zinc-100" : ""
@@ -635,10 +756,27 @@ export function CandidatesView({
                         ⋮⋮
                       </span>
                       {c.label}
+                      {/* Resize grip. Its own drag is mutually exclusive with
+                          the column-reorder drag above (see onDragStart guard). */}
+                      <span
+                        role="separator"
+                        aria-orientation="vertical"
+                        title="Drag to resize · double-click to reset"
+                        draggable={false}
+                        onMouseDown={(e) => startResize(c.key, colWidth(c.key), e)}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          resetColumnWidth(c.key);
+                        }}
+                        className={`absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-zinc-300 dark:hover:bg-zinc-700 ${
+                          resizingKey === c.key ? "bg-zinc-400 dark:bg-zinc-600" : ""
+                        }`}
+                      />
                     </th>
                   );
                 })}
-                <th className="px-4 py-2 font-medium text-right w-20"></th>
+                <th className="px-4 py-2 font-medium text-right" style={{ width: ACTIONS_COL_W }}></th>
               </tr>
               {/* Per-column quick-filter row. Text-typed columns get a
                   small "Filter…" box; others render an empty cell. */}
@@ -677,7 +815,7 @@ export function CandidatesView({
                   {/* Frozen checkbox + Name columns (opaque bg matching row /
                       selected / hover so scrolled columns pass behind). */}
                   <td
-                    className={`px-3 py-3 w-9 sticky left-0 z-10 group-hover:bg-zinc-50 dark:group-hover:bg-zinc-950 ${
+                    className={`px-3 py-3 w-9 align-top sticky left-0 z-10 group-hover:bg-zinc-50 dark:group-hover:bg-zinc-950 ${
                       selectedIds.has(c.id) ? "bg-zinc-50 dark:bg-zinc-950" : "bg-white dark:bg-zinc-900"
                     }`}
                   >
@@ -691,7 +829,7 @@ export function CandidatesView({
                     />
                   </td>
                   <td
-                    className={`px-4 py-3 whitespace-nowrap sticky left-9 z-10 group-hover:bg-zinc-50 dark:group-hover:bg-zinc-950 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-zinc-200 dark:after:bg-zinc-800 ${
+                    className={`px-4 py-3 align-top break-words sticky left-9 z-10 group-hover:bg-zinc-50 dark:group-hover:bg-zinc-950 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-zinc-200 dark:after:bg-zinc-800 ${
                       selectedIds.has(c.id) ? "bg-zinc-50 dark:bg-zinc-950" : "bg-white dark:bg-zinc-900"
                     }`}
                   >
@@ -702,12 +840,13 @@ export function CandidatesView({
                   {activeColumns.map((col) => (
                     <td
                       key={col.key}
-                      className={`px-4 py-3 text-zinc-600 dark:text-zinc-400 ${col.align === "right" ? "text-right tabular-nums" : ""}`}
+                      className={`px-4 py-3 align-top break-words text-zinc-600 dark:text-zinc-400 ${col.align === "right" ? "text-right tabular-nums" : ""}`}
                     >
                       {renderCell(c, col.key)}
                     </td>
+
                   ))}
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 align-top text-right">
                     <DeleteCandidateButton
                       candidateId={c.id}
                       candidateName={`${c.firstName} ${c.lastName}`}
@@ -791,14 +930,16 @@ function renderCell(c: CandidateRow, key: ColumnKey): React.ReactNode {
       return c.lists.length === 0 ? (
         "—"
       ) : (
-        <div className="flex flex-wrap gap-1 max-w-md">
+        <div className="flex flex-wrap gap-1">
           {c.lists.map((l) => (
             <Link
               key={l.listId}
               href={`/lists/${l.listId}`}
+              title={l.listName}
               className="inline-flex items-center gap-1 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200 px-2 py-0.5 text-xs hover:bg-indigo-200 dark:hover:bg-indigo-900/60"
             >
-              {l.listName}
+              {/* Truncate long list names; full name shows on hover (title). */}
+              <span className="inline-block max-w-[8rem] truncate align-bottom">{l.listName}</span>
             </Link>
           ))}
         </div>
