@@ -27,10 +27,16 @@ export function AdvancedFilters({
   availableTags,
   sourceOptions,
   seniorityOptions,
+  listOptions = [],
+  jobOptions = [],
+  sequenceOptions = [],
 }: {
   availableTags: TagOption[];
   sourceOptions: ChoiceOption[];
   seniorityOptions: ChoiceOption[];
+  listOptions?: { id: string; name: string }[];
+  jobOptions?: { id: string; title: string }[];
+  sequenceOptions?: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -84,6 +90,7 @@ export function AdvancedFilters({
             <MultiSelectGroup
               label="Status"
               paramKey="status"
+              notParamKey="notStatus"
               params={params}
               options={STATUS_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, " ") }))}
               onToggle={toggleMultiValue}
@@ -91,6 +98,7 @@ export function AdvancedFilters({
             <MultiSelectGroup
               label="Source"
               paramKey="source"
+              notParamKey="notSource"
               params={params}
               options={sourceOptions.map((o) => ({ value: o.name, label: o.name }))}
               onToggle={toggleMultiValue}
@@ -99,6 +107,7 @@ export function AdvancedFilters({
             <MultiSelectGroup
               label="Tags"
               paramKey="tag"
+              notParamKey="notTag"
               params={params}
               options={availableTags.map((t) => ({ value: t.name, label: t.name }))}
               onToggle={toggleMultiValue}
@@ -107,6 +116,7 @@ export function AdvancedFilters({
             <MultiSelectGroup
               label="Work authorization"
               paramKey="workAuth"
+              notParamKey="notWorkAuth"
               params={params}
               options={WORK_AUTH_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, " ") }))}
               onToggle={toggleMultiValue}
@@ -114,6 +124,7 @@ export function AdvancedFilters({
             <MultiSelectGroup
               label="Seniority"
               paramKey="seniority"
+              notParamKey="notSeniority"
               params={params}
               options={seniorityOptions.map((o) => ({ value: o.name, label: o.name }))}
               onToggle={toggleMultiValue}
@@ -122,6 +133,7 @@ export function AdvancedFilters({
             <MultiSelectGroup
               label="Remote preference"
               paramKey="remotePref"
+              notParamKey="notRemotePref"
               params={params}
               options={REMOTE_PREF_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, " ") }))}
               onToggle={toggleMultiValue}
@@ -129,12 +141,24 @@ export function AdvancedFilters({
             <MultiSelectGroup
               label="Employment type"
               paramKey="employmentType"
+              notParamKey="notEmploymentType"
               params={params}
               options={EMPLOYMENT_TYPE_OPTIONS.map((v) => ({
                 value: v,
                 label: v.replace(/_/g, " "),
               }))}
               onToggle={toggleMultiValue}
+            />
+            <MultiSelectGroup
+              label="Lists"
+              paramKey="inLists"
+              notParamKey="notInLists"
+              params={params}
+              options={listOptions.map((l) => ({ value: l.id, label: l.name }))}
+              onToggle={toggleMultiValue}
+              emptyMessage="No lists yet."
+              includeLabel="On"
+              excludeLabel="Not on"
             />
             <RangeGroup
               label="Years experience"
@@ -150,6 +174,14 @@ export function AdvancedFilters({
               params={params}
               step={1000}
               onChange={setParam}
+            />
+            <PresenceGroup params={params} onChange={setParam} />
+            <ComplianceGroup params={params} onChange={setParam} />
+            <PipelineExcludeGroup
+              params={params}
+              onChange={setParam}
+              jobOptions={jobOptions}
+              sequenceOptions={sequenceOptions}
             />
             <BooleanGroup params={params} onChange={setParam} />
           </div>
@@ -174,24 +206,70 @@ export function AdvancedFilters({
 function MultiSelectGroup({
   label,
   paramKey,
+  notParamKey,
   params,
   options,
   onToggle,
   emptyMessage,
+  includeLabel = "Is",
+  excludeLabel = "Is not",
 }: {
   label: string;
   paramKey: string;
+  /** Mirror param for exclusion. When set, an Is/Is-not toggle is shown and
+   *  checkboxes write to whichever mode is active. */
+  notParamKey?: string;
   params: URLSearchParams;
   options: { value: string; label: string }[];
   onToggle: (key: string, value: string) => void;
   emptyMessage?: string;
+  includeLabel?: string;
+  excludeLabel?: string;
 }) {
-  const selected = new Set(parseMultiValue(params.get(paramKey)));
+  // Mode is "exclude" if the exclusion param has any value AND the include
+  // param doesn't — so reopening the panel reflects how it was last used.
+  const includeSel = new Set(parseMultiValue(params.get(paramKey)));
+  const excludeSel = notParamKey ? new Set(parseMultiValue(params.get(notParamKey))) : new Set<string>();
+  const initialMode: "include" | "exclude" =
+    notParamKey && excludeSel.size > 0 && includeSel.size === 0 ? "exclude" : "include";
+  const [mode, setMode] = useState<"include" | "exclude">(initialMode);
+
+  const activeKey = mode === "exclude" && notParamKey ? notParamKey : paramKey;
+  const selected = mode === "exclude" && notParamKey ? excludeSel : includeSel;
+
   return (
     <fieldset>
-      <legend className="text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1.5">
-        {label}
-      </legend>
+      <div className="flex items-center justify-between mb-1.5">
+        <legend className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          {label}
+        </legend>
+        {notParamKey && (
+          <div className="inline-flex rounded-md border border-zinc-300 dark:border-zinc-700 overflow-hidden text-[10px]">
+            <button
+              type="button"
+              onClick={() => setMode("include")}
+              className={`px-1.5 py-0.5 ${
+                mode === "include"
+                  ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                  : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              }`}
+            >
+              {includeLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("exclude")}
+              className={`px-1.5 py-0.5 ${
+                mode === "exclude"
+                  ? "bg-red-600 text-white dark:bg-red-500"
+                  : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              }`}
+            >
+              {excludeLabel}
+            </button>
+          </div>
+        )}
+      </div>
       {options.length === 0 ? (
         <p className="text-xs text-zinc-400">{emptyMessage ?? "—"}</p>
       ) : (
@@ -204,8 +282,10 @@ function MultiSelectGroup({
               <input
                 type="checkbox"
                 checked={selected.has(opt.value)}
-                onChange={() => onToggle(paramKey, opt.value)}
-                className="rounded border-zinc-300 dark:border-zinc-700"
+                onChange={() => onToggle(activeKey, opt.value)}
+                className={`rounded border-zinc-300 dark:border-zinc-700 ${
+                  mode === "exclude" ? "accent-red-600" : ""
+                }`}
               />
               <span>{opt.label}</span>
             </label>
@@ -257,6 +337,153 @@ function RangeGroup({
           className="w-24 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5"
         />
       </div>
+    </fieldset>
+  );
+}
+
+// Tri-state presence control: Any / Has / Missing.
+function PresenceRow({
+  label,
+  paramKey,
+  params,
+  onChange,
+}: {
+  label: string;
+  paramKey: string;
+  params: URLSearchParams;
+  onChange: (key: string, value: string | null) => void;
+}) {
+  const val = params.get(paramKey); // "true" | "false" | null
+  return (
+    <div className="flex items-center justify-between gap-2 text-xs text-zinc-700 dark:text-zinc-300">
+      <span>{label}</span>
+      <div className="inline-flex rounded-md border border-zinc-300 dark:border-zinc-700 overflow-hidden text-[10px]">
+        {([
+          ["Any", null],
+          ["Has", "true"],
+          ["Missing", "false"],
+        ] as const).map(([lbl, v]) => (
+          <button
+            key={lbl}
+            type="button"
+            onClick={() => onChange(paramKey, v)}
+            className={`px-1.5 py-0.5 ${
+              (val ?? null) === v
+                ? v === "false"
+                  ? "bg-red-600 text-white dark:bg-red-500"
+                  : "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            }`}
+          >
+            {lbl}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PresenceGroup({
+  params,
+  onChange,
+}: {
+  params: URLSearchParams;
+  onChange: (key: string, value: string | null) => void;
+}) {
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1.5">
+        Has / missing
+      </legend>
+      <PresenceRow label="Email" paramKey="hasEmail" params={params} onChange={onChange} />
+      <PresenceRow label="Phone" paramKey="hasPhone" params={params} onChange={onChange} />
+      <PresenceRow label="LinkedIn" paramKey="hasLinkedin" params={params} onChange={onChange} />
+    </fieldset>
+  );
+}
+
+function ComplianceGroup({
+  params,
+  onChange,
+}: {
+  params: URLSearchParams;
+  onChange: (key: string, value: string | null) => void;
+}) {
+  const items: { key: string; label: string }[] = [
+    { key: "exDoNotContact", label: "Exclude Do Not Contact" },
+    { key: "exUnsubscribed", label: "Exclude unsubscribed" },
+    { key: "exBlacklisted", label: "Exclude blacklisted" },
+    { key: "exPlaced", label: "Exclude placed" },
+  ];
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1.5">
+        Compliance
+      </legend>
+      {items.map((it) => (
+        <label
+          key={it.key}
+          className="flex items-center gap-2 text-xs cursor-pointer text-zinc-700 dark:text-zinc-300"
+        >
+          <input
+            type="checkbox"
+            checked={params.get(it.key) === "true"}
+            onChange={(e) => onChange(it.key, e.target.checked ? "true" : null)}
+            className="rounded border-zinc-300 dark:border-zinc-700 accent-red-600"
+          />
+          <span>{it.label}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+function PipelineExcludeGroup({
+  params,
+  onChange,
+  jobOptions,
+  sequenceOptions,
+}: {
+  params: URLSearchParams;
+  onChange: (key: string, value: string | null) => void;
+  jobOptions: { id: string; title: string }[];
+  sequenceOptions: { id: string; name: string }[];
+}) {
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1.5">
+        Exclude from pipeline
+      </legend>
+      <label className="block text-xs text-zinc-700 dark:text-zinc-300">
+        <span className="block mb-1">Not already on job</span>
+        <select
+          value={params.get("notOnJob") ?? ""}
+          onChange={(e) => onChange("notOnJob", e.target.value || null)}
+          className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5"
+        >
+          <option value="">— Any —</option>
+          {jobOptions.map((j) => (
+            <option key={j.id} value={j.id}>
+              {j.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block text-xs text-zinc-700 dark:text-zinc-300">
+        <span className="block mb-1">Not already in sequence</span>
+        <select
+          value={params.get("notInSequence") ?? ""}
+          onChange={(e) => onChange("notInSequence", e.target.value || null)}
+          className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5"
+        >
+          <option value="">— Any —</option>
+          {sequenceOptions.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </label>
     </fieldset>
   );
 }

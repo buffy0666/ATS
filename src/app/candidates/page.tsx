@@ -93,7 +93,7 @@ export default async function CandidatesPage({
     }
   }
 
-  const [candidates, totalCount, availableTags, savedSearches, sourceOptions, seniorityOptions] =
+  const [candidates, totalCount, availableTags, savedSearches, sourceOptions, seniorityOptions, listOptions, jobOptions, sequenceOptions] =
     await Promise.all([
       prisma.candidate.findMany({
         where,
@@ -129,6 +129,27 @@ export default async function CandidatesPage({
       loadSavedSearches(session.user.id, orgId),
       loadChoiceOptions(CHOICE_FIELDS.candidateSource.key, orgId),
       loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
+      // Option lists for the include/exclude pickers.
+      prisma.candidateList.findMany({
+        where: {
+          organizationId: orgId,
+          OR: [{ ownerId: session.user.id }, { scope: "SHARED" }],
+        },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+      prisma.job.findMany({
+        where: { organizationId: orgId },
+        orderBy: { title: "asc" },
+        select: { id: true, title: true },
+        take: 500,
+      }),
+      prisma.sequence.findMany({
+        where: { organizationId: orgId, status: "ACTIVE" },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+        take: 500,
+      }),
     ]);
 
   // If we ran FTS, re-sort by relevance order (the IDs come back ranked from
@@ -202,6 +223,9 @@ export default async function CandidatesPage({
       currentUserId={session.user.id}
       sourceOptions={sourceOptions.map((o) => ({ id: o.id, name: o.name }))}
       seniorityOptions={seniorityOptions.map((o) => ({ id: o.id, name: o.name }))}
+      listOptions={listOptions}
+      jobOptions={jobOptions}
+      sequenceOptions={sequenceOptions}
       totalCount={totalCount}
       page={page}
       pageSize={pageSize}

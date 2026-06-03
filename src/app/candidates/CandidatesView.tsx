@@ -85,6 +85,9 @@ export function CandidatesView({
   listId,
   sourceOptions = [],
   seniorityOptions = [],
+  listOptions = [],
+  jobOptions = [],
+  sequenceOptions = [],
   originOverride,
   totalCount,
   page,
@@ -98,6 +101,9 @@ export function CandidatesView({
   listId?: string;
   sourceOptions?: ChoiceOption[];
   seniorityOptions?: ChoiceOption[];
+  listOptions?: { id: string; name: string }[];
+  jobOptions?: { id: string; title: string }[];
+  sequenceOptions?: { id: string; name: string }[];
   /**
    * Override the "back to" target for the candidate-detail Prev/Next cursor.
    * Pass this from views that embed CandidatesView in a non-default context
@@ -469,6 +475,9 @@ export function CandidatesView({
           availableTags={availableTags}
           sourceOptions={sourceOptions}
           seniorityOptions={seniorityOptions}
+          listOptions={listOptions}
+          jobOptions={jobOptions}
+          sequenceOptions={sequenceOptions}
         />
       </div>
 

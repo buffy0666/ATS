@@ -21,6 +21,29 @@ export const ADVANCED_FILTER_KEYS = [
   "hasResume",
   "lastContactedDays",
   "addedDays",
+  // Exclusion ("is not") mirrors of the multi-selects.
+  "notStatus",
+  "notSource",
+  "notTag",
+  "notWorkAuth",
+  "notSeniority",
+  "notRemotePref",
+  "notEmploymentType",
+  // List membership include / exclude.
+  "inLists",
+  "notInLists",
+  // Presence.
+  "hasEmail",
+  "hasPhone",
+  "hasLinkedin",
+  // Compliance one-click excludes.
+  "exDoNotContact",
+  "exUnsubscribed",
+  "exBlacklisted",
+  "exPlaced",
+  // Pipeline excludes.
+  "notOnJob",
+  "notInSequence",
 ] as const;
 
 export type AdvancedFilterKey = (typeof ADVANCED_FILTER_KEYS)[number];
@@ -33,6 +56,15 @@ export const MULTI_SELECT_KEYS = new Set<AdvancedFilterKey>([
   "seniority",
   "remotePref",
   "employmentType",
+  "notStatus",
+  "notSource",
+  "notTag",
+  "notWorkAuth",
+  "notSeniority",
+  "notRemotePref",
+  "notEmploymentType",
+  "inLists",
+  "notInLists",
 ]);
 
 export function parseMultiValue(raw: string | undefined | null): string[] {
