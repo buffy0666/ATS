@@ -252,15 +252,21 @@ export async function listsVisibleToCurrentUser(): Promise<
 
 export async function createListForBulk(
   name: string,
+  description?: string,
 ): Promise<{ id: string; name: string } | { error: string }> {
   const { session, orgId } = await requireSessionWithOrg();
   const trimmed = name.trim();
   if (!trimmed) return { error: "Name is required." };
   if (trimmed.length > 120) return { error: "Name is too long (max 120 chars)." };
+  const trimmedDescription = description?.trim() ?? "";
+  if (trimmedDescription.length > 2000) {
+    return { error: "Description is too long (max 2000 chars)." };
+  }
 
   const list = await prisma.candidateList.create({
     data: {
       name: trimmed,
+      description: trimmedDescription || null,
       ownerId: session.user.id,
       scope: "PERSONAL",
       organizationId: orgId,

@@ -612,6 +612,7 @@ function AddToListModal({
   const [mode, setMode] = useState<"existing" | "new">("existing");
   const [selectedListId, setSelectedListId] = useState("");
   const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -628,7 +629,7 @@ function AddToListModal({
     startTransition(async () => {
       let targetId = selectedListId;
       if (mode === "new") {
-        const created = await createListForBulk(newName);
+        const created = await createListForBulk(newName, newDescription);
         if ("error" in created) {
           setError(created.error);
           return;
@@ -695,8 +696,18 @@ function AddToListModal({
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="e.g. Active Engineering"
+                maxLength={120}
                 className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
                 autoFocus
+              />
+              <label className="mb-1 mt-3 block text-sm font-medium">Description</label>
+              <textarea
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                rows={2}
+                maxLength={2000}
+                placeholder="What this list is for (optional)…"
+                className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
               />
               <p className="mt-1 text-xs text-zinc-500">Creates a personal list owned by you.</p>
             </div>
