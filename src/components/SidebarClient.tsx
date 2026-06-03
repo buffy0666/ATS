@@ -16,6 +16,9 @@ const PRIMARY_ITEMS: NavItem[] = [
   { href: "/lists", label: "Lists" },
   { href: "/sequences", label: "Sequences" },
   { href: "/knowledge", label: "Knowledge Base" },
+  { href: "/knowledge?category=SOP", label: "SOPs" },
+  { href: "/knowledge?category=Sales+Content", label: "Sales Content" },
+  { href: "/knowledge?category=Marketing+Content", label: "Marketing Content" },
   { href: "/templates", label: "Templates" },
 ];
 

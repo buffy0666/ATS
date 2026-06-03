@@ -1,14 +1,39 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
-import { isAdminOrAbove } from "@/lib/auth-utils";
+import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
+import { prisma } from "@/lib/prisma";
 import { KnowledgeForm } from "../KnowledgeForm";
+import { KNOWLEDGE_CATEGORIES } from "../constants";
 
-export default async function NewKnowledgeItemPage() {
+export default async function NewKnowledgeItemPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ clientId?: string; category?: string }>;
+}) {
   const session = await auth();
   if (!session?.user) redirect("/login");
+  const { orgId } = await requireSessionWithOrg();
+  const sp = await searchParams;
 
   const isAdmin = isAdminOrAbove(session.user.role);
+
+  const clients = await prisma.client.findMany({
+    where: { organizationId: orgId },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
+  // When launched from a client's page (?clientId=…), lock the form to that
+  // client. Otherwise the form shows a client picker ("No client" included).
+  const lockedClient = sp.clientId
+    ? clients.find((c) => c.id === sp.clientId) ?? null
+    : null;
+
+  const defaultCategory =
+    sp.category && (KNOWLEDGE_CATEGORIES as readonly string[]).includes(sp.category)
+      ? sp.category
+      : undefined;
 
   return (
     <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-10">
@@ -18,7 +43,12 @@ export default async function NewKnowledgeItemPage() {
       <h1 className="mt-1 text-2xl font-semibold mb-6">Add knowledge item</h1>
 
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
-        <KnowledgeForm isAdmin={isAdmin} />
+        <KnowledgeForm
+          isAdmin={isAdmin}
+          clients={clients}
+          lockedClient={lockedClient}
+          defaultCategory={defaultCategory}
+        />
       </div>
     </main>
   );

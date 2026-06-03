@@ -723,6 +723,7 @@ model Client {
   contacts ClientContact[]
   jobs     Job[]
   tags     Tag[]
+  knowledgeItems KnowledgeItem[]
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -995,12 +996,18 @@ model KnowledgeItem {
 
   attachments KnowledgeAttachment[]
 
+  // Optional client this knowledge item belongs to. Auto-set when created
+  // from a client's page; chosen (or left as "No client") in the global KB.
+  clientId String?
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@index([createdById])
   @@index([organizationId])
+  @@index([clientId])
 }
 
 // Files attached to a KnowledgeItem. Many per item — mirrors the

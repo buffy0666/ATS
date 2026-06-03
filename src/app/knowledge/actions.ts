@@ -52,6 +52,12 @@ const inputSchema = z.object({
     .optional()
     .or(z.literal(""))
     .transform((v) => v || null),
+  // Optional client association ("" = No client).
+  clientId: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => v || null),
   status: z.nativeEnum(KnowledgeStatus).optional().default(KnowledgeStatus.UNDER_REVIEW),
 });
 
@@ -89,12 +95,23 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
     category: formData.get("category"),
     url: formData.get("url"),
     content: formData.get("content"),
+    clientId: formData.get("clientId"),
     status: formData.get("status") || KnowledgeStatus.UNDER_REVIEW,
   });
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
   const data = parsed.data;
+
+  // Cross-tenant guard: a chosen client must belong to the caller's org.
+  let clientId = data.clientId;
+  if (clientId) {
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, organizationId: orgId },
+      select: { id: true },
+    });
+    if (!client) clientId = null;
+  }
 
   // Multiple files may be attached at once (input name="file" with `multiple`).
   // Empty placeholder File entries (size 0) are ignored.
@@ -128,6 +145,7 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
       category: data.category,
       url: finalUrl,
       content: data.content,
+      clientId,
       status,
       createdById: session.user.id,
       organizationId: orgId,

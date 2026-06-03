@@ -32,6 +32,16 @@ export default async function ClientDetailPage({
             _count: { select: { applications: true } },
           },
         },
+        knowledgeItems: {
+          orderBy: { createdAt: "desc" },
+          select: {
+            id: true,
+            name: true,
+            category: true,
+            status: true,
+            _count: { select: { attachments: true } },
+          },
+        },
       },
     }),
     prisma.user.findMany({
@@ -85,6 +95,69 @@ export default async function ClientDetailPage({
                   <span className="rounded-full bg-zinc-100 dark:bg-zinc-800 px-2 py-0.5 text-xs uppercase tracking-wide">
                     {j.status}
                   </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section>
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">
+            Knowledge for this client ({client.knowledgeItems.length})
+          </h2>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <Link
+              href={`/knowledge/new?clientId=${client.id}`}
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+            >
+              + Add item
+            </Link>
+            <Link
+              href={`/knowledge/new?clientId=${client.id}&category=SOP`}
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+            >
+              + SOP
+            </Link>
+            <Link
+              href={`/knowledge/new?clientId=${client.id}&category=${encodeURIComponent("Sales Content")}`}
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+            >
+              + Sales Content
+            </Link>
+            <Link
+              href={`/knowledge/new?clientId=${client.id}&category=${encodeURIComponent("Marketing Content")}`}
+              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+            >
+              + Marketing Content
+            </Link>
+          </div>
+        </div>
+        {client.knowledgeItems.length === 0 ? (
+          <p className="text-sm text-zinc-500">
+            No knowledge items for this client yet. Use the buttons above to add SOPs,
+            sales/marketing content, or general docs — they&apos;ll link back to the
+            knowledge base.
+          </p>
+        ) : (
+          <ul className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800">
+            {client.knowledgeItems.map((k) => (
+              <li key={k.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm">
+                <Link href={`/knowledge/${k.id}`} className="font-medium hover:underline min-w-0 truncate">
+                  {k.name}
+                </Link>
+                <div className="flex items-center gap-2 shrink-0">
+                  {k.category && (
+                    <span className="rounded-full bg-teal-100 text-teal-800 dark:bg-teal-900/40 dark:text-teal-200 px-2 py-0.5 text-[10px] font-medium">
+                      {k.category}
+                    </span>
+                  )}
+                  {k._count.attachments > 0 && (
+                    <span className="text-xs text-zinc-500 tabular-nums">
+                      {k._count.attachments} file{k._count.attachments === 1 ? "" : "s"}
+                    </span>
+                  )}
                 </div>
               </li>
             ))}

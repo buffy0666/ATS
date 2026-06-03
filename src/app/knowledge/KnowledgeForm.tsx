@@ -7,7 +7,20 @@ import { addKnowledgeItem, uploadKnowledgeImageDraft } from "./actions";
 import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_TYPES } from "./constants";
 import { RichEditor } from "@/components/rich-editor/RichEditor";
 
-export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
+export function KnowledgeForm({
+  isAdmin,
+  clients = [],
+  lockedClient = null,
+  defaultCategory,
+}: {
+  isAdmin: boolean;
+  /** Selectable clients for the global KB form. */
+  clients?: { id: string; name: string }[];
+  /** When launched from a client page, the client is fixed (shown read-only). */
+  lockedClient?: { id: string; name: string } | null;
+  /** Preselect a category (e.g. when adding a SOP from a section view). */
+  defaultCategory?: string;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +132,7 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
             id="category"
             name="category"
             required
-            defaultValue={KNOWLEDGE_CATEGORIES[0]}
+            defaultValue={defaultCategory ?? KNOWLEDGE_CATEGORIES[0]}
             className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
           >
             {KNOWLEDGE_CATEGORIES.map((c) => (
@@ -128,6 +141,34 @@ export function KnowledgeForm({ isAdmin }: { isAdmin: boolean }) {
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1" htmlFor="clientId">
+            Client
+          </label>
+          {lockedClient ? (
+            <>
+              <input type="hidden" name="clientId" value={lockedClient.id} />
+              <div className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-sm text-zinc-600 dark:text-zinc-400">
+                {lockedClient.name}
+              </div>
+            </>
+          ) : (
+            <select
+              id="clientId"
+              name="clientId"
+              defaultValue=""
+              className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
+            >
+              <option value="">— No client —</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 

@@ -13,6 +13,7 @@ export type KnowledgeRow = {
   description: string | null;
   type: string; // "document" | "link"
   category: string | null;
+  client: { id: string; name: string } | null;
   url: string;
   status: KnowledgeStatus;
   createdAt: Date;
@@ -45,10 +46,20 @@ export function KnowledgeTable({
   const [statusFilter, setStatusFilter] = useState<"ALL" | KnowledgeStatus>("ALL");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [clientFilter, setClientFilter] = useState<string>("all");
 
   // ADMIN or OWNER can approve / delete any item; recruiters can only
   // delete their own and never approve.
   const isAdmin = currentUserRole === Role.ADMIN || currentUserRole === Role.OWNER;
+
+  // Distinct clients present in the current item set, for the client filter.
+  const clientOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const it of items) if (it.client) map.set(it.client.id, it.client.name);
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [items]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -56,14 +67,19 @@ export function KnowledgeTable({
       if (statusFilter !== "ALL" && it.status !== statusFilter) return false;
       if (typeFilter !== "all" && it.type !== typeFilter) return false;
       if (categoryFilter !== "all" && it.category !== categoryFilter) return false;
+      if (clientFilter !== "all") {
+        if (clientFilter === "none" ? it.client !== null : it.client?.id !== clientFilter) {
+          return false;
+        }
+      }
       if (q) {
         const hay =
-          `${it.name} ${it.description ?? ""} ${it.createdBy?.name ?? ""} ${it.createdBy?.email ?? ""}`.toLowerCase();
+          `${it.name} ${it.description ?? ""} ${it.createdBy?.name ?? ""} ${it.createdBy?.email ?? ""} ${it.client?.name ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [items, query, statusFilter, typeFilter, categoryFilter]);
+  }, [items, query, statusFilter, typeFilter, categoryFilter, clientFilter]);
 
   function approve(itemId: string) {
     startTransition(async () => {
@@ -142,7 +158,24 @@ export function KnowledgeTable({
             </option>
           ))}
         </select>
-        {(query || statusFilter !== "ALL" || typeFilter !== "all" || categoryFilter !== "all") && (
+        <select
+          value={clientFilter}
+          onChange={(e) => setClientFilter(e.target.value)}
+          className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
+        >
+          <option value="all">All clients</option>
+          <option value="none">No client</option>
+          {clientOptions.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+        {(query ||
+          statusFilter !== "ALL" ||
+          typeFilter !== "all" ||
+          categoryFilter !== "all" ||
+          clientFilter !== "all") && (
           <button
             type="button"
             onClick={() => {
@@ -150,6 +183,7 @@ export function KnowledgeTable({
               setStatusFilter("ALL");
               setTypeFilter("all");
               setCategoryFilter("all");
+              setClientFilter("all");
             }}
             className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline"
           >
@@ -169,6 +203,7 @@ export function KnowledgeTable({
             <tr>
               <th className="px-4 py-2 font-medium">Name</th>
               <th className="px-4 py-2 font-medium">Description</th>
+              <th className="px-4 py-2 font-medium">Client</th>
               <th className="px-4 py-2 font-medium">Link / File</th>
               <th className="px-4 py-2 font-medium whitespace-nowrap">Created</th>
               <th className="px-4 py-2 font-medium">Added by</th>
@@ -179,7 +214,7 @@ export function KnowledgeTable({
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-zinc-500">
+                <td colSpan={8} className="px-4 py-8 text-center text-sm text-zinc-500">
                   {items.length === 0
                     ? "No items yet. Click \"Add new item\" to start."
                     : "No items match those filters."}
@@ -219,6 +254,18 @@ export function KnowledgeTable({
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 max-w-md">
                       {item.description ? (
                         <span className="line-clamp-2">{item.description}</span>
+                      ) : (
+                        <span className="text-zinc-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                      {item.client ? (
+                        <Link
+                          href={`/clients/${item.client.id}`}
+                          className="hover:underline"
+                        >
+                          {item.client.name}
+                        </Link>
                       ) : (
                         <span className="text-zinc-400">—</span>
                       )}
