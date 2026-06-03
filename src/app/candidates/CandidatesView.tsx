@@ -419,9 +419,15 @@ export function CandidatesView({
           {anyFilterActive ? "No candidates match these filters." : "No candidates yet."}
         </p>
       ) : (
-        <div className={`rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-x-auto ${selectedIds.size > 0 ? "pb-20" : ""}`}>
+        // Bounded scroll pane so the header can freeze: overflow-auto (both
+        // axes) makes THIS div the scroll container, so the sticky <thead>
+        // below pins to its top while rows scroll under it (and scrolls
+        // horizontally in sync with the body). max-height leaves room for the
+        // page header / filters / pagination above — tune the offset if your
+        // chrome is taller.
+        <div className={`rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-auto max-h-[calc(100vh-14rem)] ${selectedIds.size > 0 ? "pb-20" : ""}`}>
           <table className="w-full text-sm">
-            <thead className="bg-zinc-50 dark:bg-zinc-950 text-left text-xs uppercase text-zinc-500">
+            <thead className="sticky top-0 z-20 bg-zinc-50 dark:bg-zinc-950 text-left text-xs uppercase text-zinc-500">
               <tr>
                 <th className="px-3 py-2 w-9">
                   <input
