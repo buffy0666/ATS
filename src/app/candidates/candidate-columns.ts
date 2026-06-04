@@ -145,3 +145,66 @@ export const DEFAULT_COLUMNS: ColumnKey[] = [
 ];
 
 export const COLUMN_STORAGE_KEY = "ats.candidates.columns.v1";
+
+// Persisted per-column pixel widths (drag-to-resize). Keyed by ColumnKey
+// plus the "name" sentinel for the leading Name column. Separate storage
+// key from column order so the two persist independently.
+export const COLUMN_WIDTHS_STORAGE_KEY = "ats.candidates.colWidths.v1";
+
+/** Fallback width for any column without an explicit default below. */
+export const DEFAULT_COLUMN_WIDTH = 150;
+
+/** Minimum a column can be dragged down to. */
+export const MIN_COLUMN_WIDTH = 64;
+
+/**
+ * Sensible starting widths (px). "name" is the leading Name column. Anything
+ * not listed falls back to DEFAULT_COLUMN_WIDTH. Users can drag from here and
+ * their choices persist in localStorage.
+ */
+export const DEFAULT_COLUMN_WIDTHS: Partial<Record<ColumnKey | "name", number>> = {
+  name: 180,
+  email: 220,
+  phone: 140,
+  altEmail: 200,
+  altPhone: 140,
+  status: 120,
+  rating: 80,
+  tags: 200,
+  lists: 200,
+  jobs: 240,
+  applications: 110,
+  city: 130,
+  state: 110,
+  country: 120,
+  timezone: 140,
+  willingToRelocate: 110,
+  currentTitle: 200,
+  currentCompany: 190,
+  yearsExperience: 100,
+  seniority: 140,
+  workAuth: 150,
+  needsSponsorship: 120,
+  desiredSalary: 150,
+  currentSalary: 140,
+  availableFrom: 140,
+  noticeDays: 110,
+  remotePref: 150,
+  employmentTypePref: 170,
+  industries: 200,
+  specialties: 200,
+  source: 150,
+  lastContactedAt: 150,
+  nextFollowUpAt: 150,
+  linkedin: 170,
+  github: 160,
+  portfolio: 160,
+  resume: 120,
+  summary: 320,
+  createdAt: 130,
+};
+
+/** Resolve a column's default width, falling back to DEFAULT_COLUMN_WIDTH. */
+export function defaultColumnWidth(key: ColumnKey | "name"): number {
+  return DEFAULT_COLUMN_WIDTHS[key] ?? DEFAULT_COLUMN_WIDTH;
+}
