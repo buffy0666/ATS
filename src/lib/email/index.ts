@@ -74,5 +74,24 @@ export function _resetEmailProviderForTests() {
   cached = null;
 }
 
+/**
+ * Build a system `From` header for mail sent on a recruiter's behalf (the
+ * composer's fallback when they have no connected mailbox). Uses the verified
+ * sending address from EMAIL_FROM_DEFAULT, with the recruiter's name as the
+ * display name so the candidate sees "Jane Smith <noreply@…>" rather than a
+ * bare no-reply. Returns undefined if EMAIL_FROM_DEFAULT isn't set (sendEmail
+ * then surfaces the missing-from error).
+ */
+export function systemFromAddress(displayName?: string | null): string | undefined {
+  const base = process.env.EMAIL_FROM_DEFAULT;
+  if (!base) return undefined;
+  if (!displayName) return base;
+  const m = /<([^>]+)>/.exec(base);
+  const addr = (m ? m[1] : base).trim();
+  // Strip anything that could break the header; keep it a clean display name.
+  const name = displayName.replace(/["\r\n<>]/g, "").trim();
+  return name ? `${name} <${addr}>` : base;
+}
+
 export type { EmailPayload, EmailSendResult } from "./provider";
 export { EmailProviderError } from "./provider";

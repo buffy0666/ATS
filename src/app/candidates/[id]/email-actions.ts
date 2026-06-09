@@ -4,8 +4,9 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
-import { EmailProviderError } from "@/lib/email";
+import { sendEmail, systemFromAddress, EmailProviderError } from "@/lib/email";
 import { sendFromUserMailbox, MailboxNotConnectedError } from "@/lib/email/mailbox";
+import { makeReplyAddress } from "@/lib/email/inbound-token";
 
 const schema = z.object({
   subject: z.string().min(1).max(200),
@@ -57,16 +58,46 @@ export async function sendCandidateEmail(
     return { ok: false, error: "Sign in to send." };
   }
 
+  // Replies route to the inbound-capture address when configured (captured to
+  // the candidate record + forwarded back to the sender); otherwise straight
+  // to the sender's own email.
+  const replyTo = makeReplyAddress(candidate.id) ?? senderEmail ?? undefined;
+
+  let sendId: string;
+  let provider: string;
+  let fromEmail: string | null = null;
+
   try {
-    // Send from the recruiter's connected Gmail (required). Throws
-    // MailboxNotConnectedError if they haven't connected one.
-    const result = await sendFromUserMailbox(session.user.id, {
-      to: candidate.email,
-      subject,
-      text: body,
-      html,
-      replyTo: senderEmail ?? undefined,
-    });
+    try {
+      // Preferred: send from the recruiter's connected Gmail.
+      const r = await sendFromUserMailbox(session.user.id, {
+        to: candidate.email,
+        subject,
+        text: body,
+        html,
+        replyTo,
+      });
+      sendId = r.id;
+      provider = r.provider;
+      fromEmail = r.from;
+    } catch (err) {
+      if (!(err instanceof MailboxNotConnectedError)) throw err;
+      // Fallback: no connected mailbox → send via the system (Resend) so the
+      // user isn't blocked. From shows the recruiter's name over the verified
+      // system address.
+      const from = systemFromAddress(session.user.name);
+      const r = await sendEmail({
+        to: candidate.email,
+        subject,
+        text: body,
+        html,
+        replyTo,
+        from,
+      });
+      sendId = r.id;
+      provider = r.provider;
+      fromEmail = from ?? process.env.EMAIL_FROM_DEFAULT ?? null;
+    }
 
     await prisma.emailLog.create({
       data: {
@@ -74,27 +105,21 @@ export async function sendCandidateEmail(
         applicationId: applicationId ?? undefined,
         fromUserId: session.user.id,
         organizationId: orgId,
-        fromEmail: result.from,
+        fromEmail,
         to: candidate.email,
-        replyTo: senderEmail,
+        replyTo,
         subject,
         bodyText: body,
         bodyHtml: html,
-        provider: result.provider,
-        providerMessageId: result.id,
+        provider,
+        providerMessageId: sendId,
         status: "SENT",
       },
     });
 
     revalidatePath(`/candidates/${candidate.id}`);
-    return { ok: true, id: result.id, provider: result.provider };
+    return { ok: true, id: sendId, provider };
   } catch (err) {
-    if (err instanceof MailboxNotConnectedError) {
-      return {
-        ok: false,
-        error: "Connect your Gmail in Profile to send email. (Profile → Sending email)",
-      };
-    }
     const errorMessage =
       err instanceof EmailProviderError
         ? err.message
@@ -109,7 +134,7 @@ export async function sendCandidateEmail(
         fromUserId: session.user.id,
         organizationId: orgId,
         to: candidate.email,
-        replyTo: senderEmail,
+        replyTo,
         subject,
         bodyText: body,
         bodyHtml: html,

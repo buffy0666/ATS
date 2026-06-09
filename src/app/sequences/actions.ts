@@ -6,6 +6,7 @@ import { z } from "zod";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { cancelScheduledEmail, sendEmail, EmailProviderError } from "@/lib/email";
+import { makeReplyAddress } from "@/lib/email/inbound-token";
 import { renderTemplate } from "@/lib/template-renderer";
 import {
   EmailStatus,
@@ -575,7 +576,9 @@ async function scheduleStepRun(args: ScheduleArgs): Promise<void> {
       subject,
       text,
       html,
-      replyTo: args.replyTo,
+      // Route replies into the ATS (captured + forwarded) when inbound capture
+      // is configured; otherwise fall back to the enroller's email.
+      replyTo: makeReplyAddress(args.candidateId) ?? args.replyTo,
       providerMeta: scheduledFor > new Date()
         ? { scheduledAt: scheduledFor.toISOString() }
         : {},
@@ -705,7 +708,10 @@ export async function resumeEnrollment(enrollmentId: string): Promise<ActionResu
         subject,
         text,
         html,
-        replyTo: enrollment.enrolledBy?.email ?? undefined,
+        replyTo:
+          makeReplyAddress(enrollment.candidateId) ??
+          enrollment.enrolledBy?.email ??
+          undefined,
         providerMeta:
           run.scheduledFor > new Date() ? { scheduledAt: run.scheduledFor.toISOString() } : {},
       });

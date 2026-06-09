@@ -8,6 +8,12 @@ import {
 } from "@/generated/prisma";
 import { authenticateApiToken } from "@/lib/api-tokens";
 import { prisma } from "@/lib/prisma";
+import {
+  findCandidateByEmail,
+  inferExternalParty,
+  splitName,
+  sourceToProviderLabel,
+} from "@/lib/email/capture";
 
 /**
  * External email capture endpoint.
@@ -158,16 +164,7 @@ export async function POST(request: NextRequest) {
 
   // Candidate match. Scoped to this org so two tenants don't cross-link.
   let candidate = externalParty
-    ? await prisma.candidate.findFirst({
-        where: {
-          organizationId: orgId,
-          OR: [
-            { email: externalParty.email },
-            { alternateEmail: externalParty.email },
-          ],
-        },
-        select: { id: true, firstName: true, lastName: true, email: true },
-      })
+    ? await findCandidateByEmail(orgId, externalParty.email)
     : null;
 
   // One-click "Create candidate & save email": if asked and no match,
@@ -292,88 +289,6 @@ export async function POST(request: NextRequest) {
     200,
     cors,
   );
-}
-
-/**
- * Figure out the "external party" email for a thread — the address that
- * isn't on the recruiter's side. The recruiter's address shows up as
- * From: for OUTBOUND messages and as a To/Cc recipient for INBOUND ones.
- *
- * Strategy: the address that appears most often as the FROM of INBOUND
- * messages, OR as the recipient of OUTBOUND messages, is the external
- * party. In a typical thread the candidate is exactly one address.
- */
-function inferExternalParty(
-  messages: { from: string; to: string[]; cc: string[]; direction: EmailDirection; fromName?: string }[],
-): { email: string; name?: string } | null {
-  const counts = new Map<string, number>();
-  const names = new Map<string, string>();
-  for (const m of messages) {
-    if (m.direction === EmailDirection.INBOUND) {
-      counts.set(m.from, (counts.get(m.from) ?? 0) + 2);
-      if (m.fromName) names.set(m.from, m.fromName);
-    } else {
-      // OUTBOUND — the external party is one of the recipients.
-      for (const addr of [...m.to, ...m.cc]) {
-        counts.set(addr, (counts.get(addr) ?? 0) + 1);
-      }
-    }
-  }
-  let best: { email: string; count: number } | null = null;
-  for (const [email, count] of counts) {
-    if (!best || count > best.count) best = { email, count };
-  }
-  if (!best) return null;
-  return { email: best.email, name: names.get(best.email) };
-}
-
-/**
- * Best-effort split of a display name into first/last for a quick-created
- * candidate. Handles "First Last", "Last, First", a single token, or no
- * name at all (falls back to the email local-part as the first name so
- * the candidate isn't blank-named).
- */
-function splitName(
-  name: string | undefined,
-  email: string,
-): { firstName: string; lastName: string } {
-  const trimmed = (name ?? "").trim();
-  if (!trimmed) {
-    const local = email.split("@")[0] || email;
-    return { firstName: local, lastName: "" };
-  }
-  if (trimmed.includes(",")) {
-    const [last, first] = trimmed.split(",").map((s) => s.trim());
-    return { firstName: first || last || trimmed, lastName: first ? last : "" };
-  }
-  const parts = trimmed.split(/\s+/);
-  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
-  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
-}
-
-function sourceToProviderLabel(source: EmailSource): string {
-  // The `provider` field on EmailLog historically meant "which email
-  // service handled this (resend/mailgun)". For captured emails the
-  // analogous concept is which client we captured from. We pack that
-  // into provider so existing UI showing "via resend" / "via mailgun"
-  // also shows "via outlook-web" etc.
-  switch (source) {
-    case EmailSource.EXTENSION_OUTLOOK:
-      return "outlook-web";
-    case EmailSource.EXTENSION_GMAIL:
-      return "gmail-web";
-    case EmailSource.WEBHOOK:
-      return "webhook";
-    case EmailSource.OAUTH_GMAIL:
-      return "gmail-oauth";
-    case EmailSource.OAUTH_OUTLOOK:
-      return "outlook-oauth";
-    case EmailSource.MANUAL:
-      return "manual";
-    case EmailSource.COMPOSER:
-    default:
-      return "composer";
-  }
 }
 
 function json(

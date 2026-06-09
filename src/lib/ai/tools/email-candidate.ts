@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { sendEmail, EmailProviderError } from "@/lib/email";
+import { makeReplyAddress } from "@/lib/email/inbound-token";
 import { renderTemplate } from "@/lib/template-renderer";
 import { EmailStatus } from "@/generated/prisma";
 import { defineTool } from "./types";
@@ -65,7 +66,7 @@ export const emailCandidateTool = defineTool({
         subject,
         text,
         html,
-        replyTo: args.replyTo ?? sender.email,
+        replyTo: args.replyTo ?? makeReplyAddress(candidate.id) ?? sender.email,
       });
       const log = await prisma.emailLog.create({
         data: {
