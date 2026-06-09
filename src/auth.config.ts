@@ -22,6 +22,9 @@ export const authConfig = {
       // /api/webhooks/* are provider callbacks (Resend) gated by Svix
       // signature verification, not a session — middleware must not redirect.
       const isWebhook = nextUrl.pathname.startsWith("/api/webhooks");
+      // /api/inbound/* is the Resend inbound-email webhook, also gated by Svix
+      // signature verification (not a session) — middleware must not redirect.
+      const isInboundApi = nextUrl.pathname.startsWith("/api/inbound");
       // /outlook-addin/* are the static Office Add-in files (manifest.xml,
       // taskpane.html/js). Office fetches them with no ATS session, so they
       // must be public. The task pane itself authenticates to /api/external
@@ -29,7 +32,15 @@ export const authConfig = {
       // excluded by the middleware matcher; .html/.js/.xml are not, hence
       // this explicit allow.)
       const isOutlookAddin = nextUrl.pathname.startsWith("/outlook-addin");
-      if (isPublicApi || isPublicApply || isExternalApi || isInternalApi || isOutlookAddin || isWebhook)
+      if (
+        isPublicApi ||
+        isPublicApply ||
+        isExternalApi ||
+        isInternalApi ||
+        isOutlookAddin ||
+        isWebhook ||
+        isInboundApi
+      )
         return true;
       if (isOnLogin || isOnSignup || isOnInvite) {
         // Signed-in users get bounced home — no point re-signing-up.
