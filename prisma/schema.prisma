@@ -493,6 +493,7 @@ model User {
   importMappingsCreated ImportMapping[] @relation("ImportMappingCreator")
   importMappingsUpdated ImportMapping[] @relation("ImportMappingUpdater")
   candidateImportsRun   CandidateImport[] @relation("CandidateImporter")
+  mailboxConnections    MailboxConnection[]
 
   // Multi-tenant: every user belongs to exactly one Organization. Nullable
   // during the staged migration (current users get assigned to the Default
@@ -504,6 +505,29 @@ model User {
   ownedOrganization Organization? @relation("OrganizationOwner")
 
   @@index([organizationId])
+}
+
+/// A recruiter's connected sending mailbox (Phase 2 email integration).
+/// Currently Gmail only. Stores the OAuth refresh token (AES-256-GCM
+/// encrypted via lib/crypto) so the app can mint short-lived access tokens
+/// and send "on behalf of" the user, from their real address. One active
+/// connection per (user, provider).
+model MailboxConnection {
+  id                    String   @id @default(cuid())
+  userId                String
+  provider              String   // "google" (future: "microsoft")
+  email                 String   // the connected mailbox address
+  // AES-256-GCM encrypted OAuth refresh token (lib/crypto blob format).
+  refreshTokenEncrypted String
+  // Space-delimited granted scopes, for diagnostics + re-consent checks.
+  scope                 String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, provider])
+  @@index([userId])
 }
 
 /// Pending magic-link invitations. Created when either (a) a platform

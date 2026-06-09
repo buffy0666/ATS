@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
-import { sendEmail, EmailProviderError } from "@/lib/email";
+import { EmailProviderError } from "@/lib/email";
+import { sendFromUserMailbox, MailboxNotConnectedError } from "@/lib/email/mailbox";
 
 const schema = z.object({
   subject: z.string().min(1).max(200),
@@ -41,18 +42,23 @@ export async function sendCandidateEmail(
   }
 
   const senderEmail = session.user.email;
-  const senderName = session.user.name ?? session.user.email;
 
   const { subject, body, applicationId } = parsed.data;
   const html = body.replace(/\n/g, "<br>");
 
+  if (!session.user.id) {
+    return { ok: false, error: "Sign in to send." };
+  }
+
   try {
-    const result = await sendEmail({
+    // Send from the recruiter's connected Gmail (required). Throws
+    // MailboxNotConnectedError if they haven't connected one.
+    const result = await sendFromUserMailbox(session.user.id, {
       to: candidate.email,
       subject,
       text: body,
       html,
-      replyTo: senderEmail,
+      replyTo: senderEmail ?? undefined,
     });
 
     await prisma.emailLog.create({
@@ -61,6 +67,7 @@ export async function sendCandidateEmail(
         applicationId: applicationId ?? undefined,
         fromUserId: session.user.id,
         organizationId: orgId,
+        fromEmail: result.from,
         to: candidate.email,
         replyTo: senderEmail,
         subject,
@@ -75,6 +82,12 @@ export async function sendCandidateEmail(
     revalidatePath(`/candidates/${candidate.id}`);
     return { ok: true, id: result.id, provider: result.provider };
   } catch (err) {
+    if (err instanceof MailboxNotConnectedError) {
+      return {
+        ok: false,
+        error: "Connect your Gmail in Profile to send email. (Profile → Sending email)",
+      };
+    }
     const errorMessage =
       err instanceof EmailProviderError
         ? err.message

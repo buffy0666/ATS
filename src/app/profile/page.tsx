@@ -2,6 +2,8 @@ import { requireSession } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { ChangePasswordForm } from "./ChangePasswordForm";
 import { TokensTable } from "@/app/settings/api-tokens/TokensTable";
+import { MailboxSection } from "./MailboxSection";
+import { getMailboxStatus } from "@/lib/email/mailbox";
 
 export default async function ProfilePage() {
   const session = await requireSession();
@@ -24,6 +26,8 @@ export default async function ProfilePage() {
       createdAt: true,
     },
   });
+
+  const mailboxStatus = await getMailboxStatus(session.user.id ?? "");
 
   return (
     <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-10">
@@ -64,6 +68,17 @@ export default async function ProfilePage() {
           If you were given a preset password, change it here to something only you know.
         </p>
         <ChangePasswordForm />
+      </section>
+
+      <section className="mt-6 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 mb-1">
+          Sending email (Gmail)
+        </h2>
+        <p className="text-sm text-zinc-500 mb-4">
+          Connect your Gmail so emails and sequence steps you send from the ATS go
+          out from your own address. A connected mailbox is required to send.
+        </p>
+        <MailboxSection status={mailboxStatus} />
       </section>
 
       <section className="mt-6 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
