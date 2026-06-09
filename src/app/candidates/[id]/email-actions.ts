@@ -10,7 +10,14 @@ import { sendFromUserMailbox, MailboxNotConnectedError } from "@/lib/email/mailb
 const schema = z.object({
   subject: z.string().min(1).max(200),
   body: z.string().min(1).max(50000),
-  applicationId: z.string().optional().or(z.literal("")).transform((v) => v || null),
+  // Nullable because FormData.get() returns null when the field is absent
+  // (the "Link to a job" select only renders when the candidate has
+  // applications). Coerce null/"" -> null so it's truly optional.
+  applicationId: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : null)),
 });
 
 export type ComposeResult =
