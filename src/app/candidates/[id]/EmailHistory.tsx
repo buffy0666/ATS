@@ -12,6 +12,11 @@ type EmailLogRow = {
   provider: string;
   providerMessageId: string | null;
   sentAt: Date;
+  openedAt: Date | null;
+  firstClickedAt: Date | null;
+  repliedAt: Date | null;
+  bouncedAt: Date | null;
+  complainedAt: Date | null;
   fromUser: { name: string | null; email: string } | null;
   application: { job: { title: string } } | null;
 };
@@ -77,6 +82,16 @@ export function EmailHistory({ emails }: { emails: EmailLogRow[] }) {
                 <span className="text-xs text-zinc-400 group-open:rotate-180 transition-transform">▾</span>
               </div>
             </summary>
+            {/* Engagement badges (outbound only) — stamped by the Resend webhook. */}
+            {!inbound && (e.openedAt || e.firstClickedAt || e.repliedAt || e.bouncedAt || e.complainedAt) && (
+              <div className="flex flex-wrap items-center gap-1.5 px-4 pb-2">
+                {e.repliedAt && <EngBadge tone="violet">Replied</EngBadge>}
+                {e.firstClickedAt && <EngBadge tone="indigo">Clicked</EngBadge>}
+                {e.openedAt && <EngBadge tone="sky">Opened</EngBadge>}
+                {e.bouncedAt && <EngBadge tone="amber">Bounced</EngBadge>}
+                {e.complainedAt && <EngBadge tone="red">Spam</EngBadge>}
+              </div>
+            )}
             <div className="border-t border-zinc-200 dark:border-zinc-800 px-4 py-3 text-sm">
               <div className="text-xs text-zinc-500 mb-2">
                 {inbound ? (
@@ -103,5 +118,26 @@ export function EmailHistory({ emails }: { emails: EmailLogRow[] }) {
         );
       })}
     </ul>
+  );
+}
+
+function EngBadge({
+  tone,
+  children,
+}: {
+  tone: "sky" | "indigo" | "violet" | "amber" | "red";
+  children: React.ReactNode;
+}) {
+  const cls: Record<typeof tone, string> = {
+    sky: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200",
+    indigo: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200",
+    violet: "bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200",
+    amber: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
+    red: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
+  };
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${cls[tone]}`}>
+      {children}
+    </span>
   );
 }

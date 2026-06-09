@@ -1092,6 +1092,16 @@ model EmailLog {
   status            EmailStatus @default(SENT)
   errorMessage      String?
 
+  // Engagement tracking, stamped by the Resend webhook
+  // (POST /api/webhooks/resend) keyed on providerMessageId. All nullable;
+  // a non-null value means that event happened at that time. firstClickedAt
+  // records only the first click (we don't store every click).
+  openedAt      DateTime?
+  firstClickedAt DateTime?
+  repliedAt     DateTime?
+  bouncedAt     DateTime?
+  complainedAt  DateTime?
+
   // Wall-clock time the original email was sent/received (from the
   // email's own Date header, not when we ingested it). Falls back to
   // ingestion time when the source can't tell us — e.g. composer rows
@@ -1479,6 +1489,9 @@ model SequenceEnrollment {
   startedAt     DateTime         @default(now())
   pausedAt      DateTime?
   completedAt   DateTime?
+  // Why the engine auto-paused this enrollment (candidate replied, bounced,
+  // or complained). Null for manual pauses. Surfaced in the enrollments UI.
+  autoStopReason String?
 
   sequence    Sequence     @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
   candidate   Candidate    @relation(fields: [candidateId], references: [id], onDelete: Cascade)
