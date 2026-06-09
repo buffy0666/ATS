@@ -12,13 +12,28 @@ import { disconnectMyMailbox } from "./mailbox-actions";
  */
 export function MailboxSection({
   status,
+  justConnected = false,
+  errorCode = null,
 }: {
   status:
     | { connected: true; provider: string; email: string }
     | { connected: false; configured: boolean };
+  justConnected?: boolean;
+  errorCode?: string | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+
+  const banner =
+    errorCode != null ? (
+      <p className="mb-3 rounded-md border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-sm text-red-800 dark:text-red-200">
+        Couldn&apos;t connect Gmail: {friendlyError(errorCode)}
+      </p>
+    ) : justConnected ? (
+      <p className="mb-3 rounded-md border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
+        Gmail connected — you can now send from your own address.
+      </p>
+    ) : null;
 
   function disconnect() {
     if (!confirm("Disconnect Gmail? You won't be able to send until you reconnect.")) return;
@@ -30,6 +45,8 @@ export function MailboxSection({
 
   if (status.connected) {
     return (
+      <div>
+      {banner}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm">
           <span className="inline-flex items-center gap-2">
@@ -58,20 +75,25 @@ export function MailboxSection({
           </button>
         </div>
       </div>
+      </div>
     );
   }
 
   if (!status.configured) {
     return (
-      <p className="text-sm text-amber-700 dark:text-amber-400">
-        Gmail sending isn&apos;t configured for this workspace yet. An admin needs to
-        set up the Google OAuth credentials.
-      </p>
+      <div>
+        {banner}
+        <p className="text-sm text-amber-700 dark:text-amber-400">
+          Gmail sending isn&apos;t configured for this workspace yet. An admin needs to
+          set up the Google OAuth credentials.
+        </p>
+      </div>
     );
   }
 
   return (
     <div>
+      {banner}
       <a
         href="/api/auth/google/start"
         className="inline-flex items-center gap-2 rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-4 py-2 text-sm font-medium hover:opacity-90"
@@ -84,4 +106,17 @@ export function MailboxSection({
       </p>
     </div>
   );
+}
+
+function friendlyError(code: string): string {
+  switch (code) {
+    case "state_mismatch":
+      return "the security check failed (try connecting again from this page).";
+    case "not_configured":
+      return "Gmail OAuth isn't configured for this workspace yet.";
+    case "access_denied":
+      return "you declined the permission request.";
+    default:
+      return code.replace(/_/g, " ");
+  }
 }

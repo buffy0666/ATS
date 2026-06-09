@@ -7,23 +7,30 @@ import { saveGoogleConnection } from "@/lib/email/mailbox";
 /**
  * Google OAuth callback. Verifies the CSRF state cookie, exchanges the code
  * for tokens, resolves the connected address, and stores the (encrypted)
- * refresh token against the current user. Redirects back to Settings → Email.
+ * refresh token against the current user. Redirects back to the Profile page
+ * where the "Sending email (Gmail)" UI lives.
+ *
+ * Redirect base is derived from the incoming request origin (req.nextUrl)
+ * rather than an env var, so it always points at the host the user is actually
+ * on (fixes redirects landing on localhost in production).
  */
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const origin = req.nextUrl.origin;
+  const dest = (path: string) => NextResponse.redirect(new URL(path, origin));
+
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.redirect(new URL("/login", base()));
+    return dest("/login");
   }
 
-  const url = new URL(req.url);
-  const code = url.searchParams.get("code");
-  const returnedState = url.searchParams.get("state");
-  const oauthError = url.searchParams.get("error");
+  const code = req.nextUrl.searchParams.get("code");
+  const returnedState = req.nextUrl.searchParams.get("state");
+  const oauthError = req.nextUrl.searchParams.get("error");
 
   if (oauthError) {
-    return NextResponse.redirect(new URL(`/settings/email?error=${encodeURIComponent(oauthError)}`, base()));
+    return dest(`/profile?email_error=${encodeURIComponent(oauthError)}`);
   }
 
   const jar = await cookies();
@@ -31,7 +38,7 @@ export async function GET(req: NextRequest) {
   jar.delete("g_oauth_state");
 
   if (!code || !returnedState || !expectedState || returnedState !== expectedState) {
-    return NextResponse.redirect(new URL("/settings/email?error=state_mismatch", base()));
+    return dest("/profile?email_error=state_mismatch");
   }
 
   try {
@@ -42,15 +49,9 @@ export async function GET(req: NextRequest) {
       refreshToken,
       scope,
     });
-    return NextResponse.redirect(new URL("/settings/email?connected=1", base()));
+    return dest("/profile?email_connected=1");
   } catch (err) {
     const message = err instanceof Error ? err.message : "connect_failed";
-    return NextResponse.redirect(
-      new URL(`/settings/email?error=${encodeURIComponent(message)}`, base()),
-    );
+    return dest(`/profile?email_error=${encodeURIComponent(message)}`);
   }
-}
-
-function base(): string {
-  return process.env.AUTH_URL ?? "http://localhost:3000";
 }

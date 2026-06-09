@@ -5,9 +5,14 @@ import { TokensTable } from "@/app/settings/api-tokens/TokensTable";
 import { MailboxSection } from "./MailboxSection";
 import { getMailboxStatus } from "@/lib/email/mailbox";
 
-export default async function ProfilePage() {
+export default async function ProfilePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ email_connected?: string; email_error?: string }>;
+}) {
   const session = await requireSession();
   const { name, email, role } = session.user;
+  const sp = await searchParams;
 
   // Self-serve API tokens — any user (recruiter included) can mint their
   // own here for the Outlook add-in / Chrome extension. Tokens are scoped
@@ -78,7 +83,11 @@ export default async function ProfilePage() {
           Connect your Gmail so emails and sequence steps you send from the ATS go
           out from your own address. A connected mailbox is required to send.
         </p>
-        <MailboxSection status={mailboxStatus} />
+        <MailboxSection
+          status={mailboxStatus}
+          justConnected={sp.email_connected === "1"}
+          errorCode={sp.email_error ?? null}
+        />
       </section>
 
       <section className="mt-6 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6">
