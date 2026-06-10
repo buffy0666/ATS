@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { EnrollmentStatus, SequenceStatus } from "@/generated/prisma";
+import { reconcileSequenceEnrollments } from "@/lib/sequences/enrollment-status";
 import { deleteSequence, updateSequenceMeta } from "../actions";
 import { StepBuilder, type StepRow, type TemplateOption } from "./StepBuilder";
 import { DeleteSequenceButton } from "./DeleteSequenceButton";
@@ -14,6 +15,10 @@ export default async function SequenceDetailPage({
 }) {
   const { id } = await params;
   const { orgId } = await requireSessionWithOrg();
+
+  // Flip any now-finished enrollments to COMPLETED before we count "active"
+  // (no dispatcher cron, so we reconcile on read).
+  await reconcileSequenceEnrollments(id, orgId);
 
   const [sequence, templates] = await Promise.all([
     prisma.sequence.findFirst({

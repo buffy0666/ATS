@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
-import { EnrollmentStatus, StepRunStatus } from "@/generated/prisma";
+import { EnrollmentStatus, SequenceStepType } from "@/generated/prisma";
+import { describeStepRun, reconcileSequenceEnrollments } from "@/lib/sequences/enrollment-status";
 import { EnrollmentControls } from "./EnrollmentControls";
 
 const STATUS_BADGE: Record<EnrollmentStatus, string> = {
@@ -20,6 +21,17 @@ export default async function SequenceEnrollmentsPage({
   const { id } = await params;
   const { orgId } = await requireSessionWithOrg();
 
+  // Confirm the sequence is in this org before we touch its enrollments.
+  const owned = await prisma.sequence.findFirst({
+    where: { id, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!owned) notFound();
+
+  // No dispatcher cron exists, so flip any now-finished enrollments to
+  // COMPLETED on read before we render (keeps status + counts honest).
+  await reconcileSequenceEnrollments(id, orgId);
+
   const sequence = await prisma.sequence.findFirst({
     where: { id, organizationId: orgId },
     include: {
@@ -30,7 +42,13 @@ export default async function SequenceEnrollmentsPage({
           candidate: { select: { id: true, firstName: true, lastName: true, email: true } },
           stepRuns: {
             orderBy: { scheduledFor: "asc" },
-            select: { id: true, status: true, scheduledFor: true },
+            select: {
+              id: true,
+              status: true,
+              scheduledFor: true,
+              emailLogId: true,
+              step: { select: { type: true } },
+            },
           },
         },
       },
@@ -38,6 +56,8 @@ export default async function SequenceEnrollmentsPage({
   });
 
   if (!sequence) notFound();
+
+  const now = new Date();
 
   return (
     <main className="flex-1 max-w-5xl mx-auto w-full px-6 py-10">
@@ -67,13 +87,16 @@ export default async function SequenceEnrollmentsPage({
             </thead>
             <tbody>
               {sequence.enrollments.map((e) => {
-                const total = e.stepRuns.length;
-                const completed = e.stepRuns.filter(
-                  (r) => r.status === StepRunStatus.COMPLETED,
-                ).length;
-                const nextPending = e.stepRuns.find(
-                  (r) => r.status === StepRunStatus.PENDING,
-                );
+                const displays = e.stepRuns.map((r) => describeStepRun(r, now));
+                const total = displays.length;
+                const done = displays.filter((d) => d.done).length;
+
+                const nextIdx = displays.findIndex((d) => d.upcoming);
+                const nextRun = nextIdx >= 0 ? e.stepRuns[nextIdx] : null;
+                const nextLabel = nextRun
+                  ? `${stepNoun(nextRun.step.type)} · ${describeNext(nextRun.scheduledFor, now)}`
+                  : "—";
+
                 return (
                   <tr
                     key={e.id}
@@ -96,11 +119,20 @@ export default async function SequenceEnrollmentsPage({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
-                      {completed} / {total}
+                      <div>{done} / {total}</div>
+                      {displays.length > 0 && (
+                        <div className="mt-1 flex gap-1" aria-hidden>
+                          {displays.map((d, i) => (
+                            <span
+                              key={i}
+                              title={`Step ${i + 1}: ${d.label}`}
+                              className={`inline-block h-2 w-2 rounded-full ${d.color}`}
+                            />
+                          ))}
+                        </div>
+                      )}
                     </td>
-                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
-                      {nextPending ? describeNext(nextPending.scheduledFor) : "—"}
-                    </td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{nextLabel}</td>
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
                       {e.startedAt.toLocaleDateString()}
                     </td>
@@ -118,8 +150,20 @@ export default async function SequenceEnrollmentsPage({
   );
 }
 
-function describeNext(when: Date): string {
-  const now = new Date();
+function stepNoun(type: SequenceStepType): string {
+  switch (type) {
+    case SequenceStepType.EMAIL:
+      return "Email";
+    case SequenceStepType.CALL:
+      return "Call";
+    case SequenceStepType.LINKEDIN:
+      return "LinkedIn";
+    default:
+      return "Task";
+  }
+}
+
+function describeNext(when: Date, now: Date): string {
   const ms = when.getTime() - now.getTime();
   const days = Math.round(ms / (24 * 60 * 60 * 1000));
   if (ms <= 0) return "due now";
