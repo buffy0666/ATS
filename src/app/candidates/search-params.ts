@@ -21,6 +21,17 @@ export const ADVANCED_FILTER_KEYS = [
   "hasResume",
   "lastContactedDays",
   "addedDays",
+  // Negate companions for the multi-selects (e.g. status_op=exclude) and the
+  // advanced filter-builder rules (fb). These are filters too, so they count
+  // toward "is any filter active?" and get cleared with the rest.
+  "status_op",
+  "source_op",
+  "tag_op",
+  "workAuth_op",
+  "seniority_op",
+  "remotePref_op",
+  "employmentType_op",
+  "fb",
 ] as const;
 
 export type AdvancedFilterKey = (typeof ADVANCED_FILTER_KEYS)[number];
@@ -34,6 +45,22 @@ export const MULTI_SELECT_KEYS = new Set<AdvancedFilterKey>([
   "remotePref",
   "employmentType",
 ]);
+
+/**
+ * Sentinel for a multi-select's negate companion param. `<key>_op=exclude`
+ * flips that group from "match any of" to "match none of". Any other/absent
+ * value means include.
+ */
+export function negateKey(key: string): string {
+  return `${key}_op`;
+}
+
+export function isExcluded(
+  params: URLSearchParams,
+  key: string,
+): boolean {
+  return params.get(negateKey(key)) === "exclude";
+}
 
 export function parseMultiValue(raw: string | undefined | null): string[] {
   if (!raw) return [];

@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma";
 
 const saveSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  paramsString: z.string().trim().max(4000),
+  paramsString: z.string().trim().max(8000),
   scope: z.nativeEnum(SavedSearchScope).default(SavedSearchScope.PERSONAL),
 });
 

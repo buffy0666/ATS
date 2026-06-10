@@ -102,6 +102,57 @@
   cursor: not-allowed !important;
 }
 
+/*
+  Gmail variant — same shape as the LinkedIn/Outlook buttons, tinted red
+  (distinct from the LinkedIn green and Outlook amber). Declarations are
+  duplicated rather than merged so each wins on specificity alone against
+  Gmail's aggressive global resets. Draggable, so the cursor is grab.
+*/
+#ats-gmail-add-button {
+  position: fixed !important;
+  right: 24px !important;
+  bottom: 24px !important;
+  z-index: 2147483647 !important;
+  background: linear-gradient(180deg, #ea4335 0%, #c5221f 100%) !important;
+  color: #ffffff !important;
+  border: none !important;
+  border-radius: 9999px !important;
+  padding: 12px 20px !important;
+  font: 600 14px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+    sans-serif !important;
+  letter-spacing: 0.01em !important;
+  cursor: grab !important;
+  user-select: none !important;
+  touch-action: none !important;
+  box-shadow:
+    0 4px 12px rgba(197, 34, 31, 0.35),
+    0 1px 3px rgba(0, 0, 0, 0.15) !important;
+  transition:
+    box-shadow 120ms ease,
+    opacity 120ms ease !important;
+}
+
+#ats-gmail-add-button[data-dragging="1"] {
+  cursor: grabbing !important;
+  transition: none !important;
+}
+
+#ats-gmail-add-button:hover:not(:disabled):not([data-dragging="1"]) {
+  transform: translateY(-1px) !important;
+  box-shadow:
+    0 6px 16px rgba(197, 34, 31, 0.45),
+    0 2px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+#ats-gmail-add-button:active:not(:disabled) {
+  transform: translateY(0) !important;
+}
+
+#ats-gmail-add-button:disabled {
+  opacity: 0.65 !important;
+  cursor: not-allowed !important;
+}
+
 #ats-toast {
   position: fixed !important;
   right: 24px !important;

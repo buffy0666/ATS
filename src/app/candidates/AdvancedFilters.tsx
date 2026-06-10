@@ -11,6 +11,8 @@ import {
 import {
   ADVANCED_FILTER_KEYS,
   hasAnyAdvancedFilter,
+  isExcluded,
+  negateKey,
   parseMultiValue,
   serializeMultiValue,
 } from "./search-params";
@@ -57,13 +59,26 @@ export function AdvancedFilters({
     setParam(key, serializeMultiValue(updated));
   }
 
+  // Flip a multi-select between "match any of" (include) and "match none of"
+  // (exclude) by toggling its `<key>_op=exclude` companion param.
+  function toggleExclude(key: string, next: boolean) {
+    const params2 = new URLSearchParams(params.toString());
+    if (next) params2.set(negateKey(key), "exclude");
+    else params2.delete(negateKey(key));
+    pushNext(params2);
+  }
+
   function clearAll() {
     const next = new URLSearchParams(params.toString());
     for (const key of ADVANCED_FILTER_KEYS) next.delete(key);
     pushNext(next);
   }
 
-  const activeCount = ADVANCED_FILTER_KEYS.filter((k) => (params.get(k) ?? "").length > 0).length;
+  // Count only the actual filter groups — not their `_op` negate companions or
+  // the separate filter-builder param (`fb`), which live in their own panels.
+  const activeCount = ADVANCED_FILTER_KEYS.filter(
+    (k) => !k.endsWith("_op") && k !== "fb" && (params.get(k) ?? "").length > 0,
+  ).length;
 
   return (
     <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
@@ -87,6 +102,7 @@ export function AdvancedFilters({
               params={params}
               options={STATUS_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, " ") }))}
               onToggle={toggleMultiValue}
+              onToggleExclude={toggleExclude}
             />
             <MultiSelectGroup
               label="Source"
@@ -94,6 +110,7 @@ export function AdvancedFilters({
               params={params}
               options={sourceOptions.map((o) => ({ value: o.name, label: o.name }))}
               onToggle={toggleMultiValue}
+              onToggleExclude={toggleExclude}
               emptyMessage="No sources defined — add some in Settings."
             />
             <MultiSelectGroup
@@ -102,6 +119,7 @@ export function AdvancedFilters({
               params={params}
               options={availableTags.map((t) => ({ value: t.name, label: t.name }))}
               onToggle={toggleMultiValue}
+              onToggleExclude={toggleExclude}
               emptyMessage="No tags yet."
             />
             <MultiSelectGroup
@@ -110,6 +128,7 @@ export function AdvancedFilters({
               params={params}
               options={WORK_AUTH_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, " ") }))}
               onToggle={toggleMultiValue}
+              onToggleExclude={toggleExclude}
             />
             <MultiSelectGroup
               label="Seniority"
@@ -117,6 +136,7 @@ export function AdvancedFilters({
               params={params}
               options={seniorityOptions.map((o) => ({ value: o.name, label: o.name }))}
               onToggle={toggleMultiValue}
+              onToggleExclude={toggleExclude}
               emptyMessage="No seniority levels defined — add some in Settings."
             />
             <MultiSelectGroup
@@ -125,6 +145,7 @@ export function AdvancedFilters({
               params={params}
               options={REMOTE_PREF_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, " ") }))}
               onToggle={toggleMultiValue}
+              onToggleExclude={toggleExclude}
             />
             <MultiSelectGroup
               label="Employment type"
@@ -135,6 +156,7 @@ export function AdvancedFilters({
                 label: v.replace(/_/g, " "),
               }))}
               onToggle={toggleMultiValue}
+              onToggleExclude={toggleExclude}
             />
             <RangeGroup
               label="Years experience"
@@ -177,6 +199,7 @@ function MultiSelectGroup({
   params,
   options,
   onToggle,
+  onToggleExclude,
   emptyMessage,
 }: {
   label: string;
@@ -184,13 +207,37 @@ function MultiSelectGroup({
   params: URLSearchParams;
   options: { value: string; label: string }[];
   onToggle: (key: string, value: string) => void;
+  onToggleExclude?: (key: string, next: boolean) => void;
   emptyMessage?: string;
 }) {
   const selected = new Set(parseMultiValue(params.get(paramKey)));
+  const excluded = isExcluded(params, paramKey);
   return (
     <fieldset>
-      <legend className="text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1.5">
-        {label}
+      <legend className="mb-1.5 w-full">
+        <span className="flex items-center justify-between gap-2">
+          <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            {label}
+          </span>
+          {onToggleExclude && (
+            <button
+              type="button"
+              onClick={() => onToggleExclude(paramKey, !excluded)}
+              title={
+                excluded
+                  ? "Excluding the checked values — click to include instead"
+                  : "Including the checked values — click to exclude instead"
+              }
+              className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+                excluded
+                  ? "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300"
+                  : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+              }`}
+            >
+              {excluded ? "Exclude" : "Include"}
+            </button>
+          )}
+        </span>
       </legend>
       {options.length === 0 ? (
         <p className="text-xs text-zinc-400">{emptyMessage ?? "—"}</p>

@@ -10,8 +10,9 @@ import {
 import { hasSearchInput, searchCandidates } from "@/lib/candidate-search";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 import { prisma } from "@/lib/prisma";
-import { QUICK_FILTER_FIELDS } from "./candidate-columns";
+import { QUICK_FILTER_FIELDS, SORTABLE_FIELDS } from "./candidate-columns";
 import { CandidatesView, type CandidateRow } from "./CandidatesView";
+import { buildFilterBuilderClauses } from "./filter-builder";
 import type { SavedSearchEntry } from "./SavedSearchesMenu";
 import { parseMultiValue, parsePositiveInt } from "./search-params";
 
@@ -31,6 +32,19 @@ type SearchParamsShape = {
   hasResume?: string;
   lastContactedDays?: string;
   addedDays?: string;
+  // Negate companions for the multi-selects (value "exclude").
+  status_op?: string;
+  source_op?: string;
+  tag_op?: string;
+  workAuth_op?: string;
+  seniority_op?: string;
+  remotePref_op?: string;
+  employmentType_op?: string;
+  // Advanced filter-builder rules (JSON), column layout, and sort.
+  fb?: string;
+  cols?: string;
+  sort?: string;
+  dir?: string;
   page?: string;
   pageSize?: string;
 };
@@ -107,6 +121,7 @@ export default async function CandidatesPage({
           page={1}
           pageSize={pageSize}
           pageSizeOptions={[...PAGE_SIZE_OPTIONS]}
+          serverDriven
         />
       );
     }
@@ -118,11 +133,20 @@ export default async function CandidatesPage({
     }
   }
 
+  // User-chosen sort (column header click). When absent we keep the historical
+  // default. When full-text search is active, a user sort overrides relevance
+  // ranking; without one we preserve the rank order (see `ordered` below).
+  const userSortField = sp.sort
+    ? SORTABLE_FIELDS[sp.sort as keyof typeof SORTABLE_FIELDS]
+    : undefined;
+  const hasUserSort = Boolean(userSortField);
+  const orderBy = buildOrderBy(userSortField, sp.dir);
+
   const [candidates, totalCount, availableTags, savedSearches, sourceOptions, seniorityOptions] =
     await Promise.all([
       prisma.candidate.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy,
         include: {
           tags: { select: { id: true, name: true, color: true } },
           applications: {
@@ -156,13 +180,15 @@ export default async function CandidatesPage({
       loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
     ]);
 
-  // If we ran FTS, re-sort by relevance order (the IDs come back ranked from
-  // ts_rank); otherwise leave the createdAt-desc order from findMany.
-  const ordered = ftsIds
-    ? [...candidates].sort(
-        (a, b) => ftsIds!.indexOf(a.id) - ftsIds!.indexOf(b.id),
-      )
-    : candidates;
+  // If we ran FTS and the user hasn't chosen an explicit sort, re-sort by
+  // relevance order (the IDs come back ranked from ts_rank). A user sort takes
+  // precedence and is already applied by the DB `orderBy`.
+  const ordered =
+    ftsIds && !hasUserSort
+      ? [...candidates].sort(
+          (a, b) => ftsIds!.indexOf(a.id) - ftsIds!.indexOf(b.id),
+        )
+      : candidates;
 
   const rows: CandidateRow[] = ordered.map((c) => ({
     id: c.id,
@@ -231,6 +257,7 @@ export default async function CandidatesPage({
       page={page}
       pageSize={pageSize}
       pageSizeOptions={[...PAGE_SIZE_OPTIONS]}
+      serverDriven
     />
   );
 }
@@ -263,26 +290,54 @@ function buildCandidateWhere(sp: SearchParamsShape): Prisma.CandidateWhereInput 
   const where: Prisma.CandidateWhereInput = {};
   const andClauses: Prisma.CandidateWhereInput[] = [];
 
+  // Each multi-select can be inverted with `<key>_op=exclude`, turning
+  // "match any of" into "match none of" (negative filtering).
   const statuses = filterEnumValues(parseMultiValue(sp.status), CandidateStatus);
-  if (statuses.length > 0) where.status = { in: statuses };
+  if (statuses.length > 0) {
+    where.status = sp.status_op === "exclude" ? { notIn: statuses } : { in: statuses };
+  }
 
   const sources = parseMultiValue(sp.source);
-  if (sources.length > 0) where.source = { in: sources };
+  if (sources.length > 0) {
+    where.source = sp.source_op === "exclude" ? { notIn: sources } : { in: sources };
+  }
 
   const tags = parseMultiValue(sp.tag);
-  if (tags.length > 0) where.tags = { some: { name: { in: tags } } };
+  if (tags.length > 0) {
+    const tagClause = { tags: { some: { name: { in: tags } } } };
+    if (sp.tag_op === "exclude") andClauses.push({ NOT: tagClause });
+    else where.tags = tagClause.tags;
+  }
 
   const workAuths = filterEnumValues(parseMultiValue(sp.workAuth), WorkAuth);
-  if (workAuths.length > 0) where.workAuthorization = { in: workAuths };
+  if (workAuths.length > 0) {
+    where.workAuthorization =
+      sp.workAuth_op === "exclude" ? { notIn: workAuths } : { in: workAuths };
+  }
 
   const seniorities = parseMultiValue(sp.seniority);
-  if (seniorities.length > 0) where.seniority = { in: seniorities };
+  if (seniorities.length > 0) {
+    where.seniority =
+      sp.seniority_op === "exclude" ? { notIn: seniorities } : { in: seniorities };
+  }
 
   const remotes = filterEnumValues(parseMultiValue(sp.remotePref), RemotePref);
-  if (remotes.length > 0) where.remotePref = { hasSome: remotes };
+  if (remotes.length > 0) {
+    if (sp.remotePref_op === "exclude") {
+      andClauses.push({ NOT: { remotePref: { hasSome: remotes } } });
+    } else {
+      where.remotePref = { hasSome: remotes };
+    }
+  }
 
   const employments = filterEnumValues(parseMultiValue(sp.employmentType), EmploymentType);
-  if (employments.length > 0) where.employmentTypePref = { hasSome: employments };
+  if (employments.length > 0) {
+    if (sp.employmentType_op === "exclude") {
+      andClauses.push({ NOT: { employmentTypePref: { hasSome: employments } } });
+    } else {
+      where.employmentTypePref = { hasSome: employments };
+    }
+  }
 
   const yearsMin = parsePositiveInt(sp.yearsMin);
   const yearsMax = parsePositiveInt(sp.yearsMax);
@@ -337,6 +392,11 @@ function buildCandidateWhere(sp: SearchParamsShape): Prisma.CandidateWhereInput 
     andClauses.push(clause);
   }
 
+  // Advanced filter-builder rules (Field / operator / value), AND-ed in.
+  for (const clause of buildFilterBuilderClauses(sp.fb)) {
+    andClauses.push(clause);
+  }
+
   if (andClauses.length > 0) {
     where.AND = andClauses;
   }
@@ -355,15 +415,23 @@ function buildQuickColumnFilters(
     const colKey = k.slice("qcol_".length);
     const field = QUICK_FILTER_FIELDS[colKey as keyof typeof QUICK_FILTER_FIELDS];
     if (!field) continue;
+    // A leading "!" negates the quick filter ("does not contain").
+    const negate = value.startsWith("!");
+    const needle = negate ? value.slice(1).trim() : value;
+    if (!needle) continue;
     if (field === "__name__") {
-      out.push({
+      const match: Prisma.CandidateWhereInput = {
         OR: [
-          { firstName: { contains: value, mode: "insensitive" } },
-          { lastName: { contains: value, mode: "insensitive" } },
+          { firstName: { contains: needle, mode: "insensitive" } },
+          { lastName: { contains: needle, mode: "insensitive" } },
         ],
-      });
+      };
+      out.push(negate ? { NOT: match } : match);
     } else {
-      out.push({ [field]: { contains: value, mode: "insensitive" } } as Prisma.CandidateWhereInput);
+      const match = {
+        [field]: { contains: needle, mode: "insensitive" },
+      } as Prisma.CandidateWhereInput;
+      out.push(negate ? { NOT: match } : match);
     }
   }
   return out;
@@ -381,4 +449,24 @@ function daysAgo(days: number): Date {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d;
+}
+
+/**
+ * Translate the `sort`/`dir` params into a Prisma `orderBy`. `sortField` is the
+ * value looked up from SORTABLE_FIELDS (a candidate scalar, or the `__name__`
+ * sentinel that fans out across lastName + firstName). Falls back to the
+ * historical newest-first default when there's no valid sort.
+ */
+function buildOrderBy(
+  sortField: string | undefined,
+  dir: string | undefined,
+):
+  | Prisma.CandidateOrderByWithRelationInput
+  | Prisma.CandidateOrderByWithRelationInput[] {
+  if (!sortField) return { createdAt: "desc" };
+  const direction: "asc" | "desc" = dir === "desc" ? "desc" : "asc";
+  if (sortField === "__name__") {
+    return [{ lastName: direction }, { firstName: direction }];
+  }
+  return { [sortField]: direction } as Prisma.CandidateOrderByWithRelationInput;
 }

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ATS — Add Candidate from LinkedIn",
-  "description": "Adds an 'Add to ATS' button on LinkedIn profiles to capture candidates. (Outlook email capture is handled by the ATS Outlook Add-in, not this extension.)",
-  "version": "0.5.3",
+  "name": "ATS — Add Candidate & Capture Email",
+  "description": "Adds an 'Add to ATS' button on LinkedIn profiles (capture candidates) and in Gmail (capture emails onto the matching candidate). Outlook email capture is handled by the separate ATS Outlook Add-in.",
+  "version": "0.6.0",
   "action": {
     "default_title": "ATS Settings",
     "default_popup": "popup.html"
@@ -14,6 +14,7 @@
   "permissions": ["storage", "activeTab", "scripting"],
   "host_permissions": [
     "https://www.linkedin.com/*",
+    "https://mail.google.com/*",
     "http://localhost/*",
     "https://*.vercel.app/*"
   ],
@@ -21,6 +22,12 @@
     {
       "matches": ["https://www.linkedin.com/in/*"],
       "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["gmail-content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
     }

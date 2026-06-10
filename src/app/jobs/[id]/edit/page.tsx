@@ -105,6 +105,7 @@ export default async function EditJobPage({
             email: m.email ?? "",
             phone: m.phone ?? "",
             chat: m.chat ?? "",
+            comments: m.comments ?? "",
           }))}
           existingContracts={job.contracts.map((c) => ({
             id: c.id,

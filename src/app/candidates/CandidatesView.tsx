@@ -13,6 +13,7 @@ import { tagClass } from "@/lib/tag-colors";
 import { CandidateCursorTracker } from "@/components/CandidateCursorTracker";
 import { AdvancedFilters } from "./AdvancedFilters";
 import { DeleteCandidateButton } from "./DeleteCandidateButton";
+import { FilterBuilder } from "./FilterBuilder";
 import { KeywordSearchBar } from "./KeywordSearchBar";
 import { SavedSearchesMenu, type SavedSearchEntry } from "./SavedSearchesMenu";
 import {
@@ -20,6 +21,9 @@ import {
   COLUMN_STORAGE_KEY,
   DEFAULT_COLUMNS,
   QUICK_FILTER_FIELDS,
+  SORTABLE_FIELDS,
+  parseColumns,
+  serializeColumns,
   type ColumnDef,
   type ColumnKey,
 } from "./candidate-columns";
@@ -76,6 +80,10 @@ export type CandidateRow = {
   lists: { listId: string; listName: string }[];
 };
 
+// Static set of valid column keys — used to scrub unknown keys out of a
+// persisted/URL column list (renamed or removed columns).
+const KNOWN_COLUMN_KEYS = new Set(COLUMN_DEFS.map((c) => c.key));
+
 export function CandidatesView({
   candidates,
   availableTags,
@@ -89,6 +97,7 @@ export function CandidatesView({
   page,
   pageSize,
   pageSizeOptions,
+  serverDriven = false,
 }: {
   candidates: CandidateRow[];
   availableTags: Tag[];
@@ -112,10 +121,22 @@ export function CandidatesView({
   pageSize?: number;
   /** Choices for the per-page selector. */
   pageSizeOptions?: number[];
+  /**
+   * True only on the main /candidates page, where the server honors URL state.
+   * Gates sortable headers, URL-driven columns, and the filter builder so they
+   * don't become dead controls in embedded contexts (e.g. /lists/[id]).
+   */
+  serverDriven?: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [columnOrder, setColumnOrder] = useState<ColumnKey[]>([...DEFAULT_COLUMNS]);
+  // Seed columns from the URL (`cols`) when present so a saved/shared view
+  // renders correctly on first paint; otherwise start from defaults and let
+  // the mount effect apply the user's localStorage default. Mirrors the
+  // lazy-from-URL pattern used for filterValues below.
+  const [columnOrder, setColumnOrder] = useState<ColumnKey[]>(
+    () => parseColumns(searchParams?.get("cols"), KNOWN_COLUMN_KEYS) ?? [...DEFAULT_COLUMNS],
+  );
   const [hydrated, setHydrated] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -190,33 +211,47 @@ export function CandidatesView({
 
   const knownKeys = useMemo(() => new Set(COLUMN_DEFS.map((c) => c.key)), []);
 
-  // Load column choices from localStorage on mount.
+  const colsParam = searchParams?.get("cols") ?? "";
+
+  // On mount, when the URL carries no column layout, apply the user's
+  // localStorage default (client-only, hence an effect). The URL case is
+  // already handled by the lazy initializer above.
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(COLUMN_STORAGE_KEY);
-      if (raw) {
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr) && arr.every((k) => typeof k === "string")) {
-          // Filter out any column keys that no longer exist (renamed/removed),
-          // and de-dupe while preserving order.
-          const seen = new Set<string>();
-          const cleaned: ColumnKey[] = [];
-          for (const k of arr as ColumnKey[]) {
-            if (knownKeys.has(k) && !seen.has(k)) {
-              seen.add(k);
-              cleaned.push(k);
-            }
-          }
-          setColumnOrder(cleaned);
+    if (!parseColumns(colsParam, knownKeys)) {
+      try {
+        const raw = localStorage.getItem(COLUMN_STORAGE_KEY);
+        if (raw) {
+          const arr = JSON.parse(raw);
+          const fromStore = Array.isArray(arr)
+            ? parseColumns(arr.join(","), knownKeys)
+            : null;
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from localStorage on mount
+          if (fromStore) setColumnOrder(fromStore);
         }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
     setHydrated(true);
+    // Mount-only: later URL changes are handled by the sync effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [knownKeys]);
 
-  // Persist column choices.
+  // Keep columns in sync when the `cols` param changes after mount — e.g. the
+  // user loads a saved view, which navigates with a new layout.
+  useEffect(() => {
+    if (!hydrated) return;
+    const fromUrl = parseColumns(colsParam, knownKeys);
+    if (!fromUrl) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing from the URL
+    setColumnOrder((prev) =>
+      prev.length === fromUrl.length && prev.every((k, i) => k === fromUrl[i])
+        ? prev
+        : fromUrl,
+    );
+  }, [colsParam, hydrated, knownKeys]);
+
+  // Persist column choices as the personal default.
   useEffect(() => {
     if (!hydrated) return;
     try {
@@ -225,6 +260,27 @@ export function CandidatesView({
       // ignore
     }
   }, [columnOrder, hydrated]);
+
+  // Mirror the column layout into the URL (replace, not push — layout isn't a
+  // history step) so saving a view captures it and a reload restores it. Only
+  // where the server honors URL state.
+  const colsWriteRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!hydrated || !serverDriven) return;
+    const serialized = serializeColumns(columnOrder);
+    if (serialized === colsParam) return;
+    if (colsWriteRef.current) clearTimeout(colsWriteRef.current);
+    colsWriteRef.current = setTimeout(() => {
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      params.set("cols", serialized);
+      params.delete("page");
+      const qs = params.toString();
+      router.replace(qs ? `?${qs}` : "?", { scroll: false });
+    }, 300);
+    return () => {
+      if (colsWriteRef.current) clearTimeout(colsWriteRef.current);
+    };
+  }, [columnOrder, hydrated, serverDriven, colsParam, router, searchParams]);
 
   function toggleColumn(key: ColumnKey) {
     setColumnOrder((prev) =>
@@ -275,6 +331,52 @@ export function CandidatesView({
 
   function clearAllFilters() {
     router.push("/candidates", { scroll: false });
+  }
+
+  // Column sorting (server-honored). Clicking a sortable header cycles
+  // asc → desc → off. `dir` defaults to "asc" the first time a column is picked.
+  const currentSort = searchParams?.get("sort") ?? "";
+  const currentDir = searchParams?.get("dir") ?? "";
+  function cycleSort(key: string) {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (currentSort !== key) {
+      params.set("sort", key);
+      params.set("dir", "asc");
+    } else if (currentDir !== "desc") {
+      params.set("dir", "desc");
+    } else {
+      params.delete("sort");
+      params.delete("dir");
+    }
+    params.delete("page");
+    const qs = params.toString();
+    router.push(qs ? `?${qs}` : "?", { scroll: false });
+  }
+
+  function renderSortLabel(colKey: string, label: string) {
+    const sortable =
+      serverDriven &&
+      Boolean(SORTABLE_FIELDS[colKey as keyof typeof SORTABLE_FIELDS]);
+    if (!sortable) return <>{label}</>;
+    const active = currentSort === colKey;
+    const arrow = active ? (currentDir === "desc" ? "▼" : "▲") : "↕";
+    return (
+      <button
+        type="button"
+        onClick={() => cycleSort(colKey)}
+        className={`inline-flex items-center gap-1 hover:text-zinc-900 dark:hover:text-zinc-100 ${
+          active ? "text-zinc-900 dark:text-zinc-100" : ""
+        }`}
+        title="Sort by this column"
+      >
+        {label}
+        <span
+          className={`text-[9px] ${active ? "" : "text-zinc-300 dark:text-zinc-600"}`}
+        >
+          {arrow}
+        </span>
+      </button>
+    );
   }
 
   // Build the navigation cursor reflecting whatever the user currently sees.
@@ -375,12 +477,19 @@ export function CandidatesView({
         </div>
       </div>
 
-      <div className="mb-4">
+      <div className="mb-4 space-y-3">
         <AdvancedFilters
           availableTags={availableTags}
           sourceOptions={sourceOptions}
           seniorityOptions={seniorityOptions}
         />
+        {serverDriven && (
+          <FilterBuilder
+            availableTags={availableTags}
+            sourceOptions={sourceOptions}
+            seniorityOptions={seniorityOptions}
+          />
+        )}
       </div>
 
       <div className="flex items-center justify-between gap-3">
@@ -435,7 +544,9 @@ export function CandidatesView({
                     className="rounded border-zinc-300 dark:border-zinc-700"
                   />
                 </th>
-                <th className="px-4 py-2 font-medium whitespace-nowrap">Name</th>
+                <th className="px-4 py-2 font-medium whitespace-nowrap">
+                  {renderSortLabel("name", "Name")}
+                </th>
                 {activeColumns.map((c) => {
                   const isDragging = draggingKey === c.key;
                   const isDropTarget = dropTargetKey === c.key && draggingKey !== c.key;
@@ -484,7 +595,7 @@ export function CandidatesView({
                       >
                         ⋮⋮
                       </span>
-                      {c.label}
+                      {renderSortLabel(c.key, c.label)}
                     </th>
                   );
                 })}
@@ -770,6 +881,7 @@ function QuickFilterInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder="Filter…"
+      title="Type to filter (contains). Prefix with ! to exclude — e.g. !temp"
       className="w-full rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs font-normal text-zinc-700 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
       aria-label="Quick filter"
     />

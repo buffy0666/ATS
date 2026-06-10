@@ -145,3 +145,68 @@ export const DEFAULT_COLUMNS: ColumnKey[] = [
 ];
 
 export const COLUMN_STORAGE_KEY = "ats.candidates.columns.v1";
+
+/**
+ * Columns the user can sort by. Maps a ColumnKey (plus the synthetic `name`
+ * for the leading Name column) to the Candidate scalar field used in Prisma's
+ * `orderBy`. The `__name__` sentinel fans out across lastName + firstName.
+ * Only scalar columns are sortable — relation/array columns (tags, jobs,
+ * lists, industries, …) are intentionally omitted.
+ */
+export const SORTABLE_FIELDS: Partial<Record<ColumnKey | "name", string>> = {
+  name: "__name__",
+  email: "email",
+  status: "status",
+  rating: "rating",
+  city: "locationCity",
+  state: "locationState",
+  country: "locationCountry",
+  timezone: "timezone",
+  currentTitle: "currentTitle",
+  currentCompany: "currentCompany",
+  yearsExperience: "yearsExperience",
+  seniority: "seniority",
+  workAuth: "workAuthorization",
+  desiredSalary: "desiredSalaryMin",
+  currentSalary: "currentSalary",
+  availableFrom: "availableFrom",
+  noticeDays: "noticePeriodDays",
+  source: "source",
+  lastContactedAt: "lastContactedAt",
+  nextFollowUpAt: "nextFollowUpAt",
+  createdAt: "createdAt",
+};
+
+export type SortDir = "asc" | "desc";
+
+/**
+ * Serialize a column order/visibility list into the `cols` URL param value.
+ * The single ordered list encodes both which columns are visible and their
+ * left-to-right order.
+ */
+export function serializeColumns(keys: ColumnKey[]): string {
+  return keys.join(",");
+}
+
+/**
+ * Parse a `cols` URL param value back into a clean ColumnKey list: drops
+ * unknown keys (renamed/removed columns) and de-dupes while preserving order.
+ * Returns null when there's nothing usable so callers can fall back to a
+ * default (e.g. localStorage).
+ */
+export function parseColumns(
+  raw: string | null | undefined,
+  knownKeys: Set<string>,
+): ColumnKey[] | null {
+  if (!raw) return null;
+  const seen = new Set<string>();
+  const out: ColumnKey[] = [];
+  for (const part of raw.split(",")) {
+    const k = part.trim();
+    if (k && knownKeys.has(k) && !seen.has(k)) {
+      seen.add(k);
+      out.push(k as ColumnKey);
+    }
+  }
+  return out.length > 0 ? out : null;
+}
