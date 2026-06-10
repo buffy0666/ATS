@@ -10,6 +10,7 @@ import { listListsTool } from "./list-lists";
 import { getCandidateTool } from "./get-candidate";
 import { getJobTool } from "./get-job";
 import { summarizeCandidateTool } from "./summarize-candidate";
+import { recommendCandidatesForJobTool } from "./recommend-candidates-for-job";
 import { createListTool } from "./create-list";
 import { createSavedSearchTool } from "./create-saved-search";
 import { addToListTool } from "./add-to-list";
@@ -32,6 +33,7 @@ export const ALL_TOOLS: AssistantTool[] = [
   getCandidateTool,
   getJobTool,
   summarizeCandidateTool,
+  recommendCandidatesForJobTool,
   // Write (general)
   createListTool,
   createSavedSearchTool,
