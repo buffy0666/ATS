@@ -15,6 +15,7 @@ import {
 } from "@/generated/prisma";
 import { CustomFieldsForm } from "@/components/custom-fields/CustomFieldsForm";
 import { TagInput } from "@/components/TagInput";
+import { candidateStatusOptions } from "@/lib/candidate-status";
 import { type CustomFieldRow } from "@/lib/custom-fields-shared";
 import type { EducationItem, ParsedResume, WorkHistoryItem } from "@/lib/resume-parser/schema";
 
@@ -63,15 +64,6 @@ const REMOTE_PREF_LABEL: Record<RemotePref, string> = {
   REMOTE: "Remote",
 };
 
-const STATUS_LABEL: Record<CandidateStatus, string> = {
-  ACTIVE: "Active",
-  PASSIVE: "Passive",
-  PLACED: "Placed",
-  ON_HOLD: "On hold",
-  DO_NOT_CONTACT: "Do not contact",
-  ALUMNI: "Alumni",
-  BLACKLISTED: "Blacklisted",
-};
 
 export function CandidateForm({
   users,
@@ -453,9 +445,9 @@ export function CandidateForm({
       <Section title="Status & engagement">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <StaticSelect label="Status" name="status" defaultValue={CandidateStatus.ACTIVE}>
-            {(Object.keys(STATUS_LABEL) as CandidateStatus[]).map((k) => (
-              <option key={k} value={k}>
-                {STATUS_LABEL[k]}
+            {candidateStatusOptions().map((o) => (
+              <option key={o.value} value={o.value} title={o.title}>
+                {o.label}
               </option>
             ))}
           </StaticSelect>

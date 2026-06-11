@@ -20,7 +20,6 @@ import {
   type CandidateEnrollment,
 } from "./CandidateSequencesSection";
 import {
-  CandidateStatus,
   CustomFieldEntity,
   EmploymentType,
   EnrollmentStatus,
@@ -32,6 +31,12 @@ import {
   WorkAuth,
 } from "@/generated/prisma";
 import { CustomFieldsView } from "@/components/custom-fields/CustomFieldsView";
+import {
+  CANDIDATE_STATUS_BADGE,
+  CANDIDATE_STATUS_DESCRIPTION,
+  CANDIDATE_STATUS_LABEL,
+  candidateStatusOptions,
+} from "@/lib/candidate-status";
 import { loadCustomFields, loadCustomFieldValues } from "@/lib/custom-fields";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 import { tagClass } from "@/lib/tag-colors";
@@ -99,25 +104,8 @@ const SOURCE_LABEL: Record<string, string> = {
   OTHER: "Other",
 };
 
-const STATUS_LABEL: Record<CandidateStatus, string> = {
-  ACTIVE: "Active",
-  PASSIVE: "Passive",
-  PLACED: "Placed",
-  ON_HOLD: "On hold",
-  DO_NOT_CONTACT: "Do not contact",
-  ALUMNI: "Alumni",
-  BLACKLISTED: "Blacklisted",
-};
-
-const STATUS_BADGE: Record<CandidateStatus, string> = {
-  ACTIVE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
-  PASSIVE: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200",
-  PLACED: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200",
-  ON_HOLD: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-  DO_NOT_CONTACT: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
-  ALUMNI: "bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200",
-  BLACKLISTED: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
-};
+const STATUS_LABEL = CANDIDATE_STATUS_LABEL;
+const STATUS_BADGE = CANDIDATE_STATUS_BADGE;
 
 export default async function CandidateDetailPage({
   params,
@@ -270,7 +258,7 @@ export default async function CandidateDetailPage({
   const workAuthOptions = (Object.keys(WORK_AUTH_LABEL) as WorkAuth[]).map((k) => ({ value: k, label: WORK_AUTH_LABEL[k] }));
   const employmentTypeOptions = (Object.keys(EMPLOYMENT_TYPE_LABEL) as EmploymentType[]).map((k) => ({ value: k, label: EMPLOYMENT_TYPE_LABEL[k] }));
   const remoteOptions = (Object.keys(REMOTE_PREF_LABEL) as RemotePref[]).map((k) => ({ value: k, label: REMOTE_PREF_LABEL[k] }));
-  const statusOptions = (Object.keys(STATUS_LABEL) as CandidateStatus[]).map((k) => ({ value: k, label: STATUS_LABEL[k] }));
+  const statusOptions = candidateStatusOptions();
   const sourceSelectOptions = sourceOptions.map((o) => ({ value: o.name, label: SOURCE_LABEL[o.name] ?? o.name }));
   const senioritySelectOptions = seniorityOptions.map((o) => ({ value: o.name, label: SENIORITY_LABEL[o.name] ?? o.name }));
   const ratingOptions = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${"★".repeat(n)} (${n})` }));
@@ -327,6 +315,7 @@ export default async function CandidateDetailPage({
             <span className="text-sm text-zinc-500">({candidate.pronouns})</span>
           )}
           <span
+            title={CANDIDATE_STATUS_DESCRIPTION[candidate.status]}
             className={`rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wide ${STATUS_BADGE[candidate.status]}`}
           >
             {STATUS_LABEL[candidate.status]}

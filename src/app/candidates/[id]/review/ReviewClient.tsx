@@ -4,6 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { CandidateStatus, Stage } from "@/generated/prisma";
+import {
+  CANDIDATE_STATUS_BADGE,
+  CANDIDATE_STATUS_DESCRIPTION,
+  CANDIDATE_STATUS_LABEL,
+  candidateStatusOptions,
+} from "@/lib/candidate-status";
 import { tagClass } from "@/lib/tag-colors";
 import {
   addQuickNote,
@@ -33,25 +39,8 @@ const STAGE_LABEL: Record<Stage, string> = {
   REJECTED: "Rejected",
 };
 
-const STATUS_LABEL: Record<CandidateStatus, string> = {
-  ACTIVE: "Active",
-  PASSIVE: "Passive",
-  PLACED: "Placed",
-  ON_HOLD: "On hold",
-  DO_NOT_CONTACT: "Do not contact",
-  ALUMNI: "Alumni",
-  BLACKLISTED: "Blacklisted",
-};
-
-const STATUS_BADGE: Record<CandidateStatus, string> = {
-  ACTIVE: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200",
-  PASSIVE: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200",
-  PLACED: "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200",
-  ON_HOLD: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200",
-  DO_NOT_CONTACT: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
-  ALUMNI: "bg-zinc-200 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200",
-  BLACKLISTED: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
-};
+const STATUS_LABEL = CANDIDATE_STATUS_LABEL;
+const STATUS_BADGE = CANDIDATE_STATUS_BADGE;
 
 type Tag = { id: string; name: string; color: string };
 
@@ -374,14 +363,15 @@ function StatusRow({
       <select
         value={status}
         disabled={pending}
+        title={CANDIDATE_STATUS_DESCRIPTION[status]}
         onChange={(e) =>
           startTransition(() => setCandidateStatus(candidateId, e.target.value as CandidateStatus))
         }
         className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
       >
-        {Object.values(CandidateStatus).map((s) => (
-          <option key={s} value={s}>
-            {STATUS_LABEL[s]}
+        {candidateStatusOptions().map((o) => (
+          <option key={o.value} value={o.value} title={o.title}>
+            {o.label}
           </option>
         ))}
       </select>

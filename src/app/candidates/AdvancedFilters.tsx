@@ -8,6 +8,7 @@ import {
   RemotePref,
   WorkAuth,
 } from "@/generated/prisma";
+import { CANDIDATE_STATUS_LABEL } from "@/lib/candidate-status";
 import {
   ADVANCED_FILTER_KEYS,
   hasAnyAdvancedFilter,
@@ -100,7 +101,10 @@ export function AdvancedFilters({
               label="Status"
               paramKey="status"
               params={params}
-              options={STATUS_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, " ") }))}
+              options={STATUS_OPTIONS.map((v) => ({
+                value: v,
+                label: CANDIDATE_STATUS_LABEL[v] ?? v.replace(/_/g, " "),
+              }))}
               onToggle={toggleMultiValue}
               onToggleExclude={toggleExclude}
             />

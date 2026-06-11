@@ -181,6 +181,7 @@ enum CandidateSource {
 enum CandidateStatus {
   ACTIVE
   PASSIVE
+  OFF_MARKET
   PLACED
   ON_HOLD
   DO_NOT_CONTACT
