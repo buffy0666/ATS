@@ -341,6 +341,7 @@ export default async function CandidateDetailPage({
           )}
           <span className="text-sm text-zinc-500 break-all">· {candidate.email}</span>
           <CandidateTags
+            key={candidate.id}
             candidateId={candidate.id}
             tags={candidate.tags.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
             allTags={allTags}

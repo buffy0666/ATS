@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { useActionState, useEffect, useRef, useTransition } from "react";
 import { CandidateStatus, Stage } from "@/generated/prisma";
 import {
   CANDIDATE_STATUS_BADGE,
@@ -10,7 +10,7 @@ import {
   CANDIDATE_STATUS_LABEL,
   candidateStatusOptions,
 } from "@/lib/candidate-status";
-import { tagClass } from "@/lib/tag-colors";
+import { CandidateTags } from "../CandidateTags";
 import {
   addQuickNote,
   markContactedNow,
@@ -101,6 +101,7 @@ export function ReviewClient({
   prevId,
   nextId,
   fromParam,
+  allTags,
 }: {
   candidate: Candidate;
   position: number;
@@ -108,6 +109,7 @@ export function ReviewClient({
   prevId: string | null;
   nextId: string | null;
   fromParam: string;
+  allTags: Tag[];
 }) {
   const router = useRouter();
   const fromQs = fromParam ? `?from=${encodeURIComponent(fromParam)}` : "";
@@ -201,18 +203,15 @@ export function ReviewClient({
 
           <Metadata candidate={candidate} />
 
-          {candidate.tags.length > 0 && (
-            <section>
-              <SectionLabel>Tags</SectionLabel>
-              <div className="flex flex-wrap gap-1.5">
-                {candidate.tags.map((t) => (
-                  <span key={t.id} className={`rounded-full px-2 py-0.5 text-xs ${tagClass(t.color)}`}>
-                    {t.name}
-                  </span>
-                ))}
-              </div>
-            </section>
-          )}
+          <section>
+            <SectionLabel>Tags</SectionLabel>
+            <CandidateTags
+              key={candidate.id}
+              candidateId={candidate.id}
+              tags={candidate.tags}
+              allTags={allTags}
+            />
+          </section>
 
           {candidate.summary && (
             <section>

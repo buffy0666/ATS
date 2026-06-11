@@ -29,6 +29,13 @@ export function CandidateTags({
 
   const normalized = input.trim().toLowerCase();
 
+  // The dropdown is a toggle list: the candidate's own tags first (click to
+  // remove), then matching addable tags (click to add).
+  const assignedMatches = useMemo(() => {
+    if (!normalized) return current;
+    return current.filter((t) => t.name.toLowerCase().includes(normalized));
+  }, [normalized, current]);
+
   const suggestions = useMemo(() => {
     const present = new Set(current.map((t) => t.id));
     const pool = allTags.filter((t) => !present.has(t.id));
@@ -117,8 +124,28 @@ export function CandidateTags({
             placeholder="Search or create…"
             className="w-36 rounded-full border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-400"
           />
-          {(suggestions.length > 0 || canCreateNew) && (
+          {(assignedMatches.length > 0 || suggestions.length > 0 || canCreateNew) && (
             <ul className="absolute left-0 top-full z-20 mt-1 w-52 max-h-56 overflow-auto rounded-md border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg text-sm">
+              {assignedMatches.map((t) => (
+                <li key={`assigned-${t.id}`}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => remove(t)}
+                    title={`Remove tag ${t.name}`}
+                    className="group w-full text-left px-3 py-1.5 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center justify-between gap-2"
+                  >
+                    <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${tagClass(t.color)} group-hover:line-through`}>
+                      {t.name}
+                    </span>
+                    <span className="text-xs text-emerald-600 group-hover:hidden">✓ tagged</span>
+                    <span className="hidden text-xs text-red-600 group-hover:inline">× remove</span>
+                  </button>
+                </li>
+              ))}
+              {assignedMatches.length > 0 && (suggestions.length > 0 || canCreateNew) && (
+                <li aria-hidden="true" className="border-t border-zinc-200 dark:border-zinc-700" />
+              )}
               {suggestions.map((t) => (
                 <li key={t.id}>
                   <button
