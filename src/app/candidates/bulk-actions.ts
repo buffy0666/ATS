@@ -201,6 +201,46 @@ export async function addTagsToCandidates(
   };
 }
 
+/**
+ * Detach tags from many candidates at once — the inverse of
+ * addTagsToCandidates. Disconnecting a tag a candidate doesn't have is a
+ * no-op, so the action is safe to run across a mixed selection. Tags
+ * themselves are kept for reuse.
+ */
+export async function removeTagsFromCandidates(
+  candidateIds: string[],
+  tagIds: string[],
+): Promise<BulkActionResult> {
+  const { orgId } = await requireSessionWithOrg();
+  const rawIds = sanitizeIds(candidateIds);
+  const cleanTagIds = Array.from(
+    new Set(tagIds.filter((id) => typeof id === "string" && id.length > 0 && id.length < 40)),
+  );
+  if (rawIds.length === 0 || cleanTagIds.length === 0) {
+    return { ok: false, message: "Pick at least one candidate and one tag.", affected: 0 };
+  }
+
+  const ids = await filterCandidateIdsToOrg(rawIds, orgId);
+  const tagDisconnect = cleanTagIds.map((id) => ({ id }));
+
+  await prisma.$transaction(
+    ids.map((id) =>
+      prisma.candidate.update({
+        where: { id },
+        data: { tags: { disconnect: tagDisconnect } },
+      }),
+    ),
+  );
+
+  revalidatePath("/candidates");
+
+  return {
+    ok: true,
+    message: `Removed ${cleanTagIds.length} tag${cleanTagIds.length === 1 ? "" : "s"} from ${ids.length} candidate${ids.length === 1 ? "" : "s"}.`,
+    affected: ids.length,
+  };
+}
+
 export async function removeCandidatesFromList(
   candidateIds: string[],
   listId: string,

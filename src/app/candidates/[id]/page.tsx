@@ -10,6 +10,7 @@ import { MeetingsPanel } from "./MeetingsPanel";
 import { NotesSection } from "./NotesSection";
 import { CandidateJobsSection } from "./CandidateJobsSection";
 import { EditableField } from "./EditableField";
+import { CandidateTags } from "./CandidateTags";
 import { CandidateNavigator } from "./CandidateNavigator";
 import { DeleteCandidateButton } from "../DeleteCandidateButton";
 import { OutreachInsights, type ActivityItem, type OutreachInsight } from "./OutreachInsights";
@@ -39,7 +40,6 @@ import {
 } from "@/lib/candidate-status";
 import { loadCustomFields, loadCustomFieldValues } from "@/lib/custom-fields";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
-import { tagClass } from "@/lib/tag-colors";
 
 const WORK_AUTH_LABEL: Record<WorkAuth, string> = {
   US_CITIZEN: "U.S. citizen",
@@ -133,6 +133,7 @@ export default async function CandidateDetailPage({
     openJobs,
     sourceOptions,
     seniorityOptions,
+    allTags,
   ] = await Promise.all([
     // findFirst (not findUnique) so we can compose id + organizationId in
     // the where clause — prevents cross-tenant reads if someone guesses
@@ -243,6 +244,11 @@ export default async function CandidateDetailPage({
     }),
     loadChoiceOptions(CHOICE_FIELDS.candidateSource.key, orgId),
     loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
+    prisma.tag.findMany({
+      where: { organizationId: orgId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, color: true },
+    }),
   ]);
 
   if (!candidate) notFound();
@@ -334,18 +340,11 @@ export default async function CandidateDetailPage({
             </span>
           )}
           <span className="text-sm text-zinc-500 break-all">· {candidate.email}</span>
-          {candidate.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {candidate.tags.map((t) => (
-                <span
-                  key={t.id}
-                  className={`rounded-full px-2 py-0.5 text-xs ${tagClass(t.color)}`}
-                >
-                  {t.name}
-                </span>
-              ))}
-            </div>
-          )}
+          <CandidateTags
+            candidateId={candidate.id}
+            tags={candidate.tags.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
+            allTags={allTags}
+          />
         </div>
       </header>
 
