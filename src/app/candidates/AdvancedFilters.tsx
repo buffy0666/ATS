@@ -8,6 +8,7 @@ import {
   RemotePref,
   WorkAuth,
 } from "@/generated/prisma";
+import { CANDIDATE_STATUS_LABEL } from "@/lib/candidate-status";
 import {
   ADVANCED_FILTER_KEYS,
   hasAnyAdvancedFilter,
@@ -69,7 +70,11 @@ export function AdvancedFilters({
     pushNext(next);
   }
 
-  const activeCount = ADVANCED_FILTER_KEYS.filter((k) => (params.get(k) ?? "").length > 0).length;
+  // Count only the actual filter groups — not the separate filter-builder
+  // param (`fb`), which lives in its own panel.
+  const activeCount = ADVANCED_FILTER_KEYS.filter(
+    (k) => k !== "fb" && (params.get(k) ?? "").length > 0,
+  ).length;
 
   return (
     <div className="rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
@@ -92,7 +97,10 @@ export function AdvancedFilters({
               paramKey="status"
               notParamKey="notStatus"
               params={params}
-              options={STATUS_OPTIONS.map((v) => ({ value: v, label: v.replace(/_/g, " ") }))}
+              options={STATUS_OPTIONS.map((v) => ({
+                value: v,
+                label: CANDIDATE_STATUS_LABEL[v] ?? v.replace(/_/g, " "),
+              }))}
               onToggle={toggleMultiValue}
             />
             <MultiSelectGroup

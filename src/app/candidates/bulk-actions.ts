@@ -206,6 +206,46 @@ export async function addTagsToCandidates(
   };
 }
 
+/**
+ * Detach tags from many candidates at once — the inverse of
+ * addTagsToCandidates. Disconnecting a tag a candidate doesn't have is a
+ * no-op, so the action is safe to run across a mixed selection. Tags
+ * themselves are kept for reuse.
+ */
+export async function removeTagsFromCandidates(
+  candidateIds: string[],
+  tagIds: string[],
+): Promise<BulkActionResult> {
+  const { orgId } = await requireSessionWithOrg();
+  const rawIds = sanitizeIds(candidateIds);
+  const cleanTagIds = Array.from(
+    new Set(tagIds.filter((id) => typeof id === "string" && id.length > 0 && id.length < 40)),
+  );
+  if (rawIds.length === 0 || cleanTagIds.length === 0) {
+    return { ok: false, message: "Pick at least one candidate and one tag.", affected: 0 };
+  }
+
+  const ids = await filterCandidateIdsToOrg(rawIds, orgId);
+  const tagDisconnect = cleanTagIds.map((id) => ({ id }));
+
+  await prisma.$transaction(
+    ids.map((id) =>
+      prisma.candidate.update({
+        where: { id },
+        data: { tags: { disconnect: tagDisconnect } },
+      }),
+    ),
+  );
+
+  revalidatePath("/candidates");
+
+  return {
+    ok: true,
+    message: `Removed ${cleanTagIds.length} tag${cleanTagIds.length === 1 ? "" : "s"} from ${ids.length} candidate${ids.length === 1 ? "" : "s"}.`,
+    affected: ids.length,
+  };
+}
+
 export async function removeCandidatesFromList(
   candidateIds: string[],
   listId: string,
@@ -257,15 +297,21 @@ export async function listsVisibleToCurrentUser(): Promise<
 
 export async function createListForBulk(
   name: string,
+  description?: string,
 ): Promise<{ id: string; name: string } | { error: string }> {
   const { session, orgId } = await requireSessionWithOrg();
   const trimmed = name.trim();
   if (!trimmed) return { error: "Name is required." };
   if (trimmed.length > 120) return { error: "Name is too long (max 120 chars)." };
+  const trimmedDescription = description?.trim() ?? "";
+  if (trimmedDescription.length > 2000) {
+    return { error: "Description is too long (max 2000 chars)." };
+  }
 
   const list = await prisma.candidateList.create({
     data: {
       name: trimmed,
+      description: trimmedDescription || null,
       ownerId: session.user.id,
       scope: "PERSONAL",
       organizationId: orgId,

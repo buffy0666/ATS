@@ -50,6 +50,21 @@ That's it. You're ready to use it.
    - **Red toast** — error; the message tells you why (bad token, ATS unreachable, etc.).
 5. Open the candidate in the ATS. Initially you'll see the raw LinkedIn text. After ~30s, the **AI Resume** tab populates and the **Outreach personalization** section shows the AI-extracted hooks.
 
+## Capture emails from Gmail
+
+The extension also adds a red **+ Add to ATS** button on `mail.google.com` for logging email correspondence onto the matching candidate. (Outlook users: that's handled by the separate ATS Outlook Add-in, not this extension.)
+
+1. Open an email — or a whole conversation — in Gmail. Gmail auto-expands the most recent message; **expand any older messages in the thread you also want to capture** (only messages whose body is on screen get captured).
+2. Click the red **+ Add to ATS** button (bottom-right; drag to reposition).
+3. A toast confirms the result:
+   - **"Captured for Jane Smith. Click to open in ATS."** — the email(s) were logged onto the matching candidate. A `(N already on file)` note appears when some messages were already captured (deduped by message id).
+   - **"No candidate yet for jane@acme.com. Click to create one & save this email."** — no candidate matched the other party; click the toast to create the candidate from the sender and capture the email in one step.
+   - **Red toast** — error (bad token, ATS unreachable, or no email open).
+
+**How matching works:** the email's "external party" (the address that isn't yours) is matched to a candidate's email/alternate-email within your workspace. Inbound mail matches on the sender; outbound mail matches on the recipients. Direction is inferred from your signed-in Gmail address.
+
+**Note on robustness:** Gmail has no official in-page API for extensions, so this reads the open message from Gmail's DOM (anchored on Gmail's long-stable internal class names). If a future Gmail redesign moves those, capture may need a selector update — `gmail-content.js` is the single place to fix it.
+
 ## AI worker
 
 The AI passes that build the resume facsimile and the outreach hooks happen in the background, *not* during the Chrome click. You have two options for where the worker runs:
@@ -86,7 +101,8 @@ The script reads `DATABASE_URL` from `.env`, and the AI provider from the same D
 |---|---|
 | `manifest.json` | Chrome MV3 manifest — permissions, content scripts, icons |
 | `content.js` | Runs on LinkedIn pages — injects button, scrapes profile |
-| `background.js` | Service worker — handles cross-origin POST to ATS |
+| `gmail-content.js` | Runs on Gmail — injects button, reads the open email(s), captures them |
+| `background.js` | Service worker — handles cross-origin POST to ATS (candidates + emails) |
 | `styles.css` | Styles the injected button + toast |
 | `popup.html` / `popup.js` | Settings UI for the ATS URL + API token |
 | `icons/` | 16×16 / 48×48 / 128×128 extension icons |

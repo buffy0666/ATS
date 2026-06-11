@@ -181,6 +181,7 @@ enum CandidateSource {
 enum CandidateStatus {
   ACTIVE
   PASSIVE
+  OFF_MARKET
   PLACED
   ON_HOLD
   DO_NOT_CONTACT
@@ -461,6 +462,8 @@ model User {
   taskAttachments        TaskAttachment[]        @relation("TaskAttachmentUploader")
   lists                  CandidateList[]
   listMembersAdded       CandidateListMember[]   @relation("ListMemberAdder")
+  listAssignments        CandidateListAssignee[] @relation("ListAssignee")
+  listAssignmentsMade    CandidateListAssignee[] @relation("ListAssigner")
   savedSearches          SavedSearch[]
   sequencesCreated       Sequence[]              @relation("SequenceCreator")
   enrollmentsCreated     SequenceEnrollment[]    @relation("SequenceEnroller")
@@ -672,6 +675,7 @@ model Job {
   applications Application[]
   hiringManagers JobHiringManager[]
   contracts      JobContract[]
+  lists          CandidateListJob[]
 
   clientId String?
   client   Client? @relation(fields: [clientId], references: [id])
@@ -1339,8 +1343,10 @@ model CandidateList {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  owner   User                  @relation(fields: [ownerId], references: [id])
-  members CandidateListMember[]
+  owner     User                    @relation(fields: [ownerId], references: [id])
+  members   CandidateListMember[]
+  jobs      CandidateListJob[]
+  assignees CandidateListAssignee[]
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1348,6 +1354,39 @@ model CandidateList {
   @@index([ownerId])
   @@index([scope])
   @@index([organizationId])
+}
+
+// Links a list to one or more jobs (many-to-many). Informational association
+// shown on /lists and editable on the list detail page.
+model CandidateListJob {
+  id      String   @id @default(cuid())
+  listId  String
+  jobId   String
+  addedAt DateTime @default(now())
+
+  list CandidateList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  job  Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, jobId])
+  @@index([jobId])
+}
+
+// Assigns a list to one or more teammates (many-to-many). Label-only — does
+// NOT grant visibility or edit rights; the PERSONAL/SHARED scope still governs
+// access.
+model CandidateListAssignee {
+  id           String   @id @default(cuid())
+  listId       String
+  userId       String
+  assignedById String?
+  assignedAt   DateTime @default(now())
+
+  list       CandidateList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  user       User          @relation("ListAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  assignedBy User?         @relation("ListAssigner", fields: [assignedById], references: [id])
+
+  @@unique([listId, userId])
+  @@index([userId])
 }
 
 model CandidateListMember {

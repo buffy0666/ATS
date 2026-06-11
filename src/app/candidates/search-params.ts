@@ -44,6 +44,9 @@ export const ADVANCED_FILTER_KEYS = [
   // Pipeline excludes.
   "notOnJob",
   "notInSequence",
+  // Advanced filter-builder rules (JSON). A filter too, so it counts toward
+  // "is any filter active?" and gets cleared with the rest.
+  "fb",
 ] as const;
 
 export type AdvancedFilterKey = (typeof ADVANCED_FILTER_KEYS)[number];
@@ -66,6 +69,22 @@ export const MULTI_SELECT_KEYS = new Set<AdvancedFilterKey>([
   "inLists",
   "notInLists",
 ]);
+
+/**
+ * Sentinel for a multi-select's negate companion param. `<key>_op=exclude`
+ * flips that group from "match any of" to "match none of". Any other/absent
+ * value means include.
+ */
+export function negateKey(key: string): string {
+  return `${key}_op`;
+}
+
+export function isExcluded(
+  params: URLSearchParams,
+  key: string,
+): boolean {
+  return params.get(negateKey(key)) === "exclude";
+}
 
 export function parseMultiValue(raw: string | undefined | null): string[] {
   if (!raw) return [];

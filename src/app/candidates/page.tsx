@@ -6,7 +6,9 @@ import {
 import { hasSearchInput, searchCandidates } from "@/lib/candidate-search";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 import { prisma } from "@/lib/prisma";
+import { SORTABLE_FIELDS } from "./candidate-columns";
 import { CandidatesView, type CandidateRow } from "./CandidatesView";
+import { buildFilterBuilderClauses } from "./filter-builder";
 import type { SavedSearchEntry } from "./SavedSearchesMenu";
 import { buildCandidateWhere, type SearchParamsShape } from "./candidate-filter";
 
@@ -54,6 +56,16 @@ export default async function CandidatesPage({
     ...buildCandidateWhere(sp),
   };
 
+  // Advanced filter-builder rules (Field / operator / value), AND-ed in on
+  // top of the structured filters.
+  const fbClauses = buildFilterBuilderClauses(sp.fb);
+  if (fbClauses.length > 0) {
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      ...fbClauses,
+    ];
+  }
+
   // Run FTS first so we can intersect candidate IDs with the structured filters.
   // searchCandidates is org-aware: see candidate-search.ts.
   let ftsIds: string[] | null = null;
@@ -82,6 +94,7 @@ export default async function CandidatesPage({
           page={1}
           pageSize={pageSize}
           pageSizeOptions={[...PAGE_SIZE_OPTIONS]}
+          serverDriven
         />
       );
     }
@@ -93,11 +106,20 @@ export default async function CandidatesPage({
     }
   }
 
+  // User-chosen sort (column header click). When absent we keep the historical
+  // default. When full-text search is active, a user sort overrides relevance
+  // ranking; without one we preserve the rank order (see `ordered` below).
+  const userSortField = sp.sort
+    ? SORTABLE_FIELDS[sp.sort as keyof typeof SORTABLE_FIELDS]
+    : undefined;
+  const hasUserSort = Boolean(userSortField);
+  const orderBy = buildOrderBy(userSortField, sp.dir);
+
   const [candidates, totalCount, availableTags, savedSearches, sourceOptions, seniorityOptions, listOptions, jobOptions, sequenceOptions] =
     await Promise.all([
       prisma.candidate.findMany({
         where,
-        orderBy: { createdAt: "desc" },
+        orderBy,
         include: {
           tags: { select: { id: true, name: true, color: true } },
           applications: {
@@ -152,13 +174,15 @@ export default async function CandidatesPage({
       }),
     ]);
 
-  // If we ran FTS, re-sort by relevance order (the IDs come back ranked from
-  // ts_rank); otherwise leave the createdAt-desc order from findMany.
-  const ordered = ftsIds
-    ? [...candidates].sort(
-        (a, b) => ftsIds!.indexOf(a.id) - ftsIds!.indexOf(b.id),
-      )
-    : candidates;
+  // If we ran FTS and the user hasn't chosen an explicit sort, re-sort by
+  // relevance order (the IDs come back ranked from ts_rank). A user sort takes
+  // precedence and is already applied by the DB `orderBy`.
+  const ordered =
+    ftsIds && !hasUserSort
+      ? [...candidates].sort(
+          (a, b) => ftsIds!.indexOf(a.id) - ftsIds!.indexOf(b.id),
+        )
+      : candidates;
 
   const rows: CandidateRow[] = ordered.map((c) => ({
     id: c.id,
@@ -230,6 +254,7 @@ export default async function CandidatesPage({
       page={page}
       pageSize={pageSize}
       pageSizeOptions={[...PAGE_SIZE_OPTIONS]}
+      serverDriven
     />
   );
 }
@@ -256,4 +281,24 @@ async function loadSavedSearches(
     ownerName: r.owner.name,
     ownerEmail: r.owner.email,
   }));
+}
+
+/**
+ * Translate the `sort`/`dir` params into a Prisma `orderBy`. `sortField` is the
+ * value looked up from SORTABLE_FIELDS (a candidate scalar, or the `__name__`
+ * sentinel that fans out across lastName + firstName). Falls back to the
+ * historical newest-first default when there's no valid sort.
+ */
+function buildOrderBy(
+  sortField: string | undefined,
+  dir: string | undefined,
+):
+  | Prisma.CandidateOrderByWithRelationInput
+  | Prisma.CandidateOrderByWithRelationInput[] {
+  if (!sortField) return { createdAt: "desc" };
+  const direction: "asc" | "desc" = dir === "desc" ? "desc" : "asc";
+  if (sortField === "__name__") {
+    return [{ lastName: direction }, { firstName: direction }];
+  }
+  return { [sortField]: direction } as Prisma.CandidateOrderByWithRelationInput;
 }

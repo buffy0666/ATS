@@ -35,6 +35,13 @@ export default async function CandidateReviewPage({
 
   if (!candidate) notFound();
 
+  // Full org tag list for the inline tag editor's add/search dropdown.
+  const allTags = await prisma.tag.findMany({
+    where: { organizationId: orgId },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, color: true },
+  });
+
   // Recent notes — picks up both application-scoped notes and candidate-level
   // notes (those have no application attached). Org-scoped.
   const recentNotes = await prisma.note.findMany({
@@ -107,6 +114,7 @@ export default async function CandidateReviewPage({
       prevId={prevId}
       nextId={nextId}
       fromParam={fromParam}
+      allTags={allTags}
     />
   );
 }

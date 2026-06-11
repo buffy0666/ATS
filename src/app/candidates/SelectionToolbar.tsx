@@ -14,18 +14,20 @@ import {
   listsVisibleToCurrentUser,
   openJobsForBulk,
   removeCandidatesFromList,
+  removeTagsFromCandidates,
   type BulkActionResult,
 } from "./bulk-actions";
 import { BULK_EDIT_FIELDS, type BulkEditFieldDef } from "./bulk-edit-fields";
 import { enrollCandidatesInSequence } from "../sequences/actions";
 import { TagInput } from "@/components/TagInput";
+import { tagClass } from "@/lib/tag-colors";
 
 type ListOption = { id: string; name: string; scope: "PERSONAL" | "SHARED"; ownerId: string };
 type JobOption = { id: string; title: string };
 type SequenceOption = { id: string; name: string };
 type TagOption = { id: string; name: string; color: string };
 
-type ModalKind = "list" | "job" | "tag" | "sequence" | "edit" | null;
+type ModalKind = "list" | "job" | "tag" | "untag" | "sequence" | "edit" | null;
 
 export function SelectionToolbar({
   selectedIds,
@@ -118,6 +120,9 @@ export function SelectionToolbar({
         <ToolbarButton onClick={() => openModal("tag")} disabled={pending}>
           Add tag…
         </ToolbarButton>
+        <ToolbarButton onClick={() => openModal("untag")} disabled={pending}>
+          Remove tag…
+        </ToolbarButton>
         <ToolbarButton onClick={() => openModal("edit")} disabled={pending}>
           Edit fields…
         </ToolbarButton>
@@ -183,6 +188,18 @@ export function SelectionToolbar({
       )}
       {modal === "tag" && (
         <AddTagModal
+          onClose={() => setModal(null)}
+          onResult={(r) => {
+            handleResult(r, true);
+            setModal(null);
+          }}
+          selectedCount={selectedIds.length}
+          selectedIds={selectedIds}
+          availableTags={availableTags}
+        />
+      )}
+      {modal === "untag" && (
+        <RemoveTagModal
           onClose={() => setModal(null)}
           onResult={(r) => {
             handleResult(r, true);
@@ -632,6 +649,7 @@ function AddToListModal({
   const [mode, setMode] = useState<"existing" | "new">("existing");
   const [selectedListId, setSelectedListId] = useState("");
   const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -648,7 +666,7 @@ function AddToListModal({
     startTransition(async () => {
       let targetId = selectedListId;
       if (mode === "new") {
-        const created = await createListForBulk(newName);
+        const created = await createListForBulk(newName, newDescription);
         if ("error" in created) {
           setError(created.error);
           return;
@@ -715,8 +733,18 @@ function AddToListModal({
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="e.g. Active Engineering"
+                maxLength={120}
                 className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
                 autoFocus
+              />
+              <label className="mb-1 mt-3 block text-sm font-medium">Description</label>
+              <textarea
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                rows={2}
+                maxLength={2000}
+                placeholder="What this list is for (optional)…"
+                className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
               />
               <p className="mt-1 text-xs text-zinc-500">Creates a personal list owned by you.</p>
             </div>
@@ -888,6 +916,105 @@ function AddTagModal({
           </button>
         </div>
       </form>
+    </ModalShell>
+  );
+}
+
+function RemoveTagModal({
+  onClose,
+  onResult,
+  selectedCount,
+  selectedIds,
+  availableTags,
+}: {
+  onClose: () => void;
+  onResult: (r: BulkActionResult) => void;
+  selectedCount: number;
+  selectedIds: string[];
+  availableTags: TagOption[];
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+
+  const visible = query.trim()
+    ? availableTags.filter((t) => t.name.toLowerCase().includes(query.trim().toLowerCase()))
+    : availableTags;
+
+  function toggle(id: string) {
+    setChosen((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  }
+
+  function submit() {
+    setError(null);
+    if (chosen.length === 0) {
+      setError("Pick at least one tag to remove.");
+      return;
+    }
+    startTransition(async () => {
+      const r = await removeTagsFromCandidates(selectedIds, chosen);
+      onResult(r);
+    });
+  }
+
+  return (
+    <ModalShell
+      title={`Remove tags from ${selectedCount} candidate${selectedCount === 1 ? "" : "s"}`}
+      onClose={onClose}
+    >
+      <div className="space-y-4">
+        <div>
+          <label className="mb-1 block text-sm font-medium">Tags to remove</label>
+          {availableTags.length > 8 && (
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter tags…"
+              className="mb-2 w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1.5 text-sm focus:outline-none"
+            />
+          )}
+          <div className="flex max-h-48 flex-wrap gap-1.5 overflow-auto rounded-md border border-zinc-200 dark:border-zinc-800 p-2">
+            {visible.length === 0 && (
+              <p className="text-sm text-zinc-500">No tags match.</p>
+            )}
+            {visible.map((t) => {
+              const active = chosen.includes(t.id);
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => toggle(t.id)}
+                  className={`rounded-full px-2 py-0.5 text-xs transition ${tagClass(t.color)} ${
+                    active
+                      ? "ring-2 ring-red-500 line-through"
+                      : "opacity-80 hover:opacity-100"
+                  }`}
+                  title={active ? "Will be removed — click to keep" : "Click to remove this tag"}
+                >
+                  {t.name}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            Click tags to mark them for removal. Candidates that don&apos;t have a chosen tag are
+            unaffected; the tags themselves stay available for reuse.
+          </p>
+        </div>
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+        <ModalFooter
+          onClose={onClose}
+          onSubmit={submit}
+          pending={pending}
+          submitLabel={
+            chosen.length > 0
+              ? `Remove ${chosen.length} tag${chosen.length === 1 ? "" : "s"}`
+              : "Remove tags"
+          }
+        />
+      </div>
     </ModalShell>
   );
 }

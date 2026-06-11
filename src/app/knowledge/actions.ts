@@ -17,6 +17,9 @@ const ALLOWED_FILE_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "text/plain",
   "text/csv",
+  // Zip archives — browsers/OSes vary on the reported MIME type.
+  "application/zip",
+  "application/x-zip-compressed",
   // Images — screenshots, diagrams, logos, etc.
   "image/png",
   "image/jpeg",

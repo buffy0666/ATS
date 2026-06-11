@@ -255,7 +255,7 @@ export function KnowledgeForm({
         <p className="text-xs text-zinc-500 mt-1">
           {files.length > 0
             ? `${files.length} file${files.length === 1 ? "" : "s"} ready. Choose more to add to the list.`
-            : "PDF, DOC/DOCX, XLS/XLSX, CSV, TXT, or images (PNG/JPG/GIF/WebP) up to 20MB each."}{" "}
+            : "PDF, DOC/DOCX, XLS/XLSX, CSV, TXT, ZIP, or images (PNG/JPG/GIF/WebP) up to 20MB each."}{" "}
           You can also add or remove files later from the item&apos;s page.
         </p>
       </div>

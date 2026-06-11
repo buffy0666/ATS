@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateCandidateField, type FieldEditValue } from "./field-edit-actions";
 
-type Option = { value: string; label: string };
+type Option = { value: string; label: string; title?: string };
 
 export type EditableFieldType =
   | "text"
@@ -149,11 +149,12 @@ export function EditableField({
             autoFocus
             value={draftText}
             onChange={(e) => setDraftText(e.target.value)}
+            title={options.find((o) => o.value === draftText)?.title}
             className="w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950"
           >
             {!required && <option value="">— None —</option>}
             {options.map((o) => (
-              <option key={o.value} value={o.value}>
+              <option key={o.value} value={o.value} title={o.title}>
                 {o.label}
               </option>
             ))}
@@ -161,7 +162,7 @@ export function EditableField({
         ) : type === "multiselect" ? (
           <div className="flex flex-wrap gap-x-4 gap-y-1.5 py-0.5">
             {options.map((o) => (
-              <label key={o.value} className="inline-flex items-center gap-1.5 text-sm">
+              <label key={o.value} title={o.title} className="inline-flex items-center gap-1.5 text-sm">
                 <input
                   type="checkbox"
                   checked={draftList.includes(o.value)}

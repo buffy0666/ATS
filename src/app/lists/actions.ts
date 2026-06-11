@@ -19,6 +19,29 @@ const listSchema = z.object({
   scope: z.nativeEnum(ListScope).default(ListScope.PERSONAL),
 });
 
+// Keep only the submitted job ids that actually belong to this org (drops any
+// cross-tenant or stale ids). Order/dedupe-safe.
+async function validJobIds(ids: string[], orgId: string): Promise<string[]> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  const rows = await prisma.job.findMany({
+    where: { id: { in: unique }, organizationId: orgId },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
+// Same cross-tenant guard for assignees — must be active users in this org.
+async function validUserIds(ids: string[], orgId: string): Promise<string[]> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  const rows = await prisma.user.findMany({
+    where: { id: { in: unique }, organizationId: orgId, active: true },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
 export async function createList(formData: FormData) {
   const { session, orgId } = await requireSessionWithOrg();
   const data = listSchema.parse({
@@ -26,8 +49,24 @@ export async function createList(formData: FormData) {
     description: formData.get("description"),
     scope: formData.get("scope"),
   });
+  const [jobIds, assigneeIds] = await Promise.all([
+    validJobIds(formData.getAll("jobIds").map(String), orgId),
+    validUserIds(formData.getAll("assigneeIds").map(String), orgId),
+  ]);
+
   const list = await prisma.candidateList.create({
-    data: { ...data, ownerId: session.user.id, organizationId: orgId },
+    data: {
+      ...data,
+      ownerId: session.user.id,
+      organizationId: orgId,
+      jobs: { create: jobIds.map((jobId) => ({ jobId })) },
+      assignees: {
+        create: assigneeIds.map((userId) => ({
+          userId,
+          assignedById: session.user.id,
+        })),
+      },
+    },
     select: { id: true },
   });
   revalidatePath("/lists");
@@ -49,7 +88,34 @@ export async function updateList(listId: string, formData: FormData) {
     description: formData.get("description"),
     scope: formData.get("scope"),
   });
-  await prisma.candidateList.update({ where: { id: listId }, data });
+  const [jobIds, assigneeIds] = await Promise.all([
+    validJobIds(formData.getAll("jobIds").map(String), orgId),
+    validUserIds(formData.getAll("assigneeIds").map(String), orgId),
+  ]);
+
+  // Replace the job + assignee sets with whatever the form submitted (the UI
+  // sends the full current selection).
+  await prisma.$transaction(async (tx) => {
+    await tx.candidateList.update({ where: { id: listId }, data });
+    await tx.candidateListJob.deleteMany({ where: { listId } });
+    if (jobIds.length > 0) {
+      await tx.candidateListJob.createMany({
+        data: jobIds.map((jobId) => ({ listId, jobId })),
+        skipDuplicates: true,
+      });
+    }
+    await tx.candidateListAssignee.deleteMany({ where: { listId } });
+    if (assigneeIds.length > 0) {
+      await tx.candidateListAssignee.createMany({
+        data: assigneeIds.map((userId) => ({
+          listId,
+          userId,
+          assignedById: session.user.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
+  });
   revalidatePath("/lists");
   revalidatePath(`/lists/${listId}`);
 }
@@ -64,7 +130,8 @@ export async function deleteList(listId: string) {
   if (existing.ownerId !== session.user.id) {
     throw new Error("Only the owner can delete this list");
   }
-  // CandidateListMember rows cascade-delete via the relation onDelete: Cascade.
+  // CandidateListMember / CandidateListJob / CandidateListAssignee rows
+  // cascade-delete via their onDelete: Cascade relations.
   await prisma.candidateList.delete({ where: { id: listId } });
   revalidatePath("/lists");
   redirect("/lists");
