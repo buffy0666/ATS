@@ -42,6 +42,7 @@ import {
   candidateStatusOptions,
 } from "@/lib/candidate-status";
 import { loadCustomFields, loadCustomFieldValues } from "@/lib/custom-fields";
+import { RATING_DEFINITION, REJECTION_REASON_DEFINITION } from "@/lib/candidate-field-defs";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 
 const WORK_AUTH_LABEL: Record<WorkAuth, string> = {
@@ -312,8 +313,15 @@ export default async function CandidateDetailPage({
   const statusOptions = candidateStatusOptions();
   const sourceSelectOptions = sourceOptions.map((o) => ({ value: o.name, label: SOURCE_LABEL[o.name] ?? o.name }));
   const senioritySelectOptions = seniorityOptions.map((o) => ({ value: o.name, label: SENIORITY_LABEL[o.name] ?? o.name }));
-  const ratingOptions = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${"★".repeat(n)} (${n})` }));
-  const rejectionReasonSelectOptions = rejectionReasonOptions.map((o) => ({ value: o.name, label: o.name }));
+  const ratingOptions = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${"★".repeat(n)} (${n})`, title: RATING_DEFINITION[n] }));
+  const rejectionReasonSelectOptions = rejectionReasonOptions.map((o) => ({ value: o.name, label: o.name, title: REJECTION_REASON_DEFINITION[o.name] }));
+
+  // Full-definitions legends for the Rating / Status / Rejection Reason hover
+  // affordance (the ⓘ next to each label), with the candidate's current
+  // value(s) highlighted.
+  const ratingInfo = ratingOptions.map((o) => ({ label: o.label, description: o.title, active: intStr(candidate.rating) === o.value }));
+  const statusInfo = statusOptions.map((o) => ({ label: o.label, description: o.title, active: candidate.status === o.value }));
+  const rejectionInfo = rejectionReasonSelectOptions.map((o) => ({ label: o.label, description: o.title, active: candidate.rejectionReasons.includes(o.value) }));
   // Friendly labels for the seeded degree/cert-kind choices; org-custom values
   // fall through to their raw name (and the panel titleizes as a last resort).
   const DEGREE_LABEL: Record<string, string> = {
@@ -780,32 +788,39 @@ export default async function CandidateDetailPage({
           className="flex flex-col gap-4 sticky top-4 self-start"
           style={{ maxHeight: "calc(100vh - 2rem)" }}
         >
-          <div className="shrink-0 grid grid-cols-3 gap-3">
-            <EditableField
-              candidateId={candidate.id}
-              field="rating"
-              label="Rating"
-              type="select"
-              value={intStr(candidate.rating)}
-              options={ratingOptions}
-            />
-            <EditableField
-              candidateId={candidate.id}
-              field="status"
-              label="Status"
-              type="select"
-              value={candidate.status}
-              options={statusOptions}
-              required
-              display={
-                <span
-                  title={CANDIDATE_STATUS_DESCRIPTION[candidate.status]}
-                  className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[candidate.status]}`}
-                >
-                  {STATUS_LABEL[candidate.status]}
-                </span>
-              }
-            />
+          {/* Rating + Status on top; Rejection Reason spans the full width
+              beneath them. Each label carries a ⓘ hover legend of the full
+              definitions for that field. */}
+          <div className="shrink-0 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <EditableField
+                candidateId={candidate.id}
+                field="rating"
+                label="Rating"
+                type="select"
+                value={intStr(candidate.rating)}
+                options={ratingOptions}
+                info={ratingInfo}
+              />
+              <EditableField
+                candidateId={candidate.id}
+                field="status"
+                label="Status"
+                type="select"
+                value={candidate.status}
+                options={statusOptions}
+                required
+                info={statusInfo}
+                display={
+                  <span
+                    title={CANDIDATE_STATUS_DESCRIPTION[candidate.status]}
+                    className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[candidate.status]}`}
+                  >
+                    {STATUS_LABEL[candidate.status]}
+                  </span>
+                }
+              />
+            </div>
             <EditableField
               candidateId={candidate.id}
               field="rejectionReasons"
@@ -813,6 +828,7 @@ export default async function CandidateDetailPage({
               type="multiselect"
               value={candidate.rejectionReasons}
               options={rejectionReasonSelectOptions}
+              info={rejectionInfo}
             />
           </div>
 

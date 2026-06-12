@@ -5,6 +5,9 @@ import { updateCandidateField, type FieldEditValue } from "./field-edit-actions"
 
 type Option = { value: string; label: string; title?: string };
 
+/** One row in the hover-definitions legend shown via the ⓘ next to a label. */
+export type InfoItem = { label: string; description?: string; active?: boolean };
+
 export type EditableFieldType =
   | "text"
   | "email"
@@ -26,6 +29,7 @@ export function EditableField({
   options = [],
   placeholder,
   required = false,
+  info,
 }: {
   candidateId: string;
   field: string;
@@ -40,6 +44,9 @@ export function EditableField({
   options?: Option[];
   placeholder?: string;
   required?: boolean;
+  // Optional full-definitions legend. When provided, an ⓘ next to the label
+  // reveals every term + definition on hover (the active one highlighted).
+  info?: InfoItem[];
 }) {
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +106,13 @@ export function EditableField({
     setDraftList((cur) => (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]));
   }
 
+  const labelRow = (
+    <div className="flex items-center gap-1 text-xs uppercase tracking-wide text-zinc-500">
+      <span>{label}</span>
+      {info && info.length > 0 && <DefinitionsHint items={info} />}
+    </div>
+  );
+
   // ---- Display mode -------------------------------------------------------
   if (!editing) {
     return (
@@ -113,7 +127,7 @@ export function EditableField({
         title="Click to edit"
         className="group relative w-full cursor-pointer rounded-lg border border-zinc-200 bg-white p-3 text-left transition-colors hover:border-indigo-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-indigo-700"
       >
-        <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
+        {labelRow}
         <div className="mt-1 break-words text-sm">
           {display ?? renderValue(type, committed, options)}
         </div>
@@ -132,7 +146,7 @@ export function EditableField({
   // ---- Edit mode ----------------------------------------------------------
   return (
     <div className="rounded-lg border border-indigo-300 bg-white p-3 shadow-sm dark:border-indigo-700 dark:bg-zinc-900">
-      <div className="text-xs uppercase tracking-wide text-zinc-500">{label}</div>
+      {labelRow}
       <div className="mt-1.5">
         {type === "bool" ? (
           <select
@@ -252,6 +266,50 @@ function renderValue(
   }
   if (!value || typeof value !== "string") return empty;
   return value;
+}
+
+/**
+ * The ⓘ affordance next to a field label. Pure CSS hover (named group) so it
+ * works in both display and edit modes without extra state. stopPropagation
+ * on the wrapper keeps a click on the icon from opening the field editor.
+ */
+function DefinitionsHint({ items }: { items: InfoItem[] }) {
+  return (
+    <span
+      className="group/info relative inline-flex cursor-help"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <InfoIcon className="h-3.5 w-3.5 text-zinc-400 hover:text-indigo-500" />
+      <span className="sr-only">Definitions</span>
+      <div className="invisible absolute left-0 top-5 z-30 w-64 rounded-md border border-zinc-200 bg-white p-2 text-left text-xs normal-case opacity-0 shadow-lg transition-opacity group-hover/info:visible group-hover/info:opacity-100 dark:border-zinc-700 dark:bg-zinc-900">
+        <ul className="space-y-1">
+          {items.map((it) => (
+            <li
+              key={it.label}
+              className={it.active ? "rounded bg-indigo-50 px-1 dark:bg-indigo-950/40" : ""}
+            >
+              <span className="font-semibold text-zinc-700 dark:text-zinc-200">{it.label}</span>
+              {it.description && (
+                <span className="text-zinc-500 dark:text-zinc-400"> — {it.description}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </span>
+  );
+}
+
+function InfoIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden="true">
+      <path
+        fillRule="evenodd"
+        d="M8 15A7 7 0 108 1a7 7 0 000 14zm.75-9.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zM7.25 7.5a.75.75 0 011.5 0v3.25a.75.75 0 01-1.5 0V7.5z"
+        clipRule="evenodd"
+      />
+    </svg>
+  );
 }
 
 function PencilIcon({ className }: { className?: string }) {
