@@ -656,6 +656,13 @@ model AIConfig {
   /// How the stored secret is sent: "apiKey" (default) or "oauth" (Bearer token,
   /// currently only honored by the Anthropic provider). Other providers ignore it.
   authMode        String?  @default("apiKey")
+  /// OAuth auto-refresh (authMode "oauth" only). The current ACCESS token
+  /// lives in apiKeyEncrypted; these let the server mint a fresh one before
+  /// expiry. All nullable — a bare access token with no refresh token keeps
+  /// the legacy paste-and-expire behavior.
+  oauthRefreshTokenEncrypted String?
+  oauthClientId              String?
+  oauthExpiresAt             DateTime?
   timeoutMs       Int?
   updatedAt       DateTime @updatedAt
   updatedById     String?

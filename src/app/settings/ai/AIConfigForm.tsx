@@ -20,6 +20,8 @@ type Initial = {
   hasKey: boolean;
   keyPreview: string | null;
   authMode: "apiKey" | "oauth";
+  hasRefreshToken: boolean;
+  oauthClientId: string | null;
 };
 
 const PROVIDER_OPTIONS: ProviderId[] = [
@@ -53,6 +55,12 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
   // a "keep current key" placeholder. Typing anything replaces it.
   const [keyValue, setKeyValue] = useState("");
   const [keyDirty, setKeyDirty] = useState(false);
+
+  // OAuth auto-refresh credentials (Anthropic oauth mode only). Same
+  // dirty/sentinel handling as the access token.
+  const [refreshValue, setRefreshValue] = useState("");
+  const [refreshDirty, setRefreshDirty] = useState(false);
+  const [clientId, setClientId] = useState(initial.oauthClientId ?? "");
 
   // Ollama-model discovery state
   const [ollamaModels, setOllamaModels] = useState<{ name: string; size?: number }[] | null>(null);
@@ -123,6 +131,13 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
       formData.set("apiKey", KEY_UNCHANGED);
     } else {
       formData.set("apiKey", keyValue);
+    }
+    if (oauthMode) {
+      formData.set(
+        "oauthRefreshToken",
+        !refreshDirty && initial.hasRefreshToken ? KEY_UNCHANGED : refreshValue,
+      );
+      formData.set("oauthClientId", clientId);
     }
     startSaving(async () => {
       const result = await saveAIConfig(formData);
@@ -323,6 +338,65 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
             )
           )}
         </div>
+
+        {/* OAuth auto-refresh — with a refresh token stored, the server mints
+            a fresh access token whenever the pasted one expires, so OAuth mode
+            survives unattended (cron workers, background AI processing). */}
+        {oauthMode && (
+          <>
+            <div>
+              <label
+                htmlFor="oauthRefreshToken"
+                className="block text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1"
+              >
+                Refresh token <span className="text-zinc-400">(optional, recommended)</span>
+              </label>
+              <input
+                id="oauthRefreshToken"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={refreshDirty ? refreshValue : ""}
+                onChange={(e) => {
+                  setRefreshValue(e.target.value);
+                  setRefreshDirty(true);
+                }}
+                placeholder={
+                  initial.hasRefreshToken && !refreshDirty
+                    ? "Stored (leave blank to keep)"
+                    : "sk-ant-ort01-…"
+                }
+                className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm font-mono"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                Without one, the access token above expires after a few hours and AI
+                calls start failing until it&apos;s re-pasted.
+              </p>
+            </div>
+            <div>
+              <label
+                htmlFor="oauthClientId"
+                className="block text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1"
+              >
+                OAuth client ID <span className="text-zinc-400">(optional)</span>
+              </label>
+              <input
+                id="oauthClientId"
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                placeholder="Defaults to Claude Code's public client ID"
+                className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm font-mono"
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                The client the tokens were issued to. Leave blank for tokens minted by
+                Claude Code / <span className="font-mono">ant auth login</span>.
+              </p>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">

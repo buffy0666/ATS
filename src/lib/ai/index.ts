@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret } from "@/lib/crypto";
+import { oauthTokenIsStale, refreshAnthropicOAuthToken } from "./oauth";
 import { AnthropicProvider } from "./anthropic";
 import { OllamaProvider } from "./ollama";
 import { OpenAICompatibleProvider, OpenAIProvider } from "./openai";
@@ -28,7 +29,10 @@ import {
  * process. Admins invalidate after saving by passing their orgId.
  */
 
-const providerCache = new Map<string, AIProvider>();
+// Cached provider per org. `staleAt` (ms epoch) is set for OAuth-backed
+// configs so a cached provider never outlives its access token — past it,
+// the next call rebuilds (which triggers a token refresh in loadConfig).
+const providerCache = new Map<string, { provider: AIProvider; staleAt: number | null }>();
 const ENV_CACHE_KEY = "__env__";
 
 export function invalidateAIProviderCache(orgId?: string) {
@@ -56,6 +60,8 @@ export type ResolvedAIConfig = {
   apiKey?: string;
   /** How to send the secret. Only the Anthropic provider honors "oauth". */
   authMode: "apiKey" | "oauth";
+  /** When the OAuth access token expires (drives provider-cache staleness). */
+  oauthExpiresAt?: Date | null;
   timeoutMs: number;
 };
 
@@ -68,8 +74,27 @@ async function loadConfig(orgId: string | null): Promise<ResolvedAIConfig> {
 
   if (fromDb && isProviderId(fromDb.provider)) {
     const meta = PROVIDERS[fromDb.provider];
+    const authMode: "apiKey" | "oauth" = fromDb.authMode === "oauth" ? "oauth" : "apiKey";
+
     let apiKey: string | undefined;
-    if (fromDb.apiKeyEncrypted) {
+    let oauthExpiresAt = fromDb.oauthExpiresAt;
+
+    // OAuth mode with a stored refresh token: mint a fresh access token when
+    // the current one is expired or its expiry is unknown. Falls back to the
+    // stored token on refresh failure — it may still be valid.
+    if (authMode === "oauth" && oauthTokenIsStale(fromDb)) {
+      const refreshed = await refreshAnthropicOAuthToken(fromDb);
+      if (refreshed) {
+        apiKey = refreshed;
+        const latest = await prisma.aIConfig.findUnique({
+          where: { id: fromDb.id },
+          select: { oauthExpiresAt: true },
+        });
+        oauthExpiresAt = latest?.oauthExpiresAt ?? null;
+      }
+    }
+
+    if (!apiKey && fromDb.apiKeyEncrypted) {
       try {
         apiKey = decryptSecret(fromDb.apiKeyEncrypted);
       } catch {
@@ -84,7 +109,8 @@ async function loadConfig(orgId: string | null): Promise<ResolvedAIConfig> {
       model: fromDb.model,
       baseUrl: fromDb.baseUrl ?? meta.defaultBaseUrl,
       apiKey,
-      authMode: fromDb.authMode === "oauth" ? "oauth" : "apiKey",
+      authMode,
+      oauthExpiresAt,
       timeoutMs: fromDb.timeoutMs ?? envTimeout,
     };
   }
@@ -149,10 +175,18 @@ function requireModel(config: ResolvedAIConfig): string {
 async function getProvider(orgId: string | null): Promise<AIProvider> {
   const cacheKey = orgId ?? ENV_CACHE_KEY;
   const cached = providerCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached && (cached.staleAt == null || Date.now() < cached.staleAt)) {
+    return cached.provider;
+  }
   const config = await loadConfig(orgId);
   const provider = buildProvider(config);
-  providerCache.set(cacheKey, provider);
+  // OAuth-backed providers hold a Bearer token that expires — mark the cache
+  // entry stale a couple of minutes early so we rebuild (and refresh) first.
+  const staleAt =
+    config.authMode === "oauth" && config.oauthExpiresAt
+      ? config.oauthExpiresAt.getTime() - 2 * 60 * 1000
+      : null;
+  providerCache.set(cacheKey, { provider, staleAt });
   return provider;
 }
 

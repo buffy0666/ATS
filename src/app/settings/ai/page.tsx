@@ -56,6 +56,8 @@ export default async function AISettingsPage() {
           hasKey: Boolean(dbRow?.apiKeyEncrypted),
           keyPreview,
           authMode: dbRow?.authMode === "oauth" ? "oauth" : "apiKey",
+          hasRefreshToken: Boolean(dbRow?.oauthRefreshTokenEncrypted),
+          oauthClientId: dbRow?.oauthClientId ?? null,
         }}
       />
     </div>

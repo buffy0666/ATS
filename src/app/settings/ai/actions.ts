@@ -18,6 +18,10 @@ const saveSchema = z.object({
   // the Anthropic provider honors "oauth"; for everything else we coerce to
   // "apiKey" below so a stale selection can't leak through a provider switch.
   authMode: z.enum(["apiKey", "oauth"]).optional(),
+  // OAuth auto-refresh (optional). With a refresh token stored, the server
+  // mints a fresh access token whenever the pasted one expires.
+  oauthRefreshToken: z.string().max(2000).optional(), // KEY_UNCHANGED sentinel handled below
+  oauthClientId: z.string().trim().max(200).optional(),
   timeoutMs: z
     .union([z.literal(""), z.coerce.number().int().min(1000).max(600000)])
     .optional()
@@ -41,6 +45,8 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
     baseUrl: formData.get("baseUrl") ?? "",
     apiKey: formData.get("apiKey") ?? "",
     authMode: formData.get("authMode") ?? undefined,
+    oauthRefreshToken: formData.get("oauthRefreshToken") ?? "",
+    oauthClientId: formData.get("oauthClientId") ?? "",
     timeoutMs: formData.get("timeoutMs") ?? "",
   });
   if (!parsed.success) {
@@ -78,6 +84,26 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
     }
   }
 
+  // OAuth refresh-token handling mirrors the access-token sentinel: untouched
+  // field keeps the stored value; empty clears it. Outside oauth mode both
+  // refresh fields are cleared so they can't leak through a mode switch.
+  let oauthRefreshTokenEncrypted: string | null | undefined;
+  if (authMode !== "oauth") {
+    oauthRefreshTokenEncrypted = null;
+  } else if (data.oauthRefreshToken === KEY_UNCHANGED || data.oauthRefreshToken === undefined) {
+    oauthRefreshTokenEncrypted = undefined;
+  } else if (data.oauthRefreshToken === "") {
+    oauthRefreshTokenEncrypted = null;
+  } else {
+    oauthRefreshTokenEncrypted = encryptSecret(data.oauthRefreshToken);
+  }
+  const oauthClientId = authMode === "oauth" ? data.oauthClientId || null : null;
+  // A new access or refresh token means the recorded expiry no longer
+  // applies. Null = unknown, which makes the resolver refresh on first use
+  // (when a refresh token exists) and learn the real expiry.
+  const credentialsChanged =
+    apiKeyEncrypted !== undefined || oauthRefreshTokenEncrypted !== undefined;
+
   // Upsert by organizationId — each org has at most one AIConfig row.
   await prisma.aIConfig.upsert({
     where: { organizationId: orgId },
@@ -87,6 +113,9 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
       baseUrl: data.baseUrl ?? null,
       authMode,
       ...(apiKeyEncrypted !== undefined ? { apiKeyEncrypted } : {}),
+      ...(oauthRefreshTokenEncrypted !== undefined ? { oauthRefreshTokenEncrypted } : {}),
+      oauthClientId,
+      ...(credentialsChanged || authMode !== "oauth" ? { oauthExpiresAt: null } : {}),
       timeoutMs: data.timeoutMs ?? null,
     },
     create: {
@@ -96,6 +125,9 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
       baseUrl: data.baseUrl ?? null,
       authMode,
       apiKeyEncrypted: apiKeyEncrypted ?? null,
+      oauthRefreshTokenEncrypted: oauthRefreshTokenEncrypted ?? null,
+      oauthClientId,
+      oauthExpiresAt: null,
       timeoutMs: data.timeoutMs ?? null,
     },
   });
