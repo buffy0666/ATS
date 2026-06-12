@@ -174,13 +174,19 @@ export async function updateUserRole(
   // them and whether changing their role would leave the org orphaned.
   const target = await prisma.user.findFirst({
     where: { id: userId, organizationId: orgId },
-    select: { id: true, role: true },
+    select: { id: true, role: true, isPlatformAdmin: true },
   });
   if (!target) return { ok: false, error: "User not found in your workspace." };
 
   // ADMIN can't promote anyone to OWNER, can't edit an OWNER's role.
   if (!viewerIsOwner && (role === Role.OWNER || target.role === Role.OWNER)) {
     return { ok: false, error: "Only an owner can manage OWNER roles." };
+  }
+
+  // ADMIN can't touch Platform Owners either — the workspace owner (or the
+  // platform tier) manages them.
+  if (!viewerIsOwner && target.isPlatformAdmin) {
+    return { ok: false, error: "Only an owner can manage a Platform Owner's role." };
   }
 
   // Never let an org end up with zero OWNERs.
@@ -268,12 +274,43 @@ export async function updateUserProfileFields(
 
 const resetSchema = z.object({ password: passwordPolicy });
 
+/**
+ * Workspace power model: ADMINs run day-to-day user management, but the
+ * workspace OWNER and Platform Owners are off-limits to them — resetting a
+ * password or deleting the account is effectively taking the account over /
+ * removing it. Only an OWNER may manage OWNERs; only a Platform Owner may
+ * remove another Platform Owner.
+ */
+async function guardProtectedTarget(
+  viewer: { role: Role; isPlatformAdmin?: boolean },
+  orgId: string,
+  userId: string,
+  verb: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const target = await prisma.user.findFirst({
+    where: { id: userId, organizationId: orgId },
+    select: { role: true, isPlatformAdmin: true },
+  });
+  if (!target) return { ok: false, error: "User not found in your workspace." };
+
+  if (target.isPlatformAdmin && !viewer.isPlatformAdmin) {
+    return { ok: false, error: `Only a Platform Owner can ${verb} a Platform Owner.` };
+  }
+  if (target.role === Role.OWNER && viewer.role !== Role.OWNER && !viewer.isPlatformAdmin) {
+    return { ok: false, error: `Only an owner can ${verb} the workspace owner.` };
+  }
+  return { ok: true };
+}
+
 export async function resetUserPassword(
   userId: string,
   _prev: ActionResult | undefined,
   formData: FormData,
 ): Promise<ActionResult> {
-  await requireAdmin();
+  const { session, orgId } = await requireAdminWithOrg();
+
+  const guard = await guardProtectedTarget(session.user, orgId, userId, "reset the password of");
+  if (!guard.ok) return guard;
 
   const parsed = resetSchema.safeParse({ password: formData.get("password") });
   if (!parsed.success) {
@@ -281,18 +318,39 @@ export async function resetUserPassword(
   }
 
   const passwordHash = await bcrypt.hash(parsed.data.password, 10);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  // org-scoped updateMany — a guessed id from another workspace updates nothing.
+  await prisma.user.updateMany({
+    where: { id: userId, organizationId: orgId },
+    data: { passwordHash },
+  });
 
   return { ok: true };
 }
 
 export async function deleteUser(userId: string) {
-  const session = await requireAdmin();
+  const { session, orgId } = await requireAdminWithOrg();
   if (userId === session.user.id) {
     throw new Error("You can't delete your own account.");
   }
 
-  await prisma.user.delete({ where: { id: userId } });
+  const guard = await guardProtectedTarget(session.user, orgId, userId, "delete");
+  if (!guard.ok) throw new Error(guard.error);
+
+  // Never delete the workspace's last OWNER.
+  const target = await prisma.user.findFirst({
+    where: { id: userId, organizationId: orgId },
+    select: { role: true },
+  });
+  if (target?.role === Role.OWNER) {
+    const owners = await prisma.user.count({
+      where: { organizationId: orgId, role: Role.OWNER },
+    });
+    if (owners <= 1) {
+      throw new Error("At least one OWNER must remain in this workspace.");
+    }
+  }
+
+  await prisma.user.deleteMany({ where: { id: userId, organizationId: orgId } });
   revalidatePath("/users");
   redirect("/users");
 }

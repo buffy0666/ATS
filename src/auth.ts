@@ -11,6 +11,15 @@ const credentialsSchema = z.object({
 });
 
 /**
+ * Email domains whose users are ALWAYS Platform Owners (the operator tier
+ * above per-workspace OWNER — unlocks /platform). Anyone signing in with an
+ * address at one of these domains gets isPlatformAdmin stamped on their row.
+ * Extend via the PLATFORM_ADMIN_DOMAINS env var (comma-separated) without a
+ * deploy.
+ */
+const PLATFORM_OWNER_DOMAINS = ["dogfooddev.com", "bbagc.com"];
+
+/**
  * Comma-separated list of email addresses that should be treated as
  * platform admins regardless of the DB flag. Lets the SaaS operator
  * bootstrap themselves without poking the database.
@@ -18,13 +27,24 @@ const credentialsSchema = z.object({
  * Example env: PLATFORM_ADMIN_EMAILS="andy@example.com,co-founder@example.com"
  */
 function matchesPlatformAdminEnv(email: string): boolean {
+  const lower = email.toLowerCase();
+
+  const domain = lower.split("@")[1] ?? "";
+  const envDomains = (process.env.PLATFORM_ADMIN_DOMAINS ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase().replace(/^@/, ""))
+    .filter(Boolean);
+  if (domain && [...PLATFORM_OWNER_DOMAINS, ...envDomains].includes(domain)) {
+    return true;
+  }
+
   const raw = process.env.PLATFORM_ADMIN_EMAILS ?? "";
   if (!raw) return false;
   const allow = raw
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  return allow.includes(email.toLowerCase());
+  return allow.includes(lower);
 }
 
 // `unstable_update` is NextAuth v5's official way to mutate the JWT

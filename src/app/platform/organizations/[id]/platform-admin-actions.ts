@@ -1,73 +1,69 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Role } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { requirePlatformAdmin } from "@/lib/auth-utils";
 
 export type PromoteResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Flip a user's isPlatformAdmin flag. Used from the platform org detail
- * page to grow / shrink the SaaS operator team.
+ * Promote a tenant user to workspace OWNER, or demote an OWNER back to
+ * ADMIN. Used from the platform org detail page.
+ *
+ * Deliberately does NOT touch isPlatformAdmin: Platform Owner status is
+ * not grantable from this page. It comes from the operator domain rule
+ * (dogfooddev.com / bbagc.com — see src/auth.ts) or the
+ * PLATFORM_ADMIN_EMAILS / PLATFORM_ADMIN_DOMAINS env vars.
  *
  * Safety rails:
- *  - Caller must already be a platform admin (requirePlatformAdmin).
- *  - You can't demote yourself — must be done by a different platform
- *    admin or by editing PLATFORM_ADMIN_EMAILS env var. Prevents you
- *    from accidentally cutting your own access mid-session.
- *  - You can't demote the last remaining platform admin via UI. There
- *    has to be at least one left. (Env var auto-promotion is still the
- *    recovery path if this somehow fires.)
- *  - The user must sign out + back in for the JWT to refresh with the
- *    new flag. We surface this in the UI message.
+ *  - Caller must be a platform admin (requirePlatformAdmin).
+ *  - Demoting never leaves a workspace with zero OWNERs.
  */
-export async function togglePlatformAdminAction(formData: FormData): Promise<void> {
-  const session = await requirePlatformAdmin();
+export async function toggleWorkspaceOwnerAction(formData: FormData): Promise<void> {
+  await requirePlatformAdmin();
 
   const targetUserId = String(formData.get("targetUserId") ?? "");
-  const desired = formData.get("desired") === "true";
+  const desired = formData.get("desired") === "true"; // true = make OWNER
   if (!targetUserId) return;
-
-  if (targetUserId === session.user.id && !desired) {
-    // Don't demote yourself — too easy to lock yourself out of /platform
-    // mid-session. Force a different platform admin to do it, or the
-    // env-var path.
-    return;
-  }
 
   const target = await prisma.user.findUnique({
     where: { id: targetUserId },
-    select: {
-      id: true,
-      isPlatformAdmin: true,
-      organizationId: true,
-    },
+    select: { id: true, role: true, organizationId: true },
   });
-  if (!target) return;
-  // No-op if it's already at the desired state.
-  if (target.isPlatformAdmin === desired) {
-    if (target.organizationId) {
-      revalidatePath(`/platform/organizations/${target.organizationId}`);
+  if (!target || !target.organizationId) return;
+
+  const refresh = () =>
+    revalidatePath(`/platform/organizations/${target.organizationId}`);
+
+  if (desired) {
+    if (target.role !== Role.OWNER) {
+      await prisma.user.update({
+        where: { id: target.id },
+        data: { role: Role.OWNER },
+      });
     }
+    refresh();
     return;
   }
 
-  // Don't strip the last platform admin via this UI — leaves no way
-  // back in (other than env var, which we want to keep as a recovery
-  // mechanism not the only path).
-  if (!desired) {
-    const remaining = await prisma.user.count({
-      where: { isPlatformAdmin: true, id: { not: targetUserId } },
-    });
-    if (remaining === 0) return;
+  if (target.role !== Role.OWNER) {
+    refresh();
+    return;
+  }
+
+  // Never leave the workspace ownerless.
+  const owners = await prisma.user.count({
+    where: { organizationId: target.organizationId, role: Role.OWNER },
+  });
+  if (owners <= 1) {
+    refresh();
+    return;
   }
 
   await prisma.user.update({
-    where: { id: targetUserId },
-    data: { isPlatformAdmin: desired },
+    where: { id: target.id },
+    data: { role: Role.ADMIN },
   });
-
-  if (target.organizationId) {
-    revalidatePath(`/platform/organizations/${target.organizationId}`);
-  }
+  refresh();
 }
