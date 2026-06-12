@@ -254,6 +254,8 @@ export const SORTABLE_FIELDS: Partial<Record<ColumnKey | "name", string>> = {
   availableFrom: "availableFrom",
   noticeDays: "noticePeriodDays",
   source: "source",
+  // Relation sort — buildOrderBy maps the sentinel to { sourcedBy: { name } }.
+  sourcedBy: "__sourcedBy__",
   lastContactedAt: "lastContactedAt",
   nextFollowUpAt: "nextFollowUpAt",
   createdAt: "createdAt",

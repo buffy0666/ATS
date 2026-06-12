@@ -309,5 +309,8 @@ function buildOrderBy(
   if (sortField === "__name__") {
     return [{ lastName: direction }, { firstName: direction }];
   }
+  if (sortField === "__sourcedBy__") {
+    return { sourcedBy: { name: direction } };
+  }
   return { [sortField]: direction } as Prisma.CandidateOrderByWithRelationInput;
 }
