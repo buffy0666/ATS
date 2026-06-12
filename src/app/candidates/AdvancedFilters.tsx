@@ -420,7 +420,7 @@ function ComplianceGroup({
   const items: { key: string; label: string }[] = [
     { key: "exDoNotContact", label: "Exclude Do Not Contact" },
     { key: "exUnsubscribed", label: "Exclude unsubscribed" },
-    { key: "exBlacklisted", label: "Exclude blacklisted" },
+    { key: "exBlacklisted", label: "Exclude do-not-submit (internal block)" },
     { key: "exPlaced", label: "Exclude placed" },
   ];
   return (

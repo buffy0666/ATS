@@ -1,9 +1,9 @@
 import {
-  CandidateStatus,
   EmploymentType,
   RemotePref,
   WorkAuth,
 } from "@/generated/prisma";
+import { candidateStatusOptions } from "@/lib/candidate-status";
 
 /**
  * Field catalog for the bulk "Edit fields…" action on the candidates list.
@@ -66,7 +66,9 @@ export const BULK_EDIT_FIELDS: BulkEditFieldDef[] = [
     key: "status",
     label: "Status",
     type: "enumSelect",
-    options: enumOptions(CandidateStatus as unknown as Record<string, string>),
+    // Shared labels/order so e.g. BLACKLISTED shows as "Do not submit /
+    // Internal block" here too.
+    options: candidateStatusOptions().map(({ value, label }) => ({ value, label })),
   },
   {
     key: "source",

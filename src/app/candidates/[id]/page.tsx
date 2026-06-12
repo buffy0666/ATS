@@ -329,12 +329,6 @@ export default async function CandidateDetailPage({
           {candidate.pronouns && (
             <span className="text-sm text-zinc-500">({candidate.pronouns})</span>
           )}
-          <span
-            title={CANDIDATE_STATUS_DESCRIPTION[candidate.status]}
-            className={`rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wide ${STATUS_BADGE[candidate.status]}`}
-          >
-            {STATUS_LABEL[candidate.status]}
-          </span>
           {candidate.rating != null && (
             <span className="text-sm text-amber-600 dark:text-amber-400">
               {"★".repeat(candidate.rating)}
@@ -349,12 +343,6 @@ export default async function CandidateDetailPage({
             </span>
           )}
           <span className="text-sm text-zinc-500 break-all">· {candidate.email}</span>
-          <CandidateTags
-            key={candidate.id}
-            candidateId={candidate.id}
-            tags={candidate.tags.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
-            allTags={allTags}
-          />
         </div>
       </header>
 
@@ -757,6 +745,14 @@ export default async function CandidateDetailPage({
               value={candidate.status}
               options={statusOptions}
               required
+              display={
+                <span
+                  title={CANDIDATE_STATUS_DESCRIPTION[candidate.status]}
+                  className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[candidate.status]}`}
+                >
+                  {STATUS_LABEL[candidate.status]}
+                </span>
+              }
             />
           </div>
 

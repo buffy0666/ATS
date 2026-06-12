@@ -182,10 +182,13 @@ enum CandidateStatus {
   ACTIVE
   PASSIVE
   OFF_MARKET
+  UNREACHABLE
   PLACED
   ON_HOLD
   DO_NOT_CONTACT
   ALUMNI
+  // Stored value kept for back-compat; surfaced in the UI as
+  // "Do not submit / Internal block" (see src/lib/candidate-status.ts).
   BLACKLISTED
 }
 
