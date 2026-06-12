@@ -42,6 +42,33 @@ export default async function AISettingsPage() {
             Loaded from{" "}
             <span className="font-medium">{resolved.source === "db" ? "database" : "environment variables"}</span>.
           </div>
+          {dbRow?.authMode === "oauth" && (
+            <div className="text-xs">
+              <span className="uppercase tracking-wide text-zinc-500">OAuth token</span>{" "}
+              {dbRow.oauthRefreshTokenEncrypted ? (
+                dbRow.oauthExpiresAt ? (
+                  dbRow.oauthExpiresAt.getTime() > Date.now() ? (
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      valid until {dbRow.oauthExpiresAt.toLocaleString()} — auto-refreshes
+                    </span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      expired {dbRow.oauthExpiresAt.toLocaleString()} — will refresh on next use
+                    </span>
+                  )
+                ) : (
+                  <span className="text-zinc-500">
+                    expiry unknown — refreshes on first use
+                  </span>
+                )
+              ) : (
+                <span className="text-amber-600 dark:text-amber-400">
+                  no refresh token stored — the pasted token will expire and AI calls
+                  will fail until re-pasted
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
