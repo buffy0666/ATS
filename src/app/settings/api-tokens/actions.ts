@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { isOwner, requireAdminWithOrg } from "@/lib/auth-utils";
+import { isOwner, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { createApiToken, revokeApiToken } from "@/lib/api-tokens";
 
@@ -16,7 +16,12 @@ export async function createTokenAction(
   _prev: CreateTokenResult | undefined,
   formData: FormData,
 ): Promise<CreateTokenResult> {
-  const { session, orgId } = await requireAdminWithOrg();
+  // Self-service: any member (RECRUITER included) can mint a token for
+  // themselves from the Profile page — it only ever creates a token scoped to
+  // session.user.id. This stays requireSessionWithOrg even though the
+  // /settings/api-tokens *page* is Admin+ (that page is the workspace-wide
+  // view); don't tighten this to requireAdminWithOrg or you break Profile.
+  const { session, orgId } = await requireSessionWithOrg();
   const parsed = nameSchema.safeParse(formData.get("name"));
   if (!parsed.success) {
     return { ok: false, error: "Name is required (1-80 characters)." };
@@ -27,7 +32,7 @@ export async function createTokenAction(
 }
 
 export async function revokeTokenAction(tokenId: string): Promise<void> {
-  const { session, orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
   if (isOwner(session.user.role)) {
     // OWNERs can revoke any token in their own org — but never across
     // tenants: the org filter is the hard boundary. The middle-tier

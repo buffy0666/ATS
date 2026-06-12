@@ -1,4 +1,4 @@
-import { requireOwnerWithOrg } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { getResolvedAIConfig } from "@/lib/ai";
 import { PROVIDERS } from "@/lib/ai/catalog";
@@ -9,7 +9,7 @@ import { getCurrentKeyPreview } from "./actions";
 export const dynamic = "force-dynamic";
 
 export default async function AISettingsPage() {
-  const { orgId } = await requireOwnerWithOrg();
+  const { orgId } = await requireAdminWithOrg();
 
   // Read raw DB row so we can show "is this from DB or env?" honestly.
   // AIConfig is keyed per-organization, and the resolver must be scoped to

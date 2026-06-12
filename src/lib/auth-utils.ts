@@ -43,11 +43,13 @@ export async function requireSession() {
 /**
  * Pure helpers — useful in client components, server components, and tools
  * that don't want to perform a redirect. The hierarchy is:
- *   OWNER     - full access to every tenant feature.
- *   ADMIN     - branding / announcements / tags / users (RECRUITER+ADMIN)
- *               / audit history / knowledge approval. Locked out of deep
- *               settings (custom fields, choice options, AI provider).
- *   RECRUITER - day-to-day recruiter access only.
+ *   OWNER     - full access to every tenant feature, including the
+ *               owner-only settings (Announcements, Danger zone).
+ *   ADMIN     - workspace settings: branding, tags, API tokens, choices,
+ *               custom fields, AI provider, users (RECRUITER+ADMIN), audit
+ *               history, knowledge approval. Cannot reach owner-only settings.
+ *   RECRUITER - day-to-day recruiter access only (plus self-service API
+ *               tokens on their Profile).
  */
 export function isOwner(role: Role | null | undefined): boolean {
   return role === Role.OWNER;
@@ -65,9 +67,9 @@ export async function requireAdmin() {
 }
 
 /**
- * Stricter than requireAdmin — only OWNERs pass. Use on routes that
- * configure org-wide deep settings (AI provider, custom-field schema,
- * choice options, etc.) so a middle-tier ADMIN can't reach them.
+ * Stricter than requireAdmin — only OWNERs pass. Use on the owner-only
+ * settings (Announcements, Danger zone) so a middle-tier ADMIN can't reach
+ * them. Most workspace settings are ADMIN-accessible via requireAdmin*.
  */
 export async function requireOwner() {
   const session = await requireSession();
@@ -126,8 +128,8 @@ export async function requireAdminWithOrg() {
 
 /**
  * OWNER-only variant of requireAdminWithOrg. Use on pages that the
- * middle-tier ADMIN should NOT be able to reach — AI provider, custom
- * fields, choice options, API tokens, and other deep settings.
+ * middle-tier ADMIN should NOT be able to reach — the owner-only settings
+ * (Announcements, Danger zone).
  */
 export async function requireOwnerWithOrg() {
   const session = await requireOwner();

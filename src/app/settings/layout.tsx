@@ -9,9 +9,10 @@ const TABS: { href: string; label: string; tier: "admin" | "owner" }[] = [
   { href: "/settings/announcements", label: "Announcements", tier: "owner" },
   { href: "/settings/tags", label: "Tags", tier: "admin" },
   { href: "/settings/api-tokens", label: "API tokens", tier: "admin" },
-  { href: "/settings/choices", label: "Choices", tier: "owner" },
-  { href: "/settings/custom-fields", label: "Custom fields", tier: "owner" },
-  { href: "/settings/ai", label: "AI provider", tier: "owner" },
+  { href: "/settings/choices", label: "Choices", tier: "admin" },
+  { href: "/settings/custom-fields", label: "Custom fields", tier: "admin" },
+  { href: "/settings/ai", label: "AI provider", tier: "admin" },
+  { href: "/settings/danger", label: "Danger zone", tier: "owner" },
 ];
 
 export default async function SettingsLayout({

@@ -1,4 +1,4 @@
-import { requireOwnerWithOrg } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 import { ChoicesSection, type ChoiceRow } from "./ChoicesSection";
@@ -21,7 +21,7 @@ const SECTIONS = [
 ];
 
 export default async function ChoicesSettingsPage() {
-  const { orgId } = await requireOwnerWithOrg();
+  const { orgId } = await requireAdminWithOrg();
 
   // Lazily seed defaults per-org so the user never sees an empty table.
   await Promise.all(SECTIONS.map((s) => ensureChoiceDefaults(s.key, s.defaults, orgId)));

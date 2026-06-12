@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { CustomFieldEntity, CustomFieldType } from "@/generated/prisma";
-import { requireOwnerWithOrg } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 
 export type CustomFieldResult = { ok: true } | { ok: false; error: string };
@@ -64,7 +64,7 @@ function formInput(formData: FormData) {
 }
 
 export async function createCustomField(formData: FormData): Promise<CustomFieldResult> {
-  const { orgId } = await requireOwnerWithOrg();
+  const { orgId } = await requireAdminWithOrg();
 
   const parsed = baseSchema.safeParse(formInput(formData));
   if (!parsed.success) {
@@ -110,7 +110,7 @@ export async function createCustomField(formData: FormData): Promise<CustomField
 }
 
 export async function updateCustomField(id: string, formData: FormData): Promise<CustomFieldResult> {
-  const { orgId } = await requireOwnerWithOrg();
+  const { orgId } = await requireAdminWithOrg();
 
   const parsed = baseSchema.safeParse(formInput(formData));
   if (!parsed.success) {
@@ -154,7 +154,7 @@ export async function updateCustomField(id: string, formData: FormData): Promise
 }
 
 export async function deleteCustomField(id: string): Promise<CustomFieldResult> {
-  const { orgId } = await requireOwnerWithOrg();
+  const { orgId } = await requireAdminWithOrg();
   // deleteMany so a stray id from another org just no-ops instead of
   // bleeding across tenants. Cascade still cleans up CustomFieldValue.
   await prisma.customField.deleteMany({ where: { id, organizationId: orgId } });
@@ -163,7 +163,7 @@ export async function deleteCustomField(id: string): Promise<CustomFieldResult> 
 }
 
 export async function reorderCustomField(id: string, direction: "up" | "down"): Promise<CustomFieldResult> {
-  const { orgId } = await requireOwnerWithOrg();
+  const { orgId } = await requireAdminWithOrg();
   const target = await prisma.customField.findFirst({
     where: { id, organizationId: orgId },
     select: { id: true, entity: true, sortOrder: true },
