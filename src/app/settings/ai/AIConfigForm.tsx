@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { PROVIDERS, type ProviderId } from "@/lib/ai/catalog";
 import {
   listOllamaModels,
+  listProviderModels,
   saveAIConfig,
   testAIConfig,
   type ListOllamaModelsResult,
@@ -67,6 +68,11 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
   const [ollamaError, setOllamaError] = useState<string | null>(null);
   const [fetchingOllama, setFetchingOllama] = useState(false);
 
+  // Live model discovery for keyed providers (/models with the stored key).
+  const [liveModels, setLiveModels] = useState<string[] | null>(null);
+  const [liveModelsError, setLiveModelsError] = useState<string | null>(null);
+  const [fetchingLive, setFetchingLive] = useState(false);
+
   // Save / test state
   const [saveResult, setSaveResult] = useState<SaveAIConfigResult | null>(null);
   const [testResult, setTestResult] = useState<TestAIConfigResult | null>(null);
@@ -99,8 +105,26 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
     }
     setOllamaModels(null);
     setOllamaError(null);
+    setLiveModels(null);
+    setLiveModelsError(null);
     lastProviderRef.current = provider;
   }, [provider, baseUrl, model]);
+
+  async function fetchLiveModels() {
+    setFetchingLive(true);
+    setLiveModelsError(null);
+    try {
+      const result = await listProviderModels(provider, baseUrl);
+      if (result.ok) {
+        setLiveModels(result.models);
+      } else {
+        setLiveModels(null);
+        setLiveModelsError(result.error);
+      }
+    } finally {
+      setFetchingLive(false);
+    }
+  }
 
   async function fetchOllama() {
     setFetchingOllama(true);
@@ -212,13 +236,33 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
               name="model"
               value={model}
               onChange={setModel}
-              options={curatedModels}
+              options={liveModels ?? curatedModels}
               placeholder="Pick a model or type a custom ID"
+              extraButton={
+                <button
+                  type="button"
+                  onClick={fetchLiveModels}
+                  disabled={fetchingLive}
+                  title="Query the provider's live /models endpoint with the saved credential"
+                  className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2 py-1.5 text-xs hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {fetchingLive ? "Fetching…" : liveModels ? "Refresh" : "Fetch available models"}
+                </button>
+              }
             />
           )}
 
           {provider === "ollama" && ollamaError && (
             <p className="mt-1 text-xs text-red-600">{ollamaError}</p>
+          )}
+          {provider !== "ollama" && liveModelsError && (
+            <p className="mt-1 text-xs text-red-600">{liveModelsError}</p>
+          )}
+          {provider !== "ollama" && liveModels && (
+            <p className="mt-1 text-xs text-zinc-500">
+              Showing {liveModels.length} live model{liveModels.length === 1 ? "" : "s"} from the
+              provider. The dropdown is suggestions only — any model ID you type is used as-is.
+            </p>
           )}
         </div>
 

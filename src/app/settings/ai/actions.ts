@@ -239,6 +239,83 @@ export async function listOllamaModels(baseUrl: string): Promise<ListOllamaModel
   }
 }
 
+export type ListProviderModelsResult =
+  | { ok: true; models: string[] }
+  | { ok: false; error: string };
+
+/**
+ * Fetch the live model list from the configured provider's /models endpoint,
+ * authenticated with the org's STORED credential (we never accept a key from
+ * the client here). Works for Anthropic (native API) and every
+ * OpenAI-compatible provider (OpenAI, Grok, Gemini compat, Perplexity —
+ * though Perplexity may not expose the endpoint). Ollama has its own
+ * key-less discovery flow (listOllamaModels).
+ */
+export async function listProviderModels(
+  provider: string,
+  baseUrlInput: string,
+): Promise<ListProviderModelsResult> {
+  const { orgId } = await requireAdminWithOrg();
+
+  if (!isProviderId(provider) || provider === "ollama") {
+    return { ok: false, error: "Unsupported provider for model discovery." };
+  }
+  const meta = PROVIDERS[provider];
+  const baseUrl = (baseUrlInput.trim() || meta.defaultBaseUrl).replace(/\/+$/, "");
+
+  const row = await prisma.aIConfig.findUnique({
+    where: { organizationId: orgId },
+    select: { provider: true, apiKeyEncrypted: true, authMode: true },
+  });
+  if (!row?.apiKeyEncrypted || row.provider !== provider) {
+    return {
+      ok: false,
+      error: `Save your ${meta.label} credential first, then fetch models.`,
+    };
+  }
+  let key: string;
+  try {
+    key = decryptSecret(row.apiKeyEncrypted);
+  } catch {
+    return { ok: false, error: "Stored credential can't be decrypted — re-save it." };
+  }
+
+  const isAnthropic = provider === "anthropic";
+  const url = isAnthropic ? `${baseUrl}/v1/models?limit=100` : `${baseUrl}/models`;
+  const headers: Record<string, string> = isAnthropic
+    ? row.authMode === "oauth"
+      ? {
+          Authorization: `Bearer ${key}`,
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta": "oauth-2025-04-20",
+        }
+      : { "x-api-key": key, "anthropic-version": "2023-06-01" }
+    : { Authorization: `Bearer ${key}` };
+
+  try {
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) {
+      return { ok: false, error: `${meta.label} responded with HTTP ${response.status}.` };
+    }
+    const json = (await response.json()) as { data?: Array<{ id?: string }> };
+    const models = (json.data ?? [])
+      .map((m) => m.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    if (models.length === 0) {
+      return { ok: false, error: "The provider returned no models." };
+    }
+    return { ok: true, models };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      return { ok: false, error: `Timed out fetching models from ${url}.` };
+    }
+    return {
+      ok: false,
+      error: `Could not fetch models: ${error instanceof Error ? error.message : "unknown"}.`,
+    };
+  }
+}
+
 export async function getCurrentKeyPreview(): Promise<string | null> {
   const { orgId } = await requireAdminWithOrg();
   const row = await prisma.aIConfig.findUnique({

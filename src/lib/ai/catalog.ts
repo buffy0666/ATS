@@ -44,12 +44,11 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     requiresApiKey: true,
     keyUrl: "https://platform.openai.com/api-keys",
     models: [
-      "gpt-4o",
-      "gpt-4o-mini",
-      "gpt-4-turbo",
+      "gpt-5.1",
+      "gpt-5",
+      "gpt-5-mini",
+      "gpt-5-nano",
       "gpt-4.1",
-      "gpt-4.1-mini",
-      "o3-mini",
     ],
   },
   anthropic: {
@@ -59,11 +58,11 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     requiresApiKey: true,
     keyUrl: "https://console.anthropic.com/settings/keys",
     models: [
-      "claude-sonnet-4-5",
-      "claude-opus-4-5",
+      "claude-opus-4-8",
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-sonnet-4-6",
       "claude-haiku-4-5",
-      "claude-3-7-sonnet-latest",
-      "claude-3-5-haiku-latest",
     ],
   },
   grok: {
@@ -73,12 +72,9 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     requiresApiKey: true,
     keyUrl: "https://console.x.ai/team/default/api-keys",
     models: [
+      "grok-4.3",
       "grok-4-latest",
       "grok-4",
-      "grok-3-latest",
-      "grok-3",
-      "grok-2-latest",
-      "grok-2-vision-latest",
     ],
   },
   perplexity: {
@@ -104,11 +100,10 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     requiresApiKey: true,
     keyUrl: "https://aistudio.google.com/apikey",
     models: [
+      "gemini-3-pro-preview",
       "gemini-2.5-pro",
       "gemini-2.5-flash",
-      "gemini-2.0-flash",
-      "gemini-1.5-pro",
-      "gemini-1.5-flash",
+      "gemini-2.5-flash-lite",
     ],
   },
 };
