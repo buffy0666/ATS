@@ -54,6 +54,8 @@ export type ResolvedAIConfig = {
   model: string;
   baseUrl: string;
   apiKey?: string;
+  /** How to send the secret. Only the Anthropic provider honors "oauth". */
+  authMode: "apiKey" | "oauth";
   timeoutMs: number;
 };
 
@@ -82,6 +84,7 @@ async function loadConfig(orgId: string | null): Promise<ResolvedAIConfig> {
       model: fromDb.model,
       baseUrl: fromDb.baseUrl ?? meta.defaultBaseUrl,
       apiKey,
+      authMode: fromDb.authMode === "oauth" ? "oauth" : "apiKey",
       timeoutMs: fromDb.timeoutMs ?? envTimeout,
     };
   }
@@ -95,6 +98,7 @@ async function loadConfig(orgId: string | null): Promise<ResolvedAIConfig> {
     model: process.env.AI_MODEL ?? (provider === "ollama" ? "gemma3:27b" : ""),
     baseUrl: process.env.AI_BASE_URL ?? meta.defaultBaseUrl,
     apiKey: process.env.AI_API_KEY,
+    authMode: "apiKey",
     timeoutMs: envTimeout,
   };
 }
@@ -115,6 +119,7 @@ function buildProvider(config: ResolvedAIConfig): AIProvider {
         requireModel(config),
         config.timeoutMs,
         config.baseUrl,
+        config.authMode,
       );
     case "grok":
     case "perplexity":

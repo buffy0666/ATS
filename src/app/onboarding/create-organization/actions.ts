@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Role } from "@/generated/prisma";
 import { auth, signOut } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { seedAIConfigFromTemplate } from "@/lib/ai/seed-config";
 
 const schema = z.object({
   organizationName: z.string().trim().min(1).max(120),
@@ -52,6 +53,9 @@ export async function createOrganizationAction(
         data: { name: organizationName, slug, ownerUserId: userId },
         select: { id: true },
       });
+      // Seed standard AI settings from the template workspace (T3X) so the new
+      // tenant isn't left on env-var fallback. No-op if no template exists.
+      await seedAIConfigFromTemplate(tx, org.id);
       await tx.user.update({
         where: { id: userId },
         data: {

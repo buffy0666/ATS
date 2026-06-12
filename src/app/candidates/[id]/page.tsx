@@ -7,6 +7,7 @@ import { EmailHistory } from "./EmailHistory";
 import { ContactLogPanel } from "./ContactLogPanel";
 import { FloatingResumeSection } from "./FloatingResumeSection";
 import { MeetingsPanel } from "./MeetingsPanel";
+import { EducationCertificationsSection } from "./EducationCertificationsSection";
 import { NotesSection } from "./NotesSection";
 import { CandidateJobsSection } from "./CandidateJobsSection";
 import { EditableField } from "./EditableField";
@@ -122,6 +123,8 @@ export default async function CandidateDetailPage({
     ensureChoiceDefaults(CHOICE_FIELDS.candidateSource.key, CHOICE_FIELDS.candidateSource.defaults, orgId),
     ensureChoiceDefaults(CHOICE_FIELDS.candidateSeniority.key, CHOICE_FIELDS.candidateSeniority.defaults, orgId),
     ensureChoiceDefaults(CHOICE_FIELDS.candidateRejectionReason.key, CHOICE_FIELDS.candidateRejectionReason.defaults, orgId),
+    ensureChoiceDefaults(CHOICE_FIELDS.candidateEducationDegree.key, CHOICE_FIELDS.candidateEducationDegree.defaults, orgId),
+    ensureChoiceDefaults(CHOICE_FIELDS.candidateCertificationKind.key, CHOICE_FIELDS.candidateCertificationKind.defaults, orgId),
   ]);
 
   const [
@@ -136,6 +139,8 @@ export default async function CandidateDetailPage({
     sourceOptions,
     seniorityOptions,
     rejectionReasonOptions,
+    degreeOptions,
+    kindOptions,
     allTags,
   ] = await Promise.all([
     // findFirst (not findUnique) so we can compose id + organizationId in
@@ -166,6 +171,13 @@ export default async function CandidateDetailPage({
           include: {
             organizer: { select: { name: true, email: true } },
           },
+        },
+        educationHistory: {
+          orderBy: [{ sortOrder: "asc" }, { endYear: "desc" }, { createdAt: "desc" }],
+        },
+        certifications: {
+          orderBy: [{ sortOrder: "asc" }, { expirationDate: "asc" }, { createdAt: "desc" }],
+          include: { verifiedBy: { select: { name: true, email: true } } },
         },
         tags: true,
         import: {
@@ -255,6 +267,8 @@ export default async function CandidateDetailPage({
     loadChoiceOptions(CHOICE_FIELDS.candidateSource.key, orgId),
     loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
     loadChoiceOptions(CHOICE_FIELDS.candidateRejectionReason.key, orgId),
+    loadChoiceOptions(CHOICE_FIELDS.candidateEducationDegree.key, orgId),
+    loadChoiceOptions(CHOICE_FIELDS.candidateCertificationKind.key, orgId),
     prisma.tag.findMany({
       where: { organizationId: orgId },
       orderBy: { name: "asc" },
@@ -280,6 +294,22 @@ export default async function CandidateDetailPage({
   const senioritySelectOptions = seniorityOptions.map((o) => ({ value: o.name, label: SENIORITY_LABEL[o.name] ?? o.name }));
   const ratingOptions = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${"★".repeat(n)} (${n})` }));
   const rejectionReasonSelectOptions = rejectionReasonOptions.map((o) => ({ value: o.name, label: o.name }));
+  // Friendly labels for the seeded degree/cert-kind choices; org-custom values
+  // fall through to their raw name (and the panel titleizes as a last resort).
+  const DEGREE_LABEL: Record<string, string> = {
+    HIGH_SCHOOL: "High school", GED: "GED", SOME_COLLEGE: "Some college",
+    VOCATIONAL: "Vocational / trade", BOOTCAMP: "Bootcamp", ASSOCIATE: "Associate",
+    BACHELORS: "Bachelor's", POSTGRAD_CERTIFICATE: "Postgraduate certificate",
+    MASTERS: "Master's", MBA: "MBA", PROFESSIONAL: "Professional (JD/MD/DDS)",
+    DOCTORATE: "Doctorate (PhD)", POSTDOCTORATE: "Postdoctorate", CERTIFICATE: "Certificate",
+    OTHER: "Other",
+  };
+  const CERT_KIND_LABEL: Record<string, string> = {
+    CERTIFICATION: "Certification", LICENSE: "License", SECURITY_CLEARANCE: "Security clearance",
+    ACCREDITATION: "Accreditation", MEMBERSHIP: "Membership", OTHER: "Other",
+  };
+  const degreeSelectOptions = degreeOptions.map((o) => ({ value: o.name, label: DEGREE_LABEL[o.name] ?? o.name }));
+  const kindSelectOptions = kindOptions.map((o) => ({ value: o.name, label: CERT_KIND_LABEL[o.name] ?? o.name }));
 
   // Saved profile layouts visible to this user: their own + org-shared.
   const profileLayoutRows = await prisma.profileLayout.findMany({
@@ -642,6 +672,14 @@ export default async function CandidateDetailPage({
           </div>
         </div>
       </section>
+
+          <EducationCertificationsSection
+            candidateId={candidate.id}
+            education={candidate.educationHistory}
+            certifications={candidate.certifications}
+            degreeOptions={degreeSelectOptions}
+            kindOptions={kindSelectOptions}
+          />
 
           {/* Outreach personalization — AI-extracted hooks + raw activity */}
           {(candidate.recentActivity || candidate.outreachInsights) && (

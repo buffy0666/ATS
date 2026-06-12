@@ -653,6 +653,9 @@ model AIConfig {
   model           String
   baseUrl         String?
   apiKeyEncrypted String?
+  /// How the stored secret is sent: "apiKey" (default) or "oauth" (Bearer token,
+  /// currently only honored by the Anthropic provider). Other providers ignore it.
+  authMode        String?  @default("apiKey")
   timeoutMs       Int?
   updatedAt       DateTime @updatedAt
   updatedById     String?

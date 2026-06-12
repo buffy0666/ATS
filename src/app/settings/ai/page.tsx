@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getResolvedAIConfig } from "@/lib/ai";
 import { PROVIDERS } from "@/lib/ai/catalog";
 import { AIConfigForm } from "./AIConfigForm";
+import { CredentialGuide } from "./CredentialGuide";
 import { getCurrentKeyPreview } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +45,8 @@ export default async function AISettingsPage() {
         </div>
       </div>
 
+      <CredentialGuide />
+
       <AIConfigForm
         initial={{
           provider: dbRow?.provider ?? resolved.provider,
@@ -52,6 +55,7 @@ export default async function AISettingsPage() {
           timeoutMs: dbRow?.timeoutMs ?? null,
           hasKey: Boolean(dbRow?.apiKeyEncrypted),
           keyPreview,
+          authMode: dbRow?.authMode === "oauth" ? "oauth" : "apiKey",
         }}
       />
     </div>

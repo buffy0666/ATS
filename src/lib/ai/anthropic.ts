@@ -17,14 +17,32 @@ export class AnthropicProvider implements AIProvider {
   private readonly model: string;
   private readonly timeoutMs: number;
 
-  constructor(apiKey: string, model: string, timeoutMs: number, baseUrl?: string) {
+  constructor(
+    apiKey: string,
+    model: string,
+    timeoutMs: number,
+    baseUrl?: string,
+    authMode: "apiKey" | "oauth" = "apiKey",
+  ) {
     if (!apiKey) {
       throw new Error("AI_API_KEY is required when AI_PROVIDER=anthropic");
     }
-    this.client = new Anthropic({
-      apiKey,
-      baseURL: baseUrl,
-    });
+    // In "oauth" mode the stored secret is a Bearer access token (e.g. from a
+    // Claude Pro/Max login) rather than an sk-ant API key. The SDK sends it via
+    // `authToken` as `Authorization: Bearer …`, and the OAuth beta header is
+    // required for the Messages API to accept it. In "apiKey" mode we use the
+    // normal x-api-key path.
+    this.client =
+      authMode === "oauth"
+        ? new Anthropic({
+            authToken: apiKey,
+            baseURL: baseUrl,
+            defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
+          })
+        : new Anthropic({
+            apiKey,
+            baseURL: baseUrl,
+          });
     this.model = model;
     this.timeoutMs = timeoutMs;
   }

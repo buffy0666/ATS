@@ -19,6 +19,7 @@ type Initial = {
   timeoutMs: number | null;
   hasKey: boolean;
   keyPreview: string | null;
+  authMode: "apiKey" | "oauth";
 };
 
 const PROVIDER_OPTIONS: ProviderId[] = [
@@ -41,6 +42,12 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
   const [model, setModel] = useState(initial.model);
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl ?? "");
   const [timeoutMs, setTimeoutMs] = useState<string>(initial.timeoutMs ? String(initial.timeoutMs) : "");
+  // Credential type. Only Anthropic exposes "oauth" (paste a Bearer token);
+  // every other provider is API-key only.
+  const [authMode, setAuthMode] = useState<"apiKey" | "oauth">(
+    initialProvider === "anthropic" ? initial.authMode : "apiKey",
+  );
+  const oauthMode = provider === "anthropic" && authMode === "oauth";
 
   // Key handling: when the form loads, if a key is already stored we show
   // a "keep current key" placeholder. Typing anything replaces it.
@@ -77,6 +84,10 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
       setModel(newList[0]);
     } else if (newList.length === 0 && model && PROVIDERS[lastProviderRef.current].models.includes(model)) {
       setModel("");
+    }
+    // Credential type only applies to Anthropic; reset it on any switch away.
+    if (provider !== "anthropic") {
+      setAuthMode("apiKey");
     }
     setOllamaModels(null);
     setOllamaError(null);
@@ -233,10 +244,31 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
           />
         </div>
 
-        {/* API key */}
+        {/* Credential type — only Anthropic supports an OAuth Bearer token as an
+            alternative to an API key. */}
+        {provider === "anthropic" && (
+          <div className="md:col-span-2">
+            <label htmlFor="authMode" className="block text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1">
+              Credential type
+            </label>
+            <select
+              id="authMode"
+              name="authMode"
+              value={authMode}
+              onChange={(e) => setAuthMode(e.target.value === "oauth" ? "oauth" : "apiKey")}
+              className="w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
+            >
+              <option value="apiKey">API key (sk-ant-…)</option>
+              <option value="oauth">OAuth token (Claude Pro/Max Bearer token)</option>
+            </select>
+          </div>
+        )}
+
+        {/* Credential — an API key, or (Anthropic only) an OAuth Bearer token. */}
         <div className="md:col-span-2">
           <label htmlFor="apiKey" className="block text-xs font-medium uppercase tracking-wide text-zinc-500 mb-1">
-            API key {meta.requiresApiKey ? <span className="text-red-500">*</span> : <span className="text-zinc-400">(optional)</span>}
+            {oauthMode ? "OAuth token" : "API key"}{" "}
+            {meta.requiresApiKey ? <span className="text-red-500">*</span> : <span className="text-zinc-400">(optional)</span>}
           </label>
           <div className="flex items-center gap-2">
             <input
@@ -252,9 +284,11 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
               placeholder={
                 initial.hasKey && !keyDirty
                   ? `Stored: ${initial.keyPreview ?? "•••• ••••"} (leave blank to keep)`
-                  : meta.requiresApiKey
-                    ? "Paste your API key"
-                    : "Not required for Ollama"
+                  : oauthMode
+                    ? "Paste your Claude OAuth token"
+                    : meta.requiresApiKey
+                      ? "Paste your API key"
+                      : "Not required for Ollama"
               }
               className="flex-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm font-mono"
             />
@@ -271,14 +305,22 @@ export function AIConfigForm({ initial }: { initial: Initial }) {
               </button>
             )}
           </div>
-          {meta.keyUrl && (
+          {oauthMode ? (
             <p className="mt-1 text-xs text-zinc-500">
-              Get one at{" "}
-              <a href={meta.keyUrl} target="_blank" rel="noreferrer" className="underline">
-                {new URL(meta.keyUrl).host}
-              </a>
-              . Keys are stored AES-256-GCM encrypted at rest.
+              Paste a Claude OAuth/Bearer access token (sent as{" "}
+              <span className="font-mono">Authorization: Bearer</span>). Stored AES-256-GCM
+              encrypted at rest.
             </p>
+          ) : (
+            meta.keyUrl && (
+              <p className="mt-1 text-xs text-zinc-500">
+                Get one at{" "}
+                <a href={meta.keyUrl} target="_blank" rel="noreferrer" className="underline">
+                  {new URL(meta.keyUrl).host}
+                </a>
+                . Keys are stored AES-256-GCM encrypted at rest.
+              </p>
+            )
           )}
         </div>
       </div>

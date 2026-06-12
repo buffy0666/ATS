@@ -13,7 +13,11 @@ const saveSchema = z.object({
   provider: z.string().refine(isProviderId, "Unknown provider."),
   model: z.string().trim().min(1).max(200),
   baseUrl: z.string().trim().url().max(300).optional().or(z.literal("").transform(() => undefined)),
-  apiKey: z.string().max(500).optional(), // KEY_UNCHANGED sentinel handled below
+  apiKey: z.string().max(2000).optional(), // KEY_UNCHANGED sentinel handled below
+  // How the secret is sent: "apiKey" (default) or "oauth" (Bearer token). Only
+  // the Anthropic provider honors "oauth"; for everything else we coerce to
+  // "apiKey" below so a stale selection can't leak through a provider switch.
+  authMode: z.enum(["apiKey", "oauth"]).optional(),
   timeoutMs: z
     .union([z.literal(""), z.coerce.number().int().min(1000).max(600000)])
     .optional()
@@ -36,6 +40,7 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
     model: formData.get("model"),
     baseUrl: formData.get("baseUrl") ?? "",
     apiKey: formData.get("apiKey") ?? "",
+    authMode: formData.get("authMode") ?? undefined,
     timeoutMs: formData.get("timeoutMs") ?? "",
   });
   if (!parsed.success) {
@@ -43,6 +48,9 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
   }
   const data = parsed.data;
   const meta = PROVIDERS[data.provider];
+  // OAuth-token mode is only meaningful for Anthropic; anything else stays apiKey.
+  const authMode: "apiKey" | "oauth" =
+    data.provider === "anthropic" && data.authMode === "oauth" ? "oauth" : "apiKey";
 
   let apiKeyEncrypted: string | null | undefined;
   if (data.apiKey === KEY_UNCHANGED || data.apiKey === undefined) {
@@ -77,6 +85,7 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
       provider: data.provider,
       model: data.model,
       baseUrl: data.baseUrl ?? null,
+      authMode,
       ...(apiKeyEncrypted !== undefined ? { apiKeyEncrypted } : {}),
       timeoutMs: data.timeoutMs ?? null,
     },
@@ -85,6 +94,7 @@ export async function saveAIConfig(formData: FormData): Promise<SaveAIConfigResu
       provider: data.provider,
       model: data.model,
       baseUrl: data.baseUrl ?? null,
+      authMode,
       apiKeyEncrypted: apiKeyEncrypted ?? null,
       timeoutMs: data.timeoutMs ?? null,
     },
