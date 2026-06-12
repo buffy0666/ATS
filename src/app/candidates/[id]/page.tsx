@@ -750,6 +750,18 @@ export default async function CandidateDetailPage({
             />
           </div>
 
+          {/* Tags card — same editor as the header, but always in view next
+              to the recruiter's working area. */}
+          <div className="shrink-0 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3">
+            <div className="text-xs uppercase tracking-wide text-zinc-500 mb-2">Tags</div>
+            <CandidateTags
+              key={`sidebar-${candidate.id}`}
+              candidateId={candidate.id}
+              tags={candidate.tags.map((t) => ({ id: t.id, name: t.name, color: t.color }))}
+              allTags={allTags}
+            />
+          </div>
+
           <aside className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col overflow-hidden flex-1 min-h-0">
             <div className="shrink-0 border-b border-zinc-200 dark:border-zinc-800 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
               Notes
