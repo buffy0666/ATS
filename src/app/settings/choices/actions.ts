@@ -130,11 +130,11 @@ export async function renameChoiceOption(
 
   const handler = getHandler(existing.field);
 
-  // Block duplicate name within the same field. Until Phase 6 the unique
-  // index is global; we still check it explicitly so the user gets a clean
-  // error rather than a P2002.
-  const dup = await prisma.choiceOption.findUnique({
-    where: { field_name: { field: existing.field, name: newName } },
+  // Block duplicate name within the same field (per-org — the unique index
+  // is [organizationId, field, name]). Checked explicitly so the user gets
+  // a clean error rather than a P2002.
+  const dup = await prisma.choiceOption.findFirst({
+    where: { field: existing.field, name: newName, organizationId: orgId },
     select: { id: true },
   });
   if (dup) return { ok: false, message: `"${newName}" already exists for this field.` };

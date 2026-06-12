@@ -1592,9 +1592,11 @@ model ChoiceOption {
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  // Phase 6 will swap this to @@unique([organizationId, field, name]) once
-  // every query is org-aware.
-  @@unique([field, name])
+  // Per-org uniqueness. The old global @@unique([field, name]) meant the
+  // first org to seed a field's defaults blocked every other org's seeding
+  // (createMany skipDuplicates silently dropped all rows), leaving later
+  // workspaces with empty choice lists.
+  @@unique([organizationId, field, name])
   @@index([field, active, sortOrder])
   @@index([organizationId])
 }
