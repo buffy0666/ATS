@@ -6,6 +6,7 @@ import {
 } from "./provider";
 import { ResendProvider } from "./resend";
 import { MailgunProvider } from "./mailgun";
+import { assertEmailOutEnabled } from "./policy";
 
 let cached: EmailProvider | null = null;
 
@@ -48,8 +49,16 @@ function getProvider(): EmailProvider {
  * The payload is validated with Zod, the `from` field is filled in from
  * EMAIL_FROM_DEFAULT if missing, and provider errors bubble up as
  * EmailProviderError.
+ *
+ * Pass `opts.orgId` for any workspace-scoped send (candidate/contact mail) so
+ * the per-workspace email kill switch is enforced — it throws
+ * EmailOutDisabledError when that workspace has sending disabled.
  */
-export async function sendEmail(input: EmailPayload): Promise<EmailSendResult> {
+export async function sendEmail(
+  input: EmailPayload,
+  opts?: { orgId?: string | null },
+): Promise<EmailSendResult> {
+  if (opts?.orgId) await assertEmailOutEnabled(opts.orgId);
   const payload = emailPayloadSchema.parse(input);
   const from = payload.from ?? process.env.EMAIL_FROM_DEFAULT;
   if (!from) {
@@ -95,3 +104,4 @@ export function systemFromAddress(displayName?: string | null): string | undefin
 
 export type { EmailPayload, EmailSendResult } from "./provider";
 export { EmailProviderError } from "./provider";
+export { EmailOutDisabledError, assertEmailOutEnabled, isEmailOutDisabled } from "./policy";

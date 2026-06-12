@@ -341,6 +341,11 @@ model Organization {
   // Demo tenant flag. The /api/cron/cleanup-demo-orgs job hard-deletes
   // demo orgs older than 14 days; cascade wipes every scoped child.
   isDemo    Boolean  @default(false)
+  // Email kill switch. When true, all outbound candidate/contact email from
+  // this workspace is blocked (composer, sequences, interview emails, AI email
+  // tool) — enforced in src/lib/email. Per-workspace, so it never affects other
+  // tenants. Internal transactional mail (teammate invites) is unaffected.
+  emailOutDisabled Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

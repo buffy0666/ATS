@@ -582,7 +582,7 @@ async function scheduleStepRun(args: ScheduleArgs): Promise<void> {
       providerMeta: scheduledFor > new Date()
         ? { scheduledAt: scheduledFor.toISOString() }
         : {},
-    });
+    }, { orgId: args.organizationId });
 
     const emailLog = await prisma.emailLog.create({
       data: {
@@ -714,7 +714,7 @@ export async function resumeEnrollment(enrollmentId: string): Promise<ActionResu
           undefined,
         providerMeta:
           run.scheduledFor > new Date() ? { scheduledAt: run.scheduledFor.toISOString() } : {},
-      });
+      }, { orgId });
 
       const emailLog = await prisma.emailLog.create({
         data: {

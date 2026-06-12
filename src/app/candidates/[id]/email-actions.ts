@@ -93,7 +93,7 @@ export async function sendCandidateEmail(
         html,
         replyTo,
         from,
-      });
+      }, { orgId });
       sendId = r.id;
       provider = r.provider;
       fromEmail = from ?? process.env.EMAIL_FROM_DEFAULT ?? null;

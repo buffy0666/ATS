@@ -237,6 +237,7 @@ export async function deleteInterview(interviewId: string) {
 
 type InterviewForEmail = {
   id: string;
+  organizationId: string | null;
   title: string;
   startAt: Date;
   endAt: Date;
@@ -303,7 +304,7 @@ async function sendInviteEmails(
             { filename: "invite.ics", content: icsBase64, contentType: "text/calendar" },
           ],
         },
-      });
+      }, { orgId: interview.organizationId });
     } catch (err) {
       // Log to EmailLog as a failed send so the recruiter sees what happened.
       const message = err instanceof Error ? err.message : "Unknown error sending invite";

@@ -8,6 +8,7 @@ import {
   gmailConfigured,
   type GmailMessage,
 } from "./gmail";
+import { assertEmailOutEnabled } from "./policy";
 
 /**
  * Per-user mailbox connections (Phase 2). The composer + sequence engine send
@@ -80,6 +81,13 @@ export async function sendFromUserMailbox(
   userId: string,
   msg: Omit<GmailMessage, "from">,
 ): Promise<SendResult> {
+  // Honor the workspace email kill switch before sending as the user.
+  const sender = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { organizationId: true },
+  });
+  await assertEmailOutEnabled(sender?.organizationId);
+
   const conn = await prisma.mailboxConnection.findFirst({
     where: { userId, provider: "google" },
     select: { email: true, refreshTokenEncrypted: true },

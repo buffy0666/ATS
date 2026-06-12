@@ -67,7 +67,7 @@ export const emailCandidateTool = defineTool({
         text,
         html,
         replyTo: args.replyTo ?? makeReplyAddress(candidate.id) ?? sender.email,
-      });
+      }, { orgId: ctx.organizationId });
       const log = await prisma.emailLog.create({
         data: {
           candidateId: candidate.id,
