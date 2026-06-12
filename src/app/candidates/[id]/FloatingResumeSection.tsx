@@ -38,6 +38,35 @@ export function FloatingResumeSection({
   // z-50, ~36px). 0 when not impersonating. We measure it so the floating
   // panel sits BELOW it instead of being covered by it.
   const [bannerH, setBannerH] = useState(0);
+  // Viewport-relative bottom of the page header (name / tags / navigator).
+  // While the header is on screen the panel starts below it instead of
+  // covering it; once the user scrolls past, this goes ≤ 0 and the panel
+  // pins to the viewport top as before.
+  const [headerBottom, setHeaderBottom] = useState(0);
+
+  useEffect(() => {
+    const headerEl = document.querySelector<HTMLElement>("[data-candidate-header]");
+    if (!headerEl) return;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      setHeaderBottom(headerEl.getBoundingClientRect().bottom);
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    };
+    measure();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    const headerRo = new ResizeObserver(schedule);
+    headerRo.observe(headerEl);
+    return () => {
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      headerRo.disconnect();
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
 
   useEffect(() => {
     const el = slotRef.current;
@@ -91,8 +120,9 @@ export function FloatingResumeSection({
   }, []);
 
   // Gap between banner bottom (or page top) and the top of the floating
-  // panel. Matches the 1rem gap used elsewhere on the page.
-  const topPx = bannerH + 16;
+  // panel. Matches the 1rem gap used elsewhere on the page. While the page
+  // header is still in view, start below it instead of covering it.
+  const topPx = Math.max(bannerH + 16, Math.ceil(headerBottom) + 12);
 
   // Upper bound on the panel height. The panel sizes to its content but
   // never grows past this — so a tall tab (e.g. an inline PDF) still leaves

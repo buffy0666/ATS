@@ -300,8 +300,10 @@ export default async function CandidateDetailPage({
 
   return (
     <main className="flex-1 max-w-[120rem] mx-auto w-full px-6 py-4">
-      {/* Header — name, status, summary stay above the workspace */}
-      <header className="shrink-0 mb-3">
+      {/* Header — name, status, summary stay above the workspace. The
+          data attribute lets FloatingResumeSection position the pinned
+          panel below this header while it is in view. */}
+      <header data-candidate-header className="shrink-0 mb-3">
         <div className="flex items-center justify-between gap-3">
           <Link href="/candidates" className="text-xs text-zinc-500 hover:underline">
             ← All candidates
