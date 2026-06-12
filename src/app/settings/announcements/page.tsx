@@ -1,9 +1,9 @@
-import { requireAdminWithOrg } from "@/lib/auth-utils";
+import { requireOwnerWithOrg } from "@/lib/auth-utils";
 import { loadOrgAnnouncements } from "@/lib/announcements";
 import { AnnouncementsList, type AnnouncementRow } from "./AnnouncementsList";
 
 export default async function AnnouncementsSettingsPage() {
-  const { orgId } = await requireAdminWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
   const rows = await loadOrgAnnouncements(orgId);
   const list: AnnouncementRow[] = rows.map((r) => ({
     id: r.id,

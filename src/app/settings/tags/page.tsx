@@ -1,9 +1,9 @@
-import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { TagsTable, type TagRow } from "./TagsTable";
 
 export default async function TagsSettingsPage() {
-  const { orgId } = await requireSessionWithOrg();
+  const { orgId } = await requireAdminWithOrg();
 
   const tags = await prisma.tag.findMany({
     where: { organizationId: orgId },

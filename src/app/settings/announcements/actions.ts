@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireAdminWithOrg } from "@/lib/auth-utils";
+import { requireOwnerWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { AnnouncementAudience } from "@/generated/prisma";
 
@@ -44,7 +44,7 @@ async function requireOrgAnnouncement(id: string, orgId: string) {
 export async function createOrgAnnouncement(
   formData: FormData,
 ): Promise<AnnouncementActionResult> {
-  const { session, orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireOwnerWithOrg();
   const parsed = formSchema.safeParse({
     title: formData.get("title"),
     body: formData.get("body"),
@@ -73,7 +73,7 @@ export async function updateOrgAnnouncement(
   id: string,
   formData: FormData,
 ): Promise<AnnouncementActionResult> {
-  const { orgId } = await requireAdminWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
   await requireOrgAnnouncement(id, orgId);
   const parsed = formSchema.safeParse({
     title: formData.get("title"),
@@ -100,7 +100,7 @@ export async function setOrgAnnouncementActive(
   id: string,
   active: boolean,
 ): Promise<AnnouncementActionResult> {
-  const { orgId } = await requireAdminWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
   await requireOrgAnnouncement(id, orgId);
   await prisma.announcement.update({ where: { id }, data: { active } });
   revalidatePath("/");
@@ -111,7 +111,7 @@ export async function setOrgAnnouncementActive(
 export async function deleteOrgAnnouncement(
   id: string,
 ): Promise<AnnouncementActionResult> {
-  const { orgId } = await requireAdminWithOrg();
+  const { orgId } = await requireOwnerWithOrg();
   await requireOrgAnnouncement(id, orgId);
   await prisma.announcement.delete({ where: { id } });
   revalidatePath("/");

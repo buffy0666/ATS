@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { tagColorForName } from "@/lib/tag-colors";
 
@@ -20,7 +20,7 @@ function clean(name: string): string {
 // tag the same thing; we surface the duplicate cleanly and otherwise scope
 // reads/writes by organizationId so a stranger's tag id can't be touched.
 export async function createTag(formData: FormData): Promise<TagActionResult> {
-  const { orgId } = await requireSessionWithOrg();
+  const { orgId } = await requireAdminWithOrg();
   const name = clean(String(formData.get("name") ?? ""));
   if (!name) return { ok: false, message: "Name is required." };
   if (name.length > MAX_NAME) return { ok: false, message: `Name too long (max ${MAX_NAME}).` };
@@ -40,7 +40,7 @@ export async function renameTag(
   tagId: string,
   nextName: string,
 ): Promise<TagActionResult> {
-  const { orgId } = await requireSessionWithOrg();
+  const { orgId } = await requireAdminWithOrg();
   const name = clean(nextName);
   if (!name) return { ok: false, message: "Name is required." };
   if (name.length > MAX_NAME) return { ok: false, message: `Name too long (max ${MAX_NAME}).` };
@@ -64,7 +64,7 @@ export async function renameTag(
 }
 
 export async function deleteTag(tagId: string): Promise<TagActionResult> {
-  const { orgId } = await requireSessionWithOrg();
+  const { orgId } = await requireAdminWithOrg();
   // Deleting the Tag row removes the implicit M2M join rows automatically.
   // The candidates / clients / contacts themselves are untouched, just untagged.
   const tag = await prisma.tag.findFirst({

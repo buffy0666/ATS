@@ -740,7 +740,7 @@ export default async function CandidateDetailPage({
           className="flex flex-col gap-4 sticky top-4 self-start"
           style={{ maxHeight: "calc(100vh - 2rem)" }}
         >
-          <div className="shrink-0 grid grid-cols-2 gap-3">
+          <div className="shrink-0 grid grid-cols-3 gap-3">
             <EditableField
               candidateId={candidate.id}
               field="rating"
@@ -748,14 +748,6 @@ export default async function CandidateDetailPage({
               type="select"
               value={intStr(candidate.rating)}
               options={ratingOptions}
-            />
-            <EditableField
-              candidateId={candidate.id}
-              field="rejectionReasons"
-              label="Rejection Reason"
-              type="multiselect"
-              value={candidate.rejectionReasons}
-              options={rejectionReasonSelectOptions}
             />
             <EditableField
               candidateId={candidate.id}
@@ -773,6 +765,14 @@ export default async function CandidateDetailPage({
                   {STATUS_LABEL[candidate.status]}
                 </span>
               }
+            />
+            <EditableField
+              candidateId={candidate.id}
+              field="rejectionReasons"
+              label="Rejection Reason"
+              type="multiselect"
+              value={candidate.rejectionReasons}
+              options={rejectionReasonSelectOptions}
             />
           </div>
 

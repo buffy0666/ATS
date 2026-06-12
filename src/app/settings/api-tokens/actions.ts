@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { isOwner, requireSessionWithOrg } from "@/lib/auth-utils";
+import { isOwner, requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { createApiToken, revokeApiToken } from "@/lib/api-tokens";
 
@@ -16,7 +16,7 @@ export async function createTokenAction(
   _prev: CreateTokenResult | undefined,
   formData: FormData,
 ): Promise<CreateTokenResult> {
-  const { session, orgId } = await requireSessionWithOrg();
+  const { session, orgId } = await requireAdminWithOrg();
   const parsed = nameSchema.safeParse(formData.get("name"));
   if (!parsed.success) {
     return { ok: false, error: "Name is required (1-80 characters)." };
@@ -27,7 +27,7 @@ export async function createTokenAction(
 }
 
 export async function revokeTokenAction(tokenId: string): Promise<void> {
-  const { session, orgId } = await requireSessionWithOrg();
+  const { session, orgId } = await requireAdminWithOrg();
   if (isOwner(session.user.role)) {
     // OWNERs can revoke any token in their own org — but never across
     // tenants: the org filter is the hard boundary. The middle-tier

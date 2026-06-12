@@ -160,16 +160,22 @@ export function EditableField({
             ))}
           </select>
         ) : type === "multiselect" ? (
-          <div className="flex flex-wrap gap-x-4 gap-y-1.5 py-0.5">
+          // Vertical, capped-height list — long option sets (e.g. rejection
+          // reasons) scroll inside the card instead of stretching it.
+          <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-zinc-200 p-1.5 pr-2 dark:border-zinc-800">
             {options.map((o) => (
-              <label key={o.value} title={o.title} className="inline-flex items-center gap-1.5 text-sm">
+              <label
+                key={o.value}
+                title={o.title}
+                className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-0.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-800"
+              >
                 <input
                   type="checkbox"
                   checked={draftList.includes(o.value)}
                   onChange={() => toggleListItem(o.value)}
-                  className="rounded border-zinc-300 dark:border-zinc-700"
+                  className="shrink-0 rounded border-zinc-300 dark:border-zinc-700"
                 />
-                {o.label}
+                <span className="truncate">{o.label}</span>
               </label>
             ))}
           </div>

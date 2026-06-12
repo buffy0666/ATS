@@ -1,9 +1,9 @@
-import { isOwner, requireSessionWithOrg } from "@/lib/auth-utils";
+import { isOwner, requireAdminWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { TokensTable } from "./TokensTable";
 
 export default async function ApiTokensPage() {
-  const { session, orgId } = await requireSessionWithOrg();
+  const { session, orgId } = await requireAdminWithOrg();
   // Only OWNERs see every token in the workspace (they can also revoke any
   // of them). Everyone else — including the middle-tier ADMIN — sees only
   // their own tokens, since tokens grant the holder full programmatic

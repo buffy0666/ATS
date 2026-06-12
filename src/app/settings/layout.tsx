@@ -6,7 +6,7 @@ import { Role } from "@/generated/prisma";
 // only. Recruiters don't see Settings at all (sidebar hides it).
 const TABS: { href: string; label: string; tier: "admin" | "owner" }[] = [
   { href: "/settings/branding", label: "Branding", tier: "admin" },
-  { href: "/settings/announcements", label: "Announcements", tier: "admin" },
+  { href: "/settings/announcements", label: "Announcements", tier: "owner" },
   { href: "/settings/tags", label: "Tags", tier: "admin" },
   { href: "/settings/api-tokens", label: "API tokens", tier: "admin" },
   { href: "/settings/choices", label: "Choices", tier: "owner" },
