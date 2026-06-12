@@ -1,3 +1,5 @@
+import type { FilterType } from "./column-filter-ops";
+
 export type ColumnKey =
   | "email"
   | "phone"
@@ -43,33 +45,6 @@ export type ColumnDef = {
   label: string;
   category: string;
   align?: "left" | "right";
-};
-
-/**
- * Per-column quick-filter map: ColumnKey -> Candidate prisma field used
- * for a case-insensitive `contains` filter on the row above the table
- * header. The synthetic `__name__` sentinel fans out across firstName +
- * lastName for the leading Name column. Only text-typed columns are
- * listed here — numeric/enum/date filters live in AdvancedFilters.
- */
-export const QUICK_FILTER_FIELDS: Partial<Record<ColumnKey | "name", string>> = {
-  name: "__name__",
-  email: "email",
-  phone: "phone",
-  altEmail: "alternateEmail",
-  altPhone: "alternatePhone",
-  city: "locationCity",
-  state: "locationState",
-  country: "locationCountry",
-  timezone: "timezone",
-  currentTitle: "currentTitle",
-  currentCompany: "currentCompany",
-  seniority: "seniority",
-  source: "source",
-  summary: "summary",
-  linkedin: "linkedinUrl",
-  github: "githubUrl",
-  portfolio: "portfolioUrl",
 };
 
 export const COLUMN_DEFS: ColumnDef[] = [
@@ -145,6 +120,102 @@ export const DEFAULT_COLUMNS: ColumnKey[] = [
 ];
 
 export const COLUMN_STORAGE_KEY = "ats.candidates.columns.v1";
+
+// ---------------------------------------------------------------------------
+// Per-column filter metadata.
+//
+// Drives the per-header filter popover (type-appropriate operators) in
+// CandidatesView. The server (`candidate-filter.ts`) reads the same metadata
+// to translate `qcol_<columnKey>=<op>:<payload>` URL params into Prisma
+// clauses, so what you filter is exactly what the paginated query returns.
+// Columns absent from the map simply aren't filterable.
+// ---------------------------------------------------------------------------
+
+export type { FilterType };
+
+// Where the choice picker gets its options (resolved by a server action,
+// see column-filter-actions.ts).
+export type ChoiceOptionSource =
+  | "enum:CandidateStatus"
+  | "enum:RemotePref"
+  | "enum:WorkAuth"
+  | "enum:EmploymentType"
+  | "bool"
+  | "tags"
+  | "lists"
+  | "choice:candidate.source"
+  | "choice:candidate.seniority";
+
+export type ColumnFilterSpec =
+  | { type: "text"; field: string; array?: boolean; relation?: "jobTitle" }
+  | {
+      type: "choice";
+      field: string;
+      variant:
+        | "enumScalar"
+        | "stringScalar"
+        | "enumArray"
+        | "stringArray"
+        | "boolScalar"
+        | "tags"
+        | "lists";
+      options: ChoiceOptionSource;
+      /**
+       * Nullable scalar field: "is none of" must OR-in `{ field: null }`,
+       * because Postgres `NOT IN (...)` drops NULL rows.
+       */
+      nullable?: boolean;
+    }
+  | { type: "number"; field: string }
+  | { type: "date"; field: string }
+  | { type: "presence"; field: string };
+
+// `name` is the synthetic leading column (firstName + lastName).
+export const COLUMN_FILTERS: Partial<Record<ColumnKey | "name", ColumnFilterSpec>> = {
+  name: { type: "text", field: "__name__" },
+  email: { type: "text", field: "email" },
+  phone: { type: "text", field: "phone" },
+  altEmail: { type: "text", field: "alternateEmail" },
+  altPhone: { type: "text", field: "alternatePhone" },
+  status: { type: "choice", field: "status", variant: "enumScalar", options: "enum:CandidateStatus" },
+  rating: { type: "number", field: "rating" },
+  tags: { type: "choice", field: "tags", variant: "tags", options: "tags" },
+  lists: { type: "choice", field: "listMemberships", variant: "lists", options: "lists" },
+  jobs: { type: "text", field: "applications", relation: "jobTitle" },
+  city: { type: "text", field: "locationCity" },
+  state: { type: "text", field: "locationState" },
+  country: { type: "text", field: "locationCountry" },
+  timezone: { type: "text", field: "timezone" },
+  // Boolean column → choice filter with static Yes/No options ("bool" source).
+  willingToRelocate: { type: "choice", field: "willingToRelocate", variant: "boolScalar", options: "bool" },
+  currentTitle: { type: "text", field: "currentTitle" },
+  currentCompany: { type: "text", field: "currentCompany" },
+  yearsExperience: { type: "number", field: "yearsExperience" },
+  seniority: { type: "choice", field: "seniority", variant: "stringScalar", options: "choice:candidate.seniority", nullable: true },
+  workAuth: { type: "choice", field: "workAuthorization", variant: "enumScalar", options: "enum:WorkAuth", nullable: true },
+  needsSponsorship: { type: "choice", field: "requiresSponsorship", variant: "boolScalar", options: "bool" },
+  desiredSalary: { type: "number", field: "desiredSalaryMin" },
+  currentSalary: { type: "number", field: "currentSalary" },
+  availableFrom: { type: "date", field: "availableFrom" },
+  noticeDays: { type: "number", field: "noticePeriodDays" },
+  remotePref: { type: "choice", field: "remotePref", variant: "enumArray", options: "enum:RemotePref" },
+  employmentTypePref: { type: "choice", field: "employmentTypePref", variant: "enumArray", options: "enum:EmploymentType" },
+  industries: { type: "text", field: "industries", array: true },
+  specialties: { type: "text", field: "specialties", array: true },
+  source: { type: "choice", field: "source", variant: "stringScalar", options: "choice:candidate.source", nullable: true },
+  lastContactedAt: { type: "date", field: "lastContactedAt" },
+  nextFollowUpAt: { type: "date", field: "nextFollowUpAt" },
+  linkedin: { type: "presence", field: "linkedinUrl" },
+  github: { type: "presence", field: "githubUrl" },
+  portfolio: { type: "presence", field: "portfolioUrl" },
+  resume: { type: "presence", field: "resumeUrl" },
+  summary: { type: "text", field: "summary" },
+  createdAt: { type: "date", field: "createdAt" },
+};
+
+export const FILTER_TYPE_BY_COLUMN: Partial<Record<string, FilterType>> = Object.fromEntries(
+  Object.entries(COLUMN_FILTERS).map(([k, v]) => [k, v!.type]),
+);
 
 /**
  * Columns the user can sort by. Maps a ColumnKey (plus the synthetic `name`

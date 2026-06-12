@@ -5,7 +5,8 @@ import {
   RemotePref,
   WorkAuth,
 } from "@/generated/prisma";
-import { QUICK_FILTER_FIELDS } from "./candidate-columns";
+import { COLUMN_FILTERS, type ColumnFilterSpec } from "./candidate-columns";
+import { decodeFilter, splitRange } from "./column-filter-ops";
 import { parseMultiValue, parsePositiveInt } from "./search-params";
 
 /**
@@ -237,6 +238,22 @@ export function buildCandidateWhere(sp: SearchParamsShape): Prisma.CandidateWher
   return where;
 }
 
+// Each active per-column filter is `qcol_<columnKey>=<op>:<payload>`. We look
+// up the column's filter spec, decode the operator + value, and translate it
+// into a Prisma clause appropriate to the column's data type. Bare legacy
+// values (no op prefix) decode to the type's default operator, so old saved
+// searches keep working.
+const ENUM_BY_OPTION: Record<string, Record<string, string>> = {
+  "enum:CandidateStatus": CandidateStatus as unknown as Record<string, string>,
+  "enum:RemotePref": RemotePref as unknown as Record<string, string>,
+  "enum:WorkAuth": WorkAuth as unknown as Record<string, string>,
+  "enum:EmploymentType": EmploymentType as unknown as Record<string, string>,
+};
+
+function asWhere(o: unknown): Prisma.CandidateWhereInput {
+  return o as Prisma.CandidateWhereInput;
+}
+
 export function buildQuickColumnFilters(
   sp: Record<string, unknown>,
 ): Prisma.CandidateWhereInput[] {
@@ -244,23 +261,216 @@ export function buildQuickColumnFilters(
   for (const [k, raw] of Object.entries(sp)) {
     if (!k.startsWith("qcol_")) continue;
     if (typeof raw !== "string") continue;
-    const value = raw.trim();
-    if (!value) continue;
     const colKey = k.slice("qcol_".length);
-    const field = QUICK_FILTER_FIELDS[colKey as keyof typeof QUICK_FILTER_FIELDS];
-    if (!field) continue;
-    if (field === "__name__") {
-      out.push({
-        OR: [
-          { firstName: { contains: value, mode: "insensitive" } },
-          { lastName: { contains: value, mode: "insensitive" } },
-        ],
-      });
-    } else {
-      out.push({ [field]: { contains: value, mode: "insensitive" } } as Prisma.CandidateWhereInput);
-    }
+    const spec = COLUMN_FILTERS[colKey as keyof typeof COLUMN_FILTERS];
+    if (!spec) continue;
+    const decoded = decodeFilter(spec.type, raw);
+    if (!decoded) continue;
+    const clause = buildColumnClause(spec, decoded.op, decoded.value);
+    if (clause) out.push(clause);
   }
   return out;
+}
+
+function buildColumnClause(
+  spec: ColumnFilterSpec,
+  op: string,
+  value: string,
+): Prisma.CandidateWhereInput | null {
+  switch (spec.type) {
+    case "text":
+      return textClause(spec, op, value);
+    case "choice":
+      return choiceClause(spec, op, value);
+    case "number":
+      return numberClause(spec.field, op, value);
+    case "date":
+      return dateClause(spec.field, op, value);
+    case "presence":
+      return presenceClause(spec.field, op);
+  }
+}
+
+function textClause(
+  spec: Extract<ColumnFilterSpec, { type: "text" }>,
+  op: string,
+  value: string,
+): Prisma.CandidateWhereInput | null {
+  const f = spec.field;
+  const v = value.trim();
+
+  if (f === "__name__") {
+    if (!v) return null;
+    const ci = "insensitive" as const;
+    const ors = [
+      { firstName: { contains: v, mode: ci } },
+      { lastName: { contains: v, mode: ci } },
+    ];
+    const eqs = [
+      { firstName: { equals: v, mode: ci } },
+      { lastName: { equals: v, mode: ci } },
+    ];
+    switch (op) {
+      case "contains":
+        return asWhere({ OR: ors });
+      case "ncontains":
+        return asWhere({ NOT: { OR: ors } });
+      case "is":
+        return asWhere({ OR: eqs });
+      case "nis":
+        return asWhere({ NOT: { OR: eqs } });
+      default:
+        return null; // empty/nempty don't apply — name is always present
+    }
+  }
+
+  if (spec.relation === "jobTitle") {
+    if (!v) return null;
+    const match = { job: { title: { contains: v, mode: "insensitive" as const } } };
+    switch (op) {
+      case "contains":
+      case "is":
+        return asWhere({ applications: { some: match } });
+      case "ncontains":
+      case "nis":
+        return asWhere({ applications: { none: match } });
+      default:
+        return null;
+    }
+  }
+
+  if (spec.array) {
+    switch (op) {
+      case "contains":
+      case "is":
+        return v ? asWhere({ [f]: { has: v } }) : null;
+      case "ncontains":
+      case "nis":
+        return v ? asWhere({ NOT: { [f]: { has: v } } }) : null;
+      case "empty":
+        return asWhere({ [f]: { isEmpty: true } });
+      case "nempty":
+        return asWhere({ NOT: { [f]: { isEmpty: true } } });
+      default:
+        return null;
+    }
+  }
+
+  switch (op) {
+    case "contains":
+      return v ? asWhere({ [f]: { contains: v, mode: "insensitive" } }) : null;
+    case "ncontains":
+      return v ? asWhere({ NOT: { [f]: { contains: v, mode: "insensitive" } } }) : null;
+    case "is":
+      return v ? asWhere({ [f]: { equals: v, mode: "insensitive" } }) : null;
+    case "nis":
+      return v ? asWhere({ NOT: { [f]: { equals: v, mode: "insensitive" } } }) : null;
+    case "empty":
+      return asWhere({ OR: [{ [f]: null }, { [f]: "" }] });
+    case "nempty":
+      return asWhere({ AND: [{ [f]: { not: null } }, { [f]: { not: "" } }] });
+    default:
+      return null;
+  }
+}
+
+function choiceClause(
+  spec: Extract<ColumnFilterSpec, { type: "choice" }>,
+  op: string,
+  value: string,
+): Prisma.CandidateWhereInput | null {
+  let values = parseMultiValue(value);
+  const enumObj = ENUM_BY_OPTION[spec.options];
+  if (enumObj) values = filterEnumValues(values, enumObj) as string[];
+  if (spec.variant === "boolScalar") {
+    values = values.filter((v) => v === "true" || v === "false");
+  }
+  if (values.length === 0) return null;
+  const exclude = op === "nin";
+  const f = spec.field;
+
+  switch (spec.variant) {
+    case "enumScalar":
+    case "stringScalar":
+      if (exclude) {
+        // For nullable scalars, OR-in null — Postgres NOT IN drops NULL rows.
+        return spec.nullable
+          ? asWhere({ OR: [{ [f]: null }, { [f]: { notIn: values } }] })
+          : asWhere({ [f]: { notIn: values } });
+      }
+      return asWhere({ [f]: { in: values } });
+    case "boolScalar": {
+      const wantTrue = values.includes("true");
+      const wantFalse = values.includes("false");
+      if (wantTrue && wantFalse) {
+        // Both chosen: "any of" matches everything (no clause); "none of"
+        // matches nothing (empty OR is unsatisfiable in Prisma).
+        return exclude ? asWhere({ OR: [] }) : null;
+      }
+      const target = wantTrue;
+      return asWhere({ [f]: exclude ? !target : target });
+    }
+    case "enumArray":
+    case "stringArray":
+      return exclude
+        ? asWhere({ NOT: { [f]: { hasSome: values } } })
+        : asWhere({ [f]: { hasSome: values } });
+    case "tags":
+      return exclude
+        ? asWhere({ tags: { none: { name: { in: values } } } })
+        : asWhere({ tags: { some: { name: { in: values } } } });
+    case "lists":
+      return exclude
+        ? asWhere({ listMemberships: { none: { list: { name: { in: values } } } } })
+        : asWhere({ listMemberships: { some: { list: { name: { in: values } } } } });
+    default:
+      return null;
+  }
+}
+
+function numberClause(field: string, op: string, value: string): Prisma.CandidateWhereInput | null {
+  if (op === "empty") return asWhere({ [field]: null });
+  if (op === "nempty") return asWhere({ [field]: { not: null } });
+  const [minS, maxS] = splitRange(value);
+  const min = parsePositiveInt(minS);
+  const max = parsePositiveInt(maxS);
+  if (min == null && max == null) return null;
+  const range: Record<string, number> = {};
+  if (min != null) range.gte = min;
+  if (max != null) range.lte = max;
+  return asWhere({ [field]: range });
+}
+
+function dateClause(field: string, op: string, value: string): Prisma.CandidateWhereInput | null {
+  if (op === "empty") return asWhere({ [field]: null });
+  if (op === "nempty") return asWhere({ [field]: { not: null } });
+  const [fromS, toS] = splitRange(value);
+  const gte = parseDateStart(fromS);
+  const lte = parseDateEnd(toS);
+  if (!gte && !lte) return null;
+  const range: Record<string, Date> = {};
+  if (gte) range.gte = gte;
+  if (lte) range.lte = lte;
+  return asWhere({ [field]: range });
+}
+
+function presenceClause(field: string, op: string): Prisma.CandidateWhereInput | null {
+  if (op === "nhas") return asWhere({ OR: [{ [field]: null }, { [field]: "" }] });
+  return asWhere({ AND: [{ [field]: { not: null } }, { [field]: { not: "" } }] });
+}
+
+/** Parse a "YYYY-MM-DD" string to the start of that day, or null. */
+function parseDateStart(raw: string | undefined): Date | null {
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const d = new Date(`${raw}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** Parse a "YYYY-MM-DD" string to the end of that day (inclusive), or null. */
+function parseDateEnd(raw: string | undefined): Date | null {
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const d = new Date(`${raw}T23:59:59.999`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 // Presence helper for nullable scalar fields: "true" = not null, "false" = null.

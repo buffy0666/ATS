@@ -18,15 +18,25 @@ import { KeywordSearchBar } from "./KeywordSearchBar";
 import { SavedSearchesMenu, type SavedSearchEntry } from "./SavedSearchesMenu";
 import {
   COLUMN_DEFS,
+  COLUMN_FILTERS,
   COLUMN_STORAGE_KEY,
   DEFAULT_COLUMNS,
-  QUICK_FILTER_FIELDS,
   SORTABLE_FIELDS,
   parseColumns,
   serializeColumns,
   type ColumnDef,
   type ColumnKey,
 } from "./candidate-columns";
+import {
+  OPERATORS,
+  decodeFilter,
+  defaultOp,
+  encodeFilter,
+  joinRange,
+  splitRange,
+  type FilterType,
+} from "./column-filter-ops";
+import { loadColumnChoiceOptions } from "./column-filter-actions";
 import { ADVANCED_FILTER_KEYS } from "./search-params";
 import { SelectionToolbar } from "./SelectionToolbar";
 import { selectAllMatchingIds } from "./bulk-actions";
@@ -201,37 +211,15 @@ export function CandidatesView({
     top.scrollLeft = table.scrollLeft;
   }
 
-  // Quick per-column filters (the input row under the header). Seeded
-  // from URL params so a reload/back-button trip preserves the filters,
-  // then locally edited with a debounced push back to the URL.
-  const [filterValues, setFilterValues] = useState<Record<string, string>>(() => {
-    const seed: Record<string, string> = {};
-    for (const k of Object.keys(QUICK_FILTER_FIELDS)) {
-      const v = searchParams?.get(`qcol_${k}`) ?? "";
-      if (v) seed[k] = v;
-    }
-    return seed;
-  });
-  const filterDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  function updateQuickFilter(key: string, value: string) {
-    setFilterValues((prev) => {
-      const next = { ...prev, [key]: value };
-      if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current);
-      filterDebounceRef.current = setTimeout(() => {
-        const params = new URLSearchParams(searchParams?.toString() ?? "");
-        for (const k of Object.keys(QUICK_FILTER_FIELDS)) {
-          const val = (next[k] ?? "").trim();
-          if (val) params.set(`qcol_${k}`, val);
-          else params.delete(`qcol_${k}`);
-        }
-        // A new filter set might leave the user on a page that no longer
-        // exists — drop the cursor back to page 1.
-        params.delete("page");
-        const qs = params.toString();
-        router.push(qs ? `?${qs}` : "?");
-      }, 350);
-      return next;
-    });
+  // Per-column header filters live in qcol_<key>=<op>:<payload> params.
+  // Setting one resets to page 1 since the result set changes.
+  function setColumnFilter(key: string, encoded: string | null) {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (encoded) params.set(`qcol_${key}`, encoded);
+    else params.delete(`qcol_${key}`);
+    params.delete("page");
+    const qs = params.toString();
+    router.push(qs ? `?${qs}` : "?", { scroll: false });
   }
 
   // Drop selections for candidates no longer in the visible result set
@@ -239,6 +227,7 @@ export function CandidatesView({
   // changes since the candidate ID set doesn't change.
   useEffect(() => {
     // A changed result set invalidates "all matching" mode (filters/page moved).
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting selection when the server sends a new result set
     setSelectAllActive(false);
     setAllMatchingIds([]);
     setSelectAllCapped(false);
@@ -422,7 +411,13 @@ export function CandidatesView({
 
   const anyFilterActive =
     (searchParams.get("q") ?? "").length > 0 ||
-    ADVANCED_FILTER_KEYS.some((k) => (searchParams.get(k) ?? "").length > 0);
+    ADVANCED_FILTER_KEYS.some((k) => (searchParams.get(k) ?? "").length > 0) ||
+    // Per-column quick filters live under qcol_* params. Without these the
+    // "Clear all filters" escape hatch wouldn't appear when a column filter
+    // alone narrows the list to zero — leaving the user stuck.
+    Array.from(searchParams.keys()).some(
+      (k) => k.startsWith("qcol_") && (searchParams.get(k) ?? "").length > 0,
+    );
 
   function clearAllFilters() {
     router.push("/candidates", { scroll: false });
@@ -659,10 +654,8 @@ export function CandidatesView({
         </div>
       )}
 
-      {candidates.length === 0 ? (
-        <p className="text-sm text-zinc-500">
-          {anyFilterActive ? "No candidates match these filters." : "No candidates yet."}
-        </p>
+      {candidates.length === 0 && !anyFilterActive ? (
+        <p className="text-sm text-zinc-500">No candidates yet.</p>
       ) : (
         <>
         {/* Top horizontal scrollbar, mirrors the table's. */}
@@ -702,11 +695,23 @@ export function CandidatesView({
                   />
                 </th>
                 <th className="px-4 py-2 font-medium whitespace-nowrap sticky left-9 z-30 bg-zinc-50 dark:bg-zinc-950 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-zinc-200 dark:after:bg-zinc-800">
-                  {renderSortLabel("name", "Name")}
+                  <span className="inline-flex items-center">
+                    {renderSortLabel("name", "Name")}
+                    {serverDriven && (
+                      <ColumnFilterPopover
+                        columnKey="name"
+                        label="Name"
+                        type="text"
+                        currentValue={searchParams.get("qcol_name")}
+                        onApply={setColumnFilter}
+                      />
+                    )}
+                  </span>
                 </th>
                 {activeColumns.map((c) => {
                   const isDragging = draggingKey === c.key;
                   const isDropTarget = dropTargetKey === c.key && draggingKey !== c.key;
+                  const filterSpec = COLUMN_FILTERS[c.key];
                   return (
                     <th
                       key={c.key}
@@ -746,46 +751,44 @@ export function CandidatesView({
                         isDropTarget ? "border-l-2 border-zinc-900 dark:border-zinc-100" : ""
                       }`}
                     >
-                      <span
-                        aria-hidden="true"
-                        className="inline-block mr-1 text-zinc-400 group-hover:text-zinc-600"
-                      >
-                        ⋮⋮
+                      <span className={`inline-flex items-center ${c.align === "right" ? "flex-row-reverse" : ""}`}>
+                        <span
+                          aria-hidden="true"
+                          className="inline-block mx-1 text-zinc-400 group-hover:text-zinc-600"
+                        >
+                          ⋮⋮
+                        </span>
+                        {renderSortLabel(c.key, c.label)}
+                        {serverDriven && filterSpec ? (
+                          <ColumnFilterPopover
+                            columnKey={c.key}
+                            label={c.label}
+                            type={filterSpec.type}
+                            optionsSource={filterSpec.type === "choice" ? filterSpec.options : undefined}
+                            currentValue={searchParams.get(`qcol_${c.key}`)}
+                            onApply={setColumnFilter}
+                          />
+                        ) : null}
                       </span>
-                      {renderSortLabel(c.key, c.label)}
                     </th>
                   );
                 })}
                 <th className="px-4 py-2 font-medium text-right w-20"></th>
               </tr>
-              {/* Per-column quick-filter row. Text-typed columns get a
-                  small "Filter…" box; others render an empty cell. */}
-              <tr className="border-t border-zinc-100 bg-zinc-50/60 dark:border-zinc-900 dark:bg-zinc-950/40">
-                <th className="px-3 py-1.5 sticky left-0 z-30 bg-zinc-50 dark:bg-zinc-950"></th>
-                <th className="px-2 py-1.5 sticky left-9 z-30 bg-zinc-50 dark:bg-zinc-950 after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-zinc-200 dark:after:bg-zinc-800">
-                  <QuickFilterInput
-                    value={filterValues.name ?? ""}
-                    onChange={(v) => updateQuickFilter("name", v)}
-                  />
-                </th>
-                {activeColumns.map((c) => {
-                  const filterable = QUICK_FILTER_FIELDS[c.key as keyof typeof QUICK_FILTER_FIELDS];
-                  return (
-                    <th key={c.key} className="px-2 py-1.5">
-                      {filterable ? (
-                        <QuickFilterInput
-                          value={filterValues[c.key] ?? ""}
-                          onChange={(v) => updateQuickFilter(c.key, v)}
-                        />
-                      ) : null}
-                    </th>
-                  );
-                })}
-                <th className="px-3 py-1.5"></th>
-              </tr>
             </thead>
             <tbody>
-              {candidates.map((c) => (
+              {candidates.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={activeColumns.length + 3}
+                    className="px-4 py-12 text-center text-sm text-zinc-500"
+                  >
+                    No candidates match these filters. Adjust or clear the column
+                    filters above, or use “Clear all filters”.
+                  </td>
+                </tr>
+              ) : (
+                candidates.map((c) => (
                 <tr
                   key={c.id}
                   className={`group border-t border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-950 ${
@@ -833,7 +836,8 @@ export function CandidatesView({
                     />
                   </td>
                 </tr>
-              ))}
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -1036,24 +1040,231 @@ function renderCell(c: CandidateRow, key: ColumnKey): React.ReactNode {
   }
 }
 
-/** Compact text input used in the quick-filter row above the table data. */
-function QuickFilterInput({
-  value,
-  onChange,
+const FIELD_INPUT_CLASS =
+  "w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs font-normal text-zinc-700 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200";
+
+/**
+ * Per-header filter control. Renders a funnel toggle in the column header; the
+ * popover (fixed-positioned so the table's overflow pane doesn't clip it)
+ * offers a type-appropriate operator + value editor. Choice options are loaded
+ * lazily on first open via a server action.
+ */
+function ColumnFilterPopover({
+  columnKey,
+  label,
+  type,
+  optionsSource,
+  currentValue,
+  onApply,
 }: {
-  value: string;
-  onChange: (value: string) => void;
+  columnKey: string;
+  label: string;
+  type: FilterType;
+  optionsSource?: string;
+  currentValue: string | null;
+  onApply: (key: string, encoded: string | null) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  const [op, setOp] = useState(defaultOp(type));
+  const [text, setText] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [min, setMin] = useState("");
+  const [max, setMax] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [options, setOptions] = useState<{ value: string; label: string }[] | null>(null);
+
+  const active = decodeFilter(type, currentValue) != null;
+
+  function openPopover() {
+    const d = decodeFilter(type, currentValue);
+    setOp(d?.op ?? defaultOp(type));
+    if (type === "text") setText(d && !["empty", "nempty"].includes(d.op) ? d.value : "");
+    if (type === "choice") setSelected(d ? d.value.split(",").filter(Boolean) : []);
+    if (type === "number" || type === "date") {
+      const [a, b] = splitRange(d?.op === "range" ? d.value : "");
+      if (type === "number") {
+        setMin(a);
+        setMax(b);
+      } else {
+        setFrom(a);
+        setTo(b);
+      }
+    }
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) {
+      setPos({
+        top: Math.min(r.bottom + 4, window.innerHeight - 320),
+        left: Math.max(8, Math.min(r.left, window.innerWidth - 272)),
+      });
+    }
+    if (type === "choice" && optionsSource && options == null) {
+      loadColumnChoiceOptions(optionsSource)
+        .then(setOptions)
+        .catch(() => setOptions([]));
+    }
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      const t = e.target as Node;
+      if (popRef.current?.contains(t) || btnRef.current?.contains(t)) return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    function onScroll() {
+      setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open]);
+
+  function apply() {
+    let encoded: string | null = null;
+    if (type === "text") encoded = encodeFilter("text", op, text);
+    else if (type === "choice") encoded = encodeFilter("choice", op, selected.join(","));
+    else if (type === "number")
+      encoded = op === "range" ? encodeFilter("number", "range", joinRange(min, max)) : encodeFilter("number", op, "");
+    else if (type === "date")
+      encoded = op === "range" ? encodeFilter("date", "range", joinRange(from, to)) : encodeFilter("date", op, "");
+    else if (type === "presence") encoded = encodeFilter("presence", op, "");
+    onApply(columnKey, encoded);
+    setOpen(false);
+  }
+
+  function clear() {
+    onApply(columnKey, null);
+    setOpen(false);
+  }
+
+  function toggleSelected(v: string) {
+    setSelected((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
+  }
+
+  const needsValue = OPERATORS[type].find((o) => o.value === op)?.needsValue ?? false;
+
   return (
-    <input
-      type="text"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder="Filter…"
-      title="Type to filter (contains). Prefix with ! to exclude — e.g. !temp"
-      className="w-full rounded border border-zinc-300 bg-white px-2 py-0.5 text-xs font-normal text-zinc-700 placeholder:text-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
-      aria-label="Quick filter"
-    />
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (open) setOpen(false);
+          else openPopover();
+        }}
+        title={`Filter by ${label.toLowerCase()}`}
+        aria-label={`Filter by ${label}`}
+        className={`ml-1 rounded px-1 text-[11px] leading-none ${
+          active ? "text-indigo-600 dark:text-indigo-400" : "text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+        }`}
+      >
+        ⏷
+      </button>
+      {open && pos && (
+        <div
+          ref={popRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left, width: 256 }}
+          onMouseDown={(e) => e.stopPropagation()}
+          className="z-50 rounded-md border border-zinc-200 bg-white p-2 text-xs font-normal normal-case tracking-normal text-zinc-700 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+        >
+          <div className="mb-1.5 font-medium text-zinc-900 dark:text-zinc-100">{label}</div>
+          <select value={op} onChange={(e) => setOp(e.target.value)} className={`${FIELD_INPUT_CLASS} mb-2`}>
+            {OPERATORS[type].map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+
+          {type === "text" && needsValue && (
+            <input
+              autoFocus
+              type="text"
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") apply();
+              }}
+              placeholder="Value…"
+              className={FIELD_INPUT_CLASS}
+            />
+          )}
+
+          {type === "choice" && needsValue && (
+            options == null ? (
+              <p className="px-1 py-1 text-zinc-400">Loading…</p>
+            ) : options.length === 0 ? (
+              <p className="px-1 py-1 text-zinc-400">No options.</p>
+            ) : (
+              <div className="max-h-48 space-y-0.5 overflow-y-auto pr-1">
+                {options.map((o) => (
+                  <label
+                    key={o.value}
+                    className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(o.value)}
+                      onChange={() => toggleSelected(o.value)}
+                      className="rounded border-zinc-300 dark:border-zinc-700"
+                    />
+                    <span className="truncate">{o.label}</span>
+                  </label>
+                ))}
+              </div>
+            )
+          )}
+
+          {type === "number" && op === "range" && (
+            <div className="flex items-center gap-1.5">
+              <input type="number" value={min} onChange={(e) => setMin(e.target.value)} placeholder="Min" className={FIELD_INPUT_CLASS} />
+              <span className="text-zinc-400">–</span>
+              <input type="number" value={max} onChange={(e) => setMax(e.target.value)} placeholder="Max" className={FIELD_INPUT_CLASS} />
+            </div>
+          )}
+
+          {type === "date" && op === "range" && (
+            <div className="flex items-center gap-1.5">
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={FIELD_INPUT_CLASS} />
+              <span className="text-zinc-400">–</span>
+              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={FIELD_INPUT_CLASS} />
+            </div>
+          )}
+
+          <div className="mt-2 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={clear}
+              className="text-[11px] text-zinc-500 underline-offset-2 hover:text-zinc-900 hover:underline dark:hover:text-zinc-100"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={apply}
+              className="rounded-md bg-zinc-900 px-2.5 py-1 text-[11px] font-medium text-white hover:opacity-90 dark:bg-zinc-100 dark:text-zinc-900"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
