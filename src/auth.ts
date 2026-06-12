@@ -6,7 +6,7 @@ import { authConfig } from "@/auth.config";
 import { prisma } from "@/lib/prisma";
 
 const credentialsSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().email(),
   password: z.string().min(1),
 });
 
@@ -50,8 +50,11 @@ export const { handlers, auth, signIn, signOut, unstable_update: updateSession }
         // tenant context without a second query per request. We tolerate
         // a null org during the staged multi-tenant migration — Phase 4
         // adds the /onboarding redirect that catches stranded users.
-        const user = await prisma.user.findUnique({
-          where: { email },
+        // Case-insensitive match: some pre-existing rows were stored with
+        // mixed-case emails (createUser only started lowercasing later),
+        // so an exact findUnique would lock those users out.
+        const user = await prisma.user.findFirst({
+          where: { email: { equals: email, mode: "insensitive" } },
           include: {
             organization: { select: { id: true, name: true } },
           },

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { LoginForm } from "./LoginForm";
 
 /**
@@ -27,13 +26,7 @@ export default async function LoginPage({
         <LoginForm defaultEmail={email ?? ""} />
         {!fresh && (
           <p className="mt-6 text-sm text-zinc-500">
-            New here?{" "}
-            <Link
-              href="/signup"
-              className="text-zinc-900 dark:text-zinc-100 font-medium hover:underline"
-            >
-              Create a workspace
-            </Link>
+            New here? Please reach out to Dogfood Dev for workspace creation.
           </p>
         )}
       </div>

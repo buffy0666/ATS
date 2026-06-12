@@ -1,7 +1,8 @@
-import { NextRequest } from "next/server";
+import { NextRequest, after } from "next/server";
 import { z } from "zod";
 import { AIProcessingStatus, Prisma } from "@/generated/prisma";
 import { authenticateApiToken } from "@/lib/api-tokens";
+import { processCandidateById } from "@/lib/ai/candidate-worker";
 import { prisma } from "@/lib/prisma";
 
 /**
@@ -14,13 +15,20 @@ import { prisma } from "@/lib/prisma";
  *  - Duplicates by linkedinUrl/email → 409 with the existing candidate.
  *  - Otherwise creates the candidate and returns 201 in ~200ms.
  *  - When `pageText` is provided, it's stored verbatim and the candidate is
- *    flagged `aiStatus = PENDING`. A separate background worker
- *    (`scripts/process-ai-queue.ts`) running on the user's network picks
- *    these up and runs three Ollama passes: (1) extract structured fields,
- *    (2) generate a resume facsimile, (3) extract outreach hooks. This
- *    keeps the Chrome click sub-second instead of blocking on a 20-40s
- *    AI call.
+ *    flagged `aiStatus = PENDING`. AI processing starts immediately after
+ *    the response is sent (next/server `after`), running three passes:
+ *    (1) extract structured fields, (2) generate a resume facsimile,
+ *    (3) extract outreach hooks. This keeps the Chrome click sub-second
+ *    instead of blocking on a 20-40s AI call. The minutely cron
+ *    (/api/internal/process-ai-queue) remains as the retry/backstop path —
+ *    it re-queues anything that dies mid-pass and drains backlog.
  */
+
+// The post-response AI passes (via `after`) need more than the default
+// function window — three sequential model calls take 20-60s. 60s is the
+// same cap /api/internal/process-ai-queue uses; if the passes outlive it,
+// the cron's stuck-row recovery re-queues the candidate.
+export const maxDuration = 60;
 
 const workItemSchema = z.object({
   company: z.string().trim().max(160).optional(),
@@ -213,6 +221,20 @@ export async function POST(request: NextRequest) {
     },
     select: { id: true, firstName: true, lastName: true },
   });
+
+  // Kick off AI processing as soon as the response is sent — no waiting
+  // for the cron sweep. The worker claims the row atomically, so if the
+  // cron fires at the same moment only one of them processes it.
+  if (willQueueAI) {
+    after(async () => {
+      try {
+        await processCandidateById(created.id);
+      } catch (err) {
+        // Row stays PENDING/PROCESSING; the cron's recovery path retries.
+        console.error(`[ai] immediate processing failed for ${created.id}:`, err);
+      }
+    });
+  }
 
   return new Response(
     JSON.stringify({

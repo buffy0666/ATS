@@ -19,7 +19,7 @@ import { sanitizePhoneSystems } from "./user-fields";
 const passwordPolicy = z.string().min(8, "Password must be at least 8 characters.");
 
 const createSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().email(),
   name: z.string().max(120).optional().or(z.literal("")).transform((v) => v || null),
   password: passwordPolicy,
   role: z.nativeEnum(Role),
@@ -59,7 +59,9 @@ export async function createUser(
     };
   }
 
-  const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } });
+  const existing = await prisma.user.findFirst({
+    where: { email: { equals: parsed.data.email, mode: "insensitive" } },
+  });
   if (existing) return { ok: false, error: "A user with that email already exists." };
 
   const passwordHash = await bcrypt.hash(parsed.data.password, 10);

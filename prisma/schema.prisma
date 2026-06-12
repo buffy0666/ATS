@@ -106,13 +106,13 @@ enum EmailDirection {
 /// badge rows by provenance and gives the future webhook integration a
 /// clean way to dedupe against extension-captured copies.
 enum EmailSource {
-  COMPOSER          // sent via the ATS email composer (/candidates/[id])
+  COMPOSER // sent via the ATS email composer (/candidates/[id])
   EXTENSION_OUTLOOK // captured via the Chrome extension on Outlook web
-  EXTENSION_GMAIL   // captured via the Chrome extension on Gmail (future)
-  WEBHOOK           // inbound from Resend/Mailgun webhook (future)
-  OAUTH_GMAIL       // pulled from a connected Gmail account (future)
-  OAUTH_OUTLOOK     // pulled from a connected Outlook account (future)
-  MANUAL            // pasted in by hand (future)
+  EXTENSION_GMAIL // captured via the Chrome extension on Gmail (future)
+  WEBHOOK // inbound from Resend/Mailgun webhook (future)
+  OAUTH_GMAIL // pulled from a connected Gmail account (future)
+  OAUTH_OUTLOOK // pulled from a connected Outlook account (future)
+  MANUAL // pasted in by hand (future)
 }
 
 enum WorkAuth {
@@ -442,41 +442,42 @@ model User {
 
   // --- User Profile section ---
   // Free-text profile notes.
-  profileComments    String?
+  profileComments String?
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  jobsCreated            Job[]                   @relation("JobCreator")
+  jobsCreated            Job[]                    @relation("JobCreator")
   notes                  Note[]
-  clientsOwned           Client[]                @relation("ClientOwner")
+  clientsOwned           Client[]                 @relation("ClientOwner")
   emailsSent             EmailLog[]
-  contactLogsLogged      ContactLog[]            @relation("ContactLogLogger")
-  emailTemplates         EmailTemplate[]         @relation("EmailTemplateCreator")
-  candidatesSourced      Candidate[]             @relation("CandidateSourcer")
-  candidatesReferred     Candidate[]             @relation("CandidateReferrerUser")
+  contactLogsLogged      ContactLog[]             @relation("ContactLogLogger")
+  emailTemplates         EmailTemplate[]          @relation("EmailTemplateCreator")
+  candidatesSourced      Candidate[]              @relation("CandidateSourcer")
+  candidatesReferred     Candidate[]              @relation("CandidateReferrerUser")
   referencesContacted    CandidateReference[]
   documentsUploaded      CandidateDocument[]
+  certificationsVerified CandidateCertification[] @relation("CertificationVerifier")
   activities             CandidateActivity[]
-  tasksCreated           Task[]                  @relation("TaskCreator")
-  tasksAssigned          Task[]                  @relation("TaskAssignee")
-  knowledgeItemsCreated  KnowledgeItem[]         @relation("KnowledgeItemCreator")
-  knowledgeAttachments   KnowledgeAttachment[]   @relation("KnowledgeAttachmentUploader")
-  jobContracts           JobContract[]           @relation("JobContractUploader")
-  taskAttachments        TaskAttachment[]        @relation("TaskAttachmentUploader")
+  tasksCreated           Task[]                   @relation("TaskCreator")
+  tasksAssigned          Task[]                   @relation("TaskAssignee")
+  knowledgeItemsCreated  KnowledgeItem[]          @relation("KnowledgeItemCreator")
+  knowledgeAttachments   KnowledgeAttachment[]    @relation("KnowledgeAttachmentUploader")
+  jobContracts           JobContract[]            @relation("JobContractUploader")
+  taskAttachments        TaskAttachment[]         @relation("TaskAttachmentUploader")
   lists                  CandidateList[]
-  listMembersAdded       CandidateListMember[]   @relation("ListMemberAdder")
-  listAssignments        CandidateListAssignee[] @relation("ListAssignee")
-  listAssignmentsMade    CandidateListAssignee[] @relation("ListAssigner")
+  listMembersAdded       CandidateListMember[]    @relation("ListMemberAdder")
+  listAssignments        CandidateListAssignee[]  @relation("ListAssignee")
+  listAssignmentsMade    CandidateListAssignee[]  @relation("ListAssigner")
   savedSearches          SavedSearch[]
   profileLayouts         ProfileLayout[]
-  sequencesCreated       Sequence[]              @relation("SequenceCreator")
-  enrollmentsCreated     SequenceEnrollment[]    @relation("SequenceEnroller")
-  stepRunsCompleted      StepRun[]               @relation("StepRunCompleter")
-  assistantConversations AssistantConversation[] @relation("AssistantUser")
-  assistantToolCalls     AssistantToolCall[]     @relation("AssistantToolCaller")
-  auditEvents            AuditLog[]              @relation("AuditActor")
-  announcementsCreated   Announcement[]          @relation("AnnouncementAuthor")
+  sequencesCreated       Sequence[]               @relation("SequenceCreator")
+  enrollmentsCreated     SequenceEnrollment[]     @relation("SequenceEnroller")
+  stepRunsCompleted      StepRun[]                @relation("StepRunCompleter")
+  assistantConversations AssistantConversation[]  @relation("AssistantUser")
+  assistantToolCalls     AssistantToolCall[]      @relation("AssistantToolCaller")
+  auditEvents            AuditLog[]               @relation("AuditActor")
+  announcementsCreated   Announcement[]           @relation("AnnouncementAuthor")
 
   // Calendar
   iCalToken            String?             @unique
@@ -498,9 +499,9 @@ model User {
   impersonationsStarted  ImpersonationSession[] @relation("ImpersonationPlatformAdmin")
   impersonationsTargeted ImpersonationSession[] @relation("ImpersonationTarget")
 
-  importMappingsCreated ImportMapping[] @relation("ImportMappingCreator")
-  importMappingsUpdated ImportMapping[] @relation("ImportMappingUpdater")
-  candidateImportsRun   CandidateImport[] @relation("CandidateImporter")
+  importMappingsCreated ImportMapping[]     @relation("ImportMappingCreator")
+  importMappingsUpdated ImportMapping[]     @relation("ImportMappingUpdater")
+  candidateImportsRun   CandidateImport[]   @relation("CandidateImporter")
   mailboxConnections    MailboxConnection[]
 
   // Multi-tenant: every user belongs to exactly one Organization. Nullable
@@ -523,8 +524,8 @@ model User {
 model MailboxConnection {
   id                    String   @id @default(cuid())
   userId                String
-  provider              String   // "google" (future: "microsoft")
-  email                 String   // the connected mailbox address
+  provider              String // "google" (future: "microsoft")
+  email                 String // the connected mailbox address
   // AES-256-GCM encrypted OAuth refresh token (lib/crypto blob format).
   refreshTokenEncrypted String
   // Space-delimited granted scopes, for diagnostics + re-consent checks.
@@ -661,23 +662,23 @@ model AIConfig {
 }
 
 model Job {
-  id          String    @id @default(cuid())
-  title       String
-  department  String?
-  location    String?
-  description String
-  status      JobStatus @default(OPEN)
+  id            String    @id @default(cuid())
+  title         String
+  department    String?
+  location      String?
+  description   String
+  status        JobStatus @default(OPEN)
   // Free-form notes on how this role is filled (steps, interview loop, etc).
   hiringProcess String?
   // Engagement tier: "Urgent" | "Normal" | "Luxury". Free-form string with a
   // fixed picker in the UI; nullable for back-compat with existing rows.
   jobType       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  createdById  String?
-  createdBy    User?         @relation("JobCreator", fields: [createdById], references: [id])
-  applications Application[]
+  createdById    String?
+  createdBy      User?              @relation("JobCreator", fields: [createdById], references: [id])
+  applications   Application[]
   hiringManagers JobHiringManager[]
   contracts      JobContract[]
   lists          CandidateListJob[]
@@ -753,9 +754,9 @@ model Client {
   ownerId String?
   owner   User?   @relation("ClientOwner", fields: [ownerId], references: [id])
 
-  contacts ClientContact[]
-  jobs     Job[]
-  tags     Tag[]
+  contacts       ClientContact[]
+  jobs           Job[]
+  tags           Tag[]
   knowledgeItems KnowledgeItem[]
 
   organizationId String?
@@ -873,6 +874,10 @@ model Candidate {
   // Engagement
   status          CandidateStatus @default(ACTIVE)
   rating          Int?
+  // Why the candidate declined / passed — multi-select backed by the
+  // ChoiceOption registry (candidate.rejectionReason). Editable per-org
+  // in /settings/choices.
+  rejectionReasons String[]       @default([])
   lastContactedAt DateTime?
   nextFollowUpAt  DateTime?
   unsubscribedAt  DateTime?
@@ -901,9 +906,14 @@ model Candidate {
   // [{ hook: string, source: string, suggestedOpener: string, tone: string }]
   outreachInsights  Json?
 
-  // Plain text extracted from the resume; backs the FTS searchVector column
-  // (added via raw SQL migration — Prisma cannot describe generated tsvector).
+  // Plain text extracted from the resume; backs the FTS searchVector column.
   resumeText String?
+
+  // Full-text search vector. The COLUMN is declared here (as Unsupported)
+  // so `prisma db push` doesn't try to drop it, but its CONTENT is
+  // maintained by a raw-SQL trigger Prisma can't model — see
+  // prisma/manual-migrations/*candidate-search-vector* and *fts-*.
+  searchVector Unsupported("tsvector")?
 
   // Raw text scraped from the candidate's LinkedIn profile by the Chrome
   // extension. Kept separate from resumeText so a later PDF resume upload
@@ -914,20 +924,22 @@ model Candidate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  applications    Application[]
-  emails          EmailLog[]
-  contactLogs     ContactLog[]
-  tags            Tag[]
-  references      CandidateReference[]
-  documents       CandidateDocument[]
-  eeo             CandidateEEO?
-  activities      CandidateActivity[]
-  listMemberships CandidateListMember[]
-  interviews      Interview[]
-  enrollments     SequenceEnrollment[]
+  applications     Application[]
+  emails           EmailLog[]
+  contactLogs      ContactLog[]
+  tags             Tag[]
+  references       CandidateReference[]
+  educationHistory CandidateEducation[]
+  certifications   CandidateCertification[]
+  documents        CandidateDocument[]
+  eeo              CandidateEEO?
+  activities       CandidateActivity[]
+  listMemberships  CandidateListMember[]
+  interviews       Interview[]
+  enrollments      SequenceEnrollment[]
   // Threaded notes (per-application or candidate-level). Named differently
   // from the legacy `notes String?` free-form field above.
-  noteThreads     Note[]                @relation("CandidateNoteThreads")
+  noteThreads      Note[]                   @relation("CandidateNoteThreads")
 
   // The named CSV import batch this candidate was created by, if any.
   // SetNull so deleting an import record doesn't take its candidates with
@@ -951,6 +963,9 @@ model Candidate {
   @@index([currentCompany])
   @@index([seniority])
   @@index([organizationId])
+  // Matches the existing "Candidate_searchVector_idx" GIN index created by
+  // the manual FTS migration — declared so db push doesn't drop it.
+  @@index([searchVector], type: Gin)
 }
 
 model Application {
@@ -983,12 +998,12 @@ model Application {
 /// enforce that with a DB constraint to keep migrations cheap, the
 /// application-layer code (notes-actions.ts) is the source of truth.
 model Note {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   applicationId String?
   candidateId   String?
   authorId      String
   body          String
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
   // When set, the note is pinned to the top of the candidate's notes list.
   // Timestamp (rather than a bool) preserves pin-order across multiple pins.
   pinnedAt      DateTime?
@@ -1096,7 +1111,7 @@ model EmailLog {
   // Actual From: header of the email. Populated for extension captures
   // and future webhook/OAuth captures. Nullable for backwards compat
   // with COMPOSER rows that predate this field.
-  fromEmail     String?
+  fromEmail String?
 
   to       String
   cc       String[] @default([])
@@ -1112,7 +1127,7 @@ model EmailLog {
 
   // Where the row came from. Defaults to COMPOSER for the same reason —
   // every existing row was sent via /candidates/[id] composer.
-  source    EmailSource    @default(COMPOSER)
+  source EmailSource @default(COMPOSER)
 
   // RFC 5322 Message-ID header (looks like `<CAJ8x...@mail.gmail.com>`).
   // Globally unique per email. Used to dedupe when the same email is
@@ -1129,11 +1144,11 @@ model EmailLog {
   // (POST /api/webhooks/resend) keyed on providerMessageId. All nullable;
   // a non-null value means that event happened at that time. firstClickedAt
   // records only the first click (we don't store every click).
-  openedAt      DateTime?
+  openedAt       DateTime?
   firstClickedAt DateTime?
-  repliedAt     DateTime?
-  bouncedAt     DateTime?
-  complainedAt  DateTime?
+  repliedAt      DateTime?
+  bouncedAt      DateTime?
+  complainedAt   DateTime?
 
   // Wall-clock time the original email was sent/received (from the
   // email's own Date header, not when we ingested it). Falls back to
@@ -1217,7 +1232,7 @@ model ContactLog {
   loggedAt       DateTime       @default(now())
 
   organizationId String?
-  organization   Organization?  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([candidateId, loggedAt])
   @@index([organizationId])
@@ -1243,6 +1258,67 @@ model CandidateReference {
   contactedBy User?     @relation(fields: [contactedById], references: [id])
 
   @@index([candidateId])
+}
+
+// Structured, recruiter-editable education history. The Candidate.education
+// Json field above is the raw resume-parser output; these rows are the
+// curated layer surfaced on the profile (seedable from that JSON on parse).
+model CandidateEducation {
+  id              String   @id @default(cuid())
+  candidateId     String
+  institution     String
+  degree          String? // ChoiceOption field="candidate.educationDegree"
+  fieldOfStudy    String?
+  specialization  String? // concentration / minor (free text)
+  startYear       Int?
+  endYear         Int? // graduation / expected year
+  inProgress      Boolean  @default(false)
+  // GPA stored as text on purpose — scales differ by country (4.0, 10.0,
+  // First Class, etc.); a numeric column would misrepresent non-US grades.
+  gpa             String?
+  locationCity    String?
+  locationCountry String?
+  honors          String? // "Magna cum laude", awards, activities
+  notes           String?
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+}
+
+// Certifications, licenses, clearances, and professional memberships.
+model CandidateCertification {
+  id                  String    @id @default(cuid())
+  candidateId         String
+  name                String
+  issuingOrganization String?
+  kind                String? // ChoiceOption field="candidate.certificationKind"
+  credentialId        String? // cert / license number
+  credentialUrl       String? // verification link
+  jurisdiction        String? // state/country a license is valid in
+  issueDate           DateTime?
+  expirationDate      DateTime? // null + doesNotExpire = lifetime credential
+  doesNotExpire       Boolean   @default(false)
+  inProgress          Boolean   @default(false) // pursuing / scheduled
+  // Recruiter-confirmed verification (mirrors CandidateReference.contactedBy).
+  verifiedAt          DateTime?
+  verifiedById        String?
+  notes               String?
+  sortOrder           Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  candidate  Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  verifiedBy User?     @relation("CertificationVerifier", fields: [verifiedById], references: [id])
+
+  @@index([candidateId])
+  // "Active / Expired / Expiring soon" is derived from expirationDate rather
+  // than stored (a stored status goes stale the day a cert lapses); index it
+  // so "certs expiring in N days" stays a cheap query.
+  @@index([expirationDate])
 }
 
 model CandidateDocument {
@@ -1568,15 +1644,15 @@ model SequenceStep {
 }
 
 model SequenceEnrollment {
-  id            String           @id @default(cuid())
-  sequenceId    String
-  candidateId   String
-  applicationId String?
-  enrolledById  String?
-  status        EnrollmentStatus @default(ACTIVE)
-  startedAt     DateTime         @default(now())
-  pausedAt      DateTime?
-  completedAt   DateTime?
+  id             String           @id @default(cuid())
+  sequenceId     String
+  candidateId    String
+  applicationId  String?
+  enrolledById   String?
+  status         EnrollmentStatus @default(ACTIVE)
+  startedAt      DateTime         @default(now())
+  pausedAt       DateTime?
+  completedAt    DateTime?
   // Why the engine auto-paused this enrollment (candidate replied, bounced,
   // or complained). Null for manual pauses. Surfaced in the enrollments UI.
   autoStopReason String?
@@ -1839,16 +1915,16 @@ enum AnnouncementAudience {
 }
 
 model Announcement {
-  id          String               @id @default(cuid())
-  title       String?
-  body        String
-  audience    AnnouncementAudience
-  active      Boolean              @default(true)
-  createdById String
+  id             String               @id @default(cuid())
+  title          String?
+  body           String
+  audience       AnnouncementAudience
+  active         Boolean              @default(true)
+  createdById    String
   // Only set when audience = OWN_ORG. Null for the two platform scopes.
   organizationId String?
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   createdBy    User                 @relation("AnnouncementAuthor", fields: [createdById], references: [id])
   organization Organization?        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1878,22 +1954,22 @@ model AnnouncementTarget {
  * teammates don't have to redo the work. One row per (org, fingerprint).
  */
 model ImportMapping {
-  id                  String   @id @default(cuid())
-  organizationId      String
-  headersFingerprint  String
+  id                 String   @id @default(cuid())
+  organizationId     String
+  headersFingerprint String
   // Canonical-field-key -> input header (or null = skip). Also captures
   // any `cf:<fieldId>` keys once we surface existing custom fields.
-  mapping             Json
+  mapping            Json
   // Per-header new-field drafts: { header: { create, label, type } }.
-  newFieldDrafts      Json
+  newFieldDrafts     Json
   // User merges resolving fuzzy near-duplicate options for choice fields.
-  userMerges          Json
+  userMerges         Json
   // Per-header confirmation flags for high-cardinality choice fields.
-  confirmHigh         Json
-  createdById         String?
-  updatedById         String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  confirmHigh        Json
+  createdById        String?
+  updatedById        String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User?        @relation("ImportMappingCreator", fields: [createdById], references: [id])

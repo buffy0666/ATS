@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { CHOICE_FIELDS, loadChoiceOptions } from "@/lib/choices";
+import { uniqueClients } from "@/app/candidates/candidate-columns";
 import { CandidatesView, type CandidateRow } from "@/app/candidates/CandidatesView";
 import { ListHeader } from "./ListHeader";
 
@@ -44,7 +45,13 @@ export default async function ListDetailPage({
           select: {
             id: true,
             stage: true,
-            job: { select: { id: true, title: true } },
+            job: {
+              select: {
+                id: true,
+                title: true,
+                client: { select: { id: true, name: true } },
+              },
+            },
           },
           orderBy: { createdAt: "desc" },
         },
@@ -53,6 +60,7 @@ export default async function ListDetailPage({
             list: { select: { id: true, name: true } },
           },
         },
+        sourcedBy: { select: { id: true, name: true, email: true } },
         _count: { select: { applications: true } },
       },
       take: 500,
@@ -126,10 +134,12 @@ export default async function ListDetailPage({
       jobTitle: a.job.title,
       stage: a.stage,
     })),
+    clients: uniqueClients(c.applications.map((a) => a.job.client)),
     lists: c.listMemberships.map((m) => ({
       listId: m.list.id,
       listName: m.list.name,
     })),
+    sourcedByName: c.sourcedBy ? c.sourcedBy.name ?? c.sourcedBy.email : null,
   }));
 
   const isOwner = list.ownerId === session.user.id;

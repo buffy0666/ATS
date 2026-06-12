@@ -121,6 +121,7 @@ export default async function CandidateDetailPage({
   await Promise.all([
     ensureChoiceDefaults(CHOICE_FIELDS.candidateSource.key, CHOICE_FIELDS.candidateSource.defaults, orgId),
     ensureChoiceDefaults(CHOICE_FIELDS.candidateSeniority.key, CHOICE_FIELDS.candidateSeniority.defaults, orgId),
+    ensureChoiceDefaults(CHOICE_FIELDS.candidateRejectionReason.key, CHOICE_FIELDS.candidateRejectionReason.defaults, orgId),
   ]);
 
   const [
@@ -134,6 +135,7 @@ export default async function CandidateDetailPage({
     openJobs,
     sourceOptions,
     seniorityOptions,
+    rejectionReasonOptions,
     allTags,
   ] = await Promise.all([
     // findFirst (not findUnique) so we can compose id + organizationId in
@@ -252,6 +254,7 @@ export default async function CandidateDetailPage({
     }),
     loadChoiceOptions(CHOICE_FIELDS.candidateSource.key, orgId),
     loadChoiceOptions(CHOICE_FIELDS.candidateSeniority.key, orgId),
+    loadChoiceOptions(CHOICE_FIELDS.candidateRejectionReason.key, orgId),
     prisma.tag.findMany({
       where: { organizationId: orgId },
       orderBy: { name: "asc" },
@@ -276,6 +279,7 @@ export default async function CandidateDetailPage({
   const sourceSelectOptions = sourceOptions.map((o) => ({ value: o.name, label: SOURCE_LABEL[o.name] ?? o.name }));
   const senioritySelectOptions = seniorityOptions.map((o) => ({ value: o.name, label: SENIORITY_LABEL[o.name] ?? o.name }));
   const ratingOptions = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: `${"★".repeat(n)} (${n})` }));
+  const rejectionReasonSelectOptions = rejectionReasonOptions.map((o) => ({ value: o.name, label: o.name }));
 
   // Saved profile layouts visible to this user: their own + org-shared.
   const profileLayoutRows = await prisma.profileLayout.findMany({
@@ -706,6 +710,14 @@ export default async function CandidateDetailPage({
               type="select"
               value={intStr(candidate.rating)}
               options={ratingOptions}
+            />
+            <EditableField
+              candidateId={candidate.id}
+              field="rejectionReasons"
+              label="Rejection Reason"
+              type="multiselect"
+              value={candidate.rejectionReasons}
+              options={rejectionReasonSelectOptions}
             />
             <EditableField
               candidateId={candidate.id}

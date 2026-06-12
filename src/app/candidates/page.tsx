@@ -6,7 +6,7 @@ import {
 import { hasSearchInput, searchCandidates } from "@/lib/candidate-search";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
 import { prisma } from "@/lib/prisma";
-import { SORTABLE_FIELDS } from "./candidate-columns";
+import { SORTABLE_FIELDS, uniqueClients } from "./candidate-columns";
 import { CandidatesView, type CandidateRow } from "./CandidatesView";
 import { buildFilterBuilderClauses } from "./filter-builder";
 import type { SavedSearchEntry } from "./SavedSearchesMenu";
@@ -126,7 +126,13 @@ export default async function CandidatesPage({
             select: {
               id: true,
               stage: true,
-              job: { select: { id: true, title: true } },
+              job: {
+                select: {
+                  id: true,
+                  title: true,
+                  client: { select: { id: true, name: true } },
+                },
+              },
             },
             orderBy: { createdAt: "desc" },
           },
@@ -135,6 +141,7 @@ export default async function CandidatesPage({
               list: { select: { id: true, name: true } },
             },
           },
+          sourcedBy: { select: { id: true, name: true, email: true } },
           _count: { select: { applications: true } },
         },
         skip,
@@ -233,10 +240,12 @@ export default async function CandidatesPage({
       jobTitle: a.job.title,
       stage: a.stage,
     })),
+    clients: uniqueClients(c.applications.map((a) => a.job.client)),
     lists: c.listMemberships.map((m) => ({
       listId: m.list.id,
       listName: m.list.name,
     })),
+    sourcedByName: c.sourcedBy ? c.sourcedBy.name ?? c.sourcedBy.email : null,
   }));
 
   return (

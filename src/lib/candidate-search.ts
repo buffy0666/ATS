@@ -27,7 +27,7 @@ import { prisma } from "@/lib/prisma";
  *   weight B: currentTitle, currentCompany, summary,
  *             skills, industries, specialties,
  *             locationCity, locationState
- *   weight C: notes, resumeText
+ *   weight C: notes, resumeText, linkedinPageText
  *
  * The trigger function is `candidate_search_vector_update()`; the trigger
  * is `candidate_search_vector_trigger`. Update both when adding fields.
@@ -153,6 +153,7 @@ async function ilikeFallback(rawInput: string, orgId: string): Promise<string[]>
       OR lower(coalesce("currentCompany",''))  LIKE ${like}
       OR lower(coalesce("locationCity",''))    LIKE ${like}
       OR lower(coalesce("locationState",''))   LIKE ${like}
+      OR lower(coalesce("linkedinPageText",'')) LIKE ${like}
     )`;
   });
 

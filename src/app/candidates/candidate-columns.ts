@@ -10,6 +10,7 @@ export type ColumnKey =
   | "tags"
   | "lists"
   | "jobs"
+  | "client"
   | "applications"
   | "city"
   | "state"
@@ -31,6 +32,7 @@ export type ColumnKey =
   | "industries"
   | "specialties"
   | "source"
+  | "sourcedBy"
   | "lastContactedAt"
   | "nextFollowUpAt"
   | "linkedin"
@@ -56,6 +58,7 @@ export const COLUMN_DEFS: ColumnDef[] = [
   { key: "rating", label: "Rating", category: "Core", align: "right" },
   { key: "lists", label: "Lists", category: "Core" },
   { key: "jobs", label: "Jobs", category: "Core" },
+  { key: "client", label: "Client", category: "Core" },
   { key: "applications", label: "Applications", category: "Core", align: "right" },
 
   // Contact
@@ -95,6 +98,7 @@ export const COLUMN_DEFS: ColumnDef[] = [
 
   // Source
   { key: "source", label: "Source", category: "Source" },
+  { key: "sourcedBy", label: "Sourced by", category: "Source" },
   { key: "lastContactedAt", label: "Last contacted", category: "Source" },
   { key: "nextFollowUpAt", label: "Next follow-up", category: "Source" },
 
@@ -143,6 +147,8 @@ export type ChoiceOptionSource =
   | "bool"
   | "tags"
   | "lists"
+  | "clients"
+  | "users"
   | "choice:candidate.source"
   | "choice:candidate.seniority";
 
@@ -158,7 +164,9 @@ export type ColumnFilterSpec =
         | "stringArray"
         | "boolScalar"
         | "tags"
-        | "lists";
+        | "lists"
+        // Candidate → Application → Job → Client; values are client IDs.
+        | "client";
       options: ChoiceOptionSource;
       /**
        * Nullable scalar field: "is none of" must OR-in `{ field: null }`,
@@ -182,6 +190,7 @@ export const COLUMN_FILTERS: Partial<Record<ColumnKey | "name", ColumnFilterSpec
   tags: { type: "choice", field: "tags", variant: "tags", options: "tags" },
   lists: { type: "choice", field: "listMemberships", variant: "lists", options: "lists" },
   jobs: { type: "text", field: "applications", relation: "jobTitle" },
+  client: { type: "choice", field: "applications", variant: "client", options: "clients" },
   city: { type: "text", field: "locationCity" },
   state: { type: "text", field: "locationState" },
   country: { type: "text", field: "locationCountry" },
@@ -203,6 +212,8 @@ export const COLUMN_FILTERS: Partial<Record<ColumnKey | "name", ColumnFilterSpec
   industries: { type: "text", field: "industries", array: true },
   specialties: { type: "text", field: "specialties", array: true },
   source: { type: "choice", field: "source", variant: "stringScalar", options: "choice:candidate.source", nullable: true },
+  // Values are user IDs (option labels show the user's name).
+  sourcedBy: { type: "choice", field: "sourcedById", variant: "stringScalar", options: "users", nullable: true },
   lastContactedAt: { type: "date", field: "lastContactedAt" },
   nextFollowUpAt: { type: "date", field: "nextFollowUpAt" },
   linkedin: { type: "presence", field: "linkedinUrl" },
@@ -249,6 +260,21 @@ export const SORTABLE_FIELDS: Partial<Record<ColumnKey | "name", string>> = {
 };
 
 export type SortDir = "asc" | "desc";
+
+/**
+ * Dedupe the clients behind a candidate's applications (several applications
+ * can point at jobs for the same client) into the row shape the Client
+ * column renders. Order follows the applications order (newest first).
+ */
+export function uniqueClients(
+  clients: Array<{ id: string; name: string } | null | undefined>,
+): { clientId: string; clientName: string }[] {
+  const seen = new Map<string, string>();
+  for (const cl of clients) {
+    if (cl && !seen.has(cl.id)) seen.set(cl.id, cl.name);
+  }
+  return [...seen].map(([clientId, clientName]) => ({ clientId, clientName }));
+}
 
 /**
  * Serialize a column order/visibility list into the `cols` URL param value.

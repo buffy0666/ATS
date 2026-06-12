@@ -88,7 +88,9 @@ export type CandidateRow = {
   tags: Tag[];
   applicationCount: number;
   jobs: { applicationId: string; jobId: string; jobTitle: string; stage: string }[];
+  clients: { clientId: string; clientName: string }[];
   lists: { listId: string; listName: string }[];
+  sourcedByName: string | null;
 };
 
 // Static set of valid column keys — used to scrub unknown keys out of a
@@ -945,6 +947,24 @@ function renderCell(c: CandidateRow, key: ColumnKey): React.ReactNode {
           ))}
         </div>
       );
+    case "client":
+      return c.clients.length === 0 ? (
+        "—"
+      ) : (
+        <div className="flex flex-wrap gap-1 max-w-md">
+          {c.clients.map((cl) => (
+            <Link
+              key={cl.clientId}
+              href={`/clients/${cl.clientId}`}
+              className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 px-2 py-0.5 text-xs hover:bg-amber-200 dark:hover:bg-amber-900/60"
+            >
+              {cl.clientName}
+            </Link>
+          ))}
+        </div>
+      );
+    case "sourcedBy":
+      return c.sourcedByName ?? "—";
     case "city":
       return c.locationCity ?? "—";
     case "state":
@@ -1072,6 +1092,7 @@ function ColumnFilterPopover({
   const [op, setOp] = useState(defaultOp(type));
   const [text, setText] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
+  const [optionQuery, setOptionQuery] = useState("");
   const [min, setMin] = useState("");
   const [max, setMax] = useState("");
   const [from, setFrom] = useState("");
@@ -1084,7 +1105,10 @@ function ColumnFilterPopover({
     const d = decodeFilter(type, currentValue);
     setOp(d?.op ?? defaultOp(type));
     if (type === "text") setText(d && !["empty", "nempty"].includes(d.op) ? d.value : "");
-    if (type === "choice") setSelected(d ? d.value.split(",").filter(Boolean) : []);
+    if (type === "choice") {
+      setSelected(d ? d.value.split(",").filter(Boolean) : []);
+      setOptionQuery("");
+    }
     if (type === "number" || type === "date") {
       const [a, b] = splitRange(d?.op === "range" ? d.value : "");
       if (type === "number") {
@@ -1211,22 +1235,39 @@ function ColumnFilterPopover({
             ) : options.length === 0 ? (
               <p className="px-1 py-1 text-zinc-400">No options.</p>
             ) : (
-              <div className="max-h-48 space-y-0.5 overflow-y-auto pr-1">
-                {options.map((o) => (
-                  <label
-                    key={o.value}
-                    className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-zinc-50 dark:hover:bg-zinc-800"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(o.value)}
-                      onChange={() => toggleSelected(o.value)}
-                      className="rounded border-zinc-300 dark:border-zinc-700"
-                    />
-                    <span className="truncate">{o.label}</span>
-                  </label>
-                ))}
-              </div>
+              <>
+                {options.length > 8 && (
+                  <input
+                    type="text"
+                    value={optionQuery}
+                    onChange={(e) => setOptionQuery(e.target.value)}
+                    placeholder="Search options…"
+                    className={`${FIELD_INPUT_CLASS} mb-1.5`}
+                  />
+                )}
+                <div className="max-h-48 space-y-0.5 overflow-y-auto pr-1">
+                  {options
+                    .filter(
+                      (o) =>
+                        !optionQuery.trim() ||
+                        o.label.toLowerCase().includes(optionQuery.trim().toLowerCase()),
+                    )
+                    .map((o) => (
+                      <label
+                        key={o.value}
+                        className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(o.value)}
+                          onChange={() => toggleSelected(o.value)}
+                          className="rounded border-zinc-300 dark:border-zinc-700"
+                        />
+                        <span className="truncate">{o.label}</span>
+                      </label>
+                    ))}
+                </div>
+              </>
             )
           )}
 

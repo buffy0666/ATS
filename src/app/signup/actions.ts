@@ -32,6 +32,15 @@ export async function signupAction(
   _prevState: SignupResult,
   formData: FormData,
 ): Promise<SignupResult> {
+  // Self-serve signup is disabled for now — the /signup page no longer
+  // renders the form, and this guard keeps the action dead even if
+  // invoked directly. Flip to false (and restore the form in page.tsx)
+  // to re-enable.
+  const SIGNUP_DISABLED = true;
+  if (SIGNUP_DISABLED) {
+    return { ok: false, error: "Workspace creation is disabled. Please reach out to Dogfood Dev." };
+  }
+
   const parsed = signupSchema.safeParse({
     organizationName: formData.get("organizationName"),
     name: formData.get("name"),

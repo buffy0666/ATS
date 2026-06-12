@@ -152,3 +152,26 @@ export async function updateContactLog(
   revalidatePath(`/candidates/${existing.candidateId}`);
   return { ok: true };
 }
+
+/**
+ * Delete a ContactLog row — the escape hatch for "clicked the wrong
+ * button" that the edit action's docs promise (channel / direction /
+ * outcome aren't editable; you delete and re-log instead).
+ */
+export async function deleteContactLog(logId: string): Promise<EditContactResult> {
+  const { orgId } = await requireSessionWithOrg();
+
+  // Tenant-scope the delete so a stray id from another org can't be touched.
+  const existing = await prisma.contactLog.findFirst({
+    where: { id: logId, organizationId: orgId },
+    select: { id: true, candidateId: true },
+  });
+  if (!existing) {
+    return { ok: false, error: "Entry not found." };
+  }
+
+  await prisma.contactLog.delete({ where: { id: existing.id } });
+
+  revalidatePath(`/candidates/${existing.candidateId}`);
+  return { ok: true };
+}

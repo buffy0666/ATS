@@ -423,6 +423,13 @@ function choiceClause(
       return exclude
         ? asWhere({ listMemberships: { none: { list: { name: { in: values } } } } })
         : asWhere({ listMemberships: { some: { list: { name: { in: values } } } } });
+    case "client": {
+      // Candidate → Application → Job → Client; values are client IDs.
+      const match = { job: { clientId: { in: values } } };
+      return exclude
+        ? asWhere({ applications: { none: match } })
+        : asWhere({ applications: { some: match } });
+    }
     default:
       return null;
   }

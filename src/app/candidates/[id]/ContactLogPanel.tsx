@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { CallOutcome, ContactChannel, EmailDirection } from "@/generated/prisma";
-import { logContact, updateContactLog } from "./contact-actions";
+import { deleteContactLog, logContact, updateContactLog } from "./contact-actions";
 
 /**
  * "Call / SMS / LI" tab content.
@@ -403,11 +403,22 @@ function ContactLogRowView({ log }: { log: ContactLogRow }) {
   const [draft, setDraft] = useState(log.notes ?? "");
   const [saving, startSave] = useTransition();
   const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [deleting, startDelete] = useTransition();
 
   function startEdit() {
     setDraft(log.notes ?? "");
     setSaveErr(null);
     setEditing(true);
+  }
+  function remove() {
+    const what = `${channelWord} ${directionWord}${outcomeWord ? ` · ${outcomeWord}` : ""}`;
+    if (!confirm(`Delete this entry (${what})? This cannot be undone.`)) return;
+    setSaveErr(null);
+    startDelete(async () => {
+      const res = await deleteContactLog(log.id);
+      // On success the revalidated page drops the row; nothing to do here.
+      if (!res.ok) setSaveErr(res.error);
+    });
   }
   function cancel() {
     setEditing(false);
@@ -482,6 +493,9 @@ function ContactLogRowView({ log }: { log: ContactLogRow }) {
               No note. Click the pencil to add one.
             </p>
           )}
+          {!editing && saveErr && (
+            <p className="mt-1 text-xs text-red-600 dark:text-red-400">{saveErr}</p>
+          )}
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
@@ -496,6 +510,18 @@ function ContactLogRowView({ log }: { log: ContactLogRow }) {
               <PencilIcon />
             </button>
           )}
+          {!editing && (
+            <button
+              type="button"
+              onClick={remove}
+              disabled={deleting}
+              aria-label="Delete entry"
+              title="Delete entry"
+              className="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+            >
+              <TrashIcon />
+            </button>
+          )}
           <span
             className={`rounded-full px-2 py-0.5 text-xs uppercase tracking-wide ${
               inbound
@@ -508,6 +534,28 @@ function ContactLogRowView({ log }: { log: ContactLogRow }) {
         </div>
       </div>
     </li>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
   );
 }
 

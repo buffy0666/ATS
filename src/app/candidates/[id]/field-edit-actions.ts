@@ -67,6 +67,7 @@ const FIELDS: Record<string, FieldKind> = {
   sourceDetail: { kind: "string", max: 200 },
   status: { kind: "enum", values: Object.values(CandidateStatus), required: true },
   rating: { kind: "int", min: 0, max: 5 },
+  rejectionReasons: { kind: "stringArray", maxItemLen: 80 },
   nextFollowUpAt: { kind: "date" },
   skills: { kind: "stringArray", maxItemLen: 60 },
 };

@@ -62,6 +62,25 @@ export async function loadColumnChoiceOptions(
       });
       return rows.map((r) => ({ value: r.name, label: r.name }));
     }
+    case "clients": {
+      // Values are IDs (names aren't unique); the where clause matches
+      // applications.job.clientId.
+      const rows = await prisma.client.findMany({
+        where: { organizationId: orgId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      });
+      return rows.map((r) => ({ value: r.id, label: r.name }));
+    }
+    case "users": {
+      // Values are user IDs; matches Candidate.sourcedById.
+      const rows = await prisma.user.findMany({
+        where: { organizationId: orgId, active: true },
+        orderBy: [{ name: "asc" }, { email: "asc" }],
+        select: { id: true, name: true, email: true },
+      });
+      return rows.map((r) => ({ value: r.id, label: r.name ?? r.email }));
+    }
     default: {
       if (typeof source === "string" && source.startsWith("choice:")) {
         const field = source.slice("choice:".length);

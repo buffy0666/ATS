@@ -175,18 +175,34 @@ export async function processOneCandidate(): Promise<WorkerResult | null> {
     select: { id: true },
   });
   if (!pending) return null;
+  return claimAndProcess(pending.id);
+}
 
+/**
+ * Process one specific candidate immediately. Used by the ingestion
+ * endpoint (via next/server `after`) so a Chrome-extension capture starts
+ * AI processing as soon as the response is sent, instead of waiting for
+ * the cron sweep. Claims the row the same way the queue path does, so a
+ * concurrently-running cron worker can't double-process it.
+ */
+export async function processCandidateById(
+  candidateId: string,
+): Promise<WorkerResult | null> {
+  return claimAndProcess(candidateId);
+}
+
+async function claimAndProcess(candidateId: string): Promise<WorkerResult | null> {
   const claimed = await prisma.candidate.updateMany({
-    where: { id: pending.id, aiStatus: AIProcessingStatus.PENDING },
+    where: { id: candidateId, aiStatus: AIProcessingStatus.PENDING },
     data: { aiStatus: AIProcessingStatus.PROCESSING },
   });
   if (claimed.count === 0) {
-    // Another worker beat us to it; nothing to do.
+    // Another worker beat us to it (or the row isn't PENDING); nothing to do.
     return null;
   }
 
   const candidate = await prisma.candidate.findUnique({
-    where: { id: pending.id },
+    where: { id: candidateId },
     select: {
       id: true,
       firstName: true,
@@ -212,13 +228,13 @@ export async function processOneCandidate(): Promise<WorkerResult | null> {
 
   if (!candidate || !sourceText) {
     await prisma.candidate.update({
-      where: { id: pending.id },
+      where: { id: candidateId },
       data: {
         aiStatus: AIProcessingStatus.FAILED,
         aiError: "Candidate or source text vanished between claim and read.",
       },
     });
-    return { ok: false, candidateId: pending.id, error: "missing text" };
+    return { ok: false, candidateId, error: "missing text" };
   }
 
   const rawText = sourceText.slice(0, MAX_INPUT_CHARS);
@@ -297,7 +313,7 @@ export async function processOneCandidate(): Promise<WorkerResult | null> {
     );
 
     await prisma.candidate.update({
-      where: { id: pending.id },
+      where: { id: candidateId },
       data: {
         aiStatus: AIProcessingStatus.READY,
         aiProcessedAt: new Date(),
@@ -319,18 +335,18 @@ export async function processOneCandidate(): Promise<WorkerResult | null> {
       },
     });
 
-    return { ok: true, candidateId: pending.id };
+    return { ok: true, candidateId };
   } catch (err) {
     const message =
       err instanceof Error ? err.message.slice(0, 1000) : "Unknown AI worker error";
     await prisma.candidate.update({
-      where: { id: pending.id },
+      where: { id: candidateId },
       data: {
         aiStatus: AIProcessingStatus.FAILED,
         aiError: message,
       },
     });
-    return { ok: false, candidateId: pending.id, error: message };
+    return { ok: false, candidateId, error: message };
   }
 }
 
