@@ -30,10 +30,18 @@ export function FilterBuilder({
   availableTags,
   sourceOptions,
   seniorityOptions,
+  listOptions = [],
+  clientOptions = [],
+  userOptions = [],
+  rejectionReasonOptions = [],
 }: {
   availableTags: TagOption[];
   sourceOptions: ChoiceOption[];
   seniorityOptions: ChoiceOption[];
+  listOptions?: { id: string; name: string }[];
+  clientOptions?: { id: string; name: string }[];
+  userOptions?: { id: string; name: string | null; email: string }[];
+  rejectionReasonOptions?: ChoiceOption[];
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -59,6 +67,19 @@ export function FilterBuilder({
     }
     if (def.dynamicOptions === "seniority") {
       return seniorityOptions.map((o) => ({ value: o.name, label: o.name }));
+    }
+    if (def.dynamicOptions === "lists") {
+      return listOptions.map((o) => ({ value: o.name, label: o.name }));
+    }
+    if (def.dynamicOptions === "clients") {
+      // Values are IDs (client names aren't unique) — labels show the name.
+      return clientOptions.map((o) => ({ value: o.id, label: o.name }));
+    }
+    if (def.dynamicOptions === "users") {
+      return userOptions.map((o) => ({ value: o.id, label: o.name ?? o.email }));
+    }
+    if (def.dynamicOptions === "rejectionReasons") {
+      return rejectionReasonOptions.map((o) => ({ value: o.name, label: o.name }));
     }
     return null;
   }

@@ -97,14 +97,24 @@ export const MULTI_VALUE_OPERATORS = new Set<Operator>([
 ]);
 
 export type FilterFieldDef = {
-  /** Candidate scalar field name, or the "name"/"tags" sentinels. */
+  /**
+   * Candidate scalar field name, or a relation sentinel ("name", "tags",
+   * "lists", "jobs", "client", "sourcedBy") special-cased in ruleToWhere.
+   */
   key: string;
   label: string;
   type: FilterType;
   /** Fixed option values (enum-backed fields). */
   staticOptions?: string[];
   /** Marks options that must be filled at runtime from page data. */
-  dynamicOptions?: "source" | "seniority" | "tags";
+  dynamicOptions?:
+    | "source"
+    | "seniority"
+    | "tags"
+    | "lists"
+    | "clients"
+    | "users"
+    | "rejectionReasons";
 };
 
 export const FILTER_FIELDS: FilterFieldDef[] = [
@@ -124,7 +134,12 @@ export const FILTER_FIELDS: FilterFieldDef[] = [
   },
   { key: "rating", label: "Rating", type: "number" },
   { key: "tags", label: "Tags", type: "tags", dynamicOptions: "tags" },
+  { key: "lists", label: "Lists", type: "tags", dynamicOptions: "lists" },
+  { key: "jobs", label: "Job title", type: "text" },
+  { key: "client", label: "Client", type: "enum", dynamicOptions: "clients" },
+  { key: "rejectionReasons", label: "Rejection reason", type: "array", dynamicOptions: "rejectionReasons" },
   { key: "source", label: "Source", type: "enum", dynamicOptions: "source" },
+  { key: "sourcedBy", label: "Sourced by", type: "enum", dynamicOptions: "users" },
 
   // Location
   { key: "locationCity", label: "City", type: "text" },
@@ -177,6 +192,12 @@ export const FILTER_FIELDS: FilterFieldDef[] = [
   { key: "lastContactedAt", label: "Last contacted", type: "date" },
   { key: "nextFollowUpAt", label: "Next follow-up", type: "date" },
   { key: "createdAt", label: "Added", type: "date" },
+
+  // Links (URL fields — "is empty / is not empty" doubles as has/has-no link)
+  { key: "linkedinUrl", label: "LinkedIn URL", type: "text" },
+  { key: "githubUrl", label: "GitHub URL", type: "text" },
+  { key: "portfolioUrl", label: "Portfolio URL", type: "text" },
+  { key: "resumeUrl", label: "Resume URL", type: "text" },
 
   // Misc
   { key: "summary", label: "Summary", type: "text" },
@@ -276,6 +297,90 @@ export function ruleToWhere(rule: FilterRule): Prisma.CandidateWhereInput | null
         return text
           ? { AND: [{ NOT: { firstName: eq } }, { NOT: { lastName: eq } }] }
           : null;
+      default:
+        return null;
+    }
+  }
+
+  // List membership — same shape as tags, via the listMemberships relation.
+  if (field === "lists") {
+    const names = v.map((s) => s.trim()).filter(Boolean);
+    switch (op) {
+      case "hasAny":
+        return names.length
+          ? { listMemberships: { some: { list: { name: { in: names } } } } }
+          : null;
+      case "hasNone":
+        return names.length
+          ? { NOT: { listMemberships: { some: { list: { name: { in: names } } } } } }
+          : null;
+      case "isEmpty":
+        return { listMemberships: { none: {} } };
+      case "isNotEmpty":
+        return { listMemberships: { some: {} } };
+      default:
+        return null;
+    }
+  }
+
+  // Job title — text match through the candidate's applications.
+  if (field === "jobs") {
+    const match = { job: { title: { contains: text, mode: "insensitive" as const } } };
+    const eqMatch = { job: { title: { equals: text, mode: "insensitive" as const } } };
+    switch (op) {
+      case "contains":
+        return text ? { applications: { some: match } } : null;
+      case "notContains":
+        return text ? { applications: { none: match } } : null;
+      case "is":
+        return text ? { applications: { some: eqMatch } } : null;
+      case "isNot":
+        return text ? { applications: { none: eqMatch } } : null;
+      case "isEmpty":
+        return { applications: { none: {} } };
+      case "isNotEmpty":
+        return { applications: { some: {} } };
+      default:
+        return null;
+    }
+  }
+
+  // Client — values are client IDs, matched through applications → job.
+  if (field === "client") {
+    const ids = v.map((s) => s.trim()).filter(Boolean);
+    switch (op) {
+      case "is":
+        return ids.length
+          ? { applications: { some: { job: { clientId: { in: ids } } } } }
+          : null;
+      case "isNot":
+        return ids.length
+          ? { applications: { none: { job: { clientId: { in: ids } } } } }
+          : null;
+      case "isEmpty":
+        return { applications: { none: { job: { clientId: { not: null } } } } };
+      case "isNotEmpty":
+        return { applications: { some: { job: { clientId: { not: null } } } } };
+      default:
+        return null;
+    }
+  }
+
+  // Sourced by — values are user IDs on the sourcedById scalar. "is not"
+  // keeps candidates with no sourcer (NOT IN drops NULLs in Postgres).
+  if (field === "sourcedBy") {
+    const ids = v.map((s) => s.trim()).filter(Boolean);
+    switch (op) {
+      case "is":
+        return ids.length ? { sourcedById: { in: ids } } : null;
+      case "isNot":
+        return ids.length
+          ? { OR: [{ sourcedById: null }, { sourcedById: { notIn: ids } }] }
+          : null;
+      case "isEmpty":
+        return { sourcedById: null };
+      case "isNotEmpty":
+        return { NOT: { sourcedById: null } };
       default:
         return null;
     }

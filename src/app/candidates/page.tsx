@@ -115,7 +115,7 @@ export default async function CandidatesPage({
   const hasUserSort = Boolean(userSortField);
   const orderBy = buildOrderBy(userSortField, sp.dir);
 
-  const [candidates, totalCount, availableTags, savedSearches, sourceOptions, seniorityOptions, listOptions, jobOptions, sequenceOptions] =
+  const [candidates, totalCount, availableTags, savedSearches, sourceOptions, seniorityOptions, listOptions, jobOptions, sequenceOptions, clientOptions, userOptions, rejectionReasonOptions] =
     await Promise.all([
       prisma.candidate.findMany({
         where,
@@ -179,6 +179,20 @@ export default async function CandidatesPage({
         select: { id: true, name: true },
         take: 500,
       }),
+      // Option lists for the filter builder's Client / Sourced by /
+      // Rejection reason fields.
+      prisma.client.findMany({
+        where: { organizationId: orgId },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+        take: 500,
+      }),
+      prisma.user.findMany({
+        where: { organizationId: orgId, active: true },
+        orderBy: [{ name: "asc" }, { email: "asc" }],
+        select: { id: true, name: true, email: true },
+      }),
+      loadChoiceOptions(CHOICE_FIELDS.candidateRejectionReason.key, orgId),
     ]);
 
   // If we ran FTS and the user hasn't chosen an explicit sort, re-sort by
@@ -259,6 +273,9 @@ export default async function CandidatesPage({
       listOptions={listOptions}
       jobOptions={jobOptions}
       sequenceOptions={sequenceOptions}
+      clientOptions={clientOptions}
+      userOptions={userOptions}
+      rejectionReasonOptions={rejectionReasonOptions.map((o) => ({ id: o.id, name: o.name }))}
       totalCount={totalCount}
       page={page}
       pageSize={pageSize}
