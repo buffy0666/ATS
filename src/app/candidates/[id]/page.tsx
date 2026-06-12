@@ -13,6 +13,7 @@ import { CandidateJobsSection } from "./CandidateJobsSection";
 import { EditableField } from "./EditableField";
 import { ProfileLayoutClient, type ProfileFieldNode } from "./ProfileLayoutClient";
 import { CandidateTags } from "./CandidateTags";
+import { ReferredByField } from "./ReferredByField";
 import { CandidateNavigator } from "./CandidateNavigator";
 import { DeleteCandidateButton } from "../DeleteCandidateButton";
 import { OutreachInsights, type ActivityItem, type OutreachInsight } from "./OutreachInsights";
@@ -142,6 +143,8 @@ export default async function CandidateDetailPage({
     degreeOptions,
     kindOptions,
     allTags,
+    orgUsers,
+    orgContacts,
   ] = await Promise.all([
     // findFirst (not findUnique) so we can compose id + organizationId in
     // the where clause — prevents cross-tenant reads if someone guesses
@@ -273,6 +276,23 @@ export default async function CandidateDetailPage({
       where: { organizationId: orgId },
       orderBy: { name: "asc" },
       select: { id: true, name: true, color: true },
+    }),
+    // Pickers for the editable "Referred by" detail.
+    prisma.user.findMany({
+      where: { organizationId: orgId, active: true },
+      orderBy: [{ name: "asc" }, { email: "asc" }],
+      select: { id: true, name: true, email: true },
+    }),
+    prisma.clientContact.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        client: { select: { name: true } },
+      },
+      take: 500,
     }),
   ]);
 
@@ -600,16 +620,22 @@ export default async function CandidateDetailPage({
               <Detail
                 label="Resume"
                 value={
-                  candidate.resumeUrl ? (
-                    <a
-                      href={candidate.resumeUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline"
-                    >
-                      Download
-                    </a>
-                  ) : null
+                  <div className="flex flex-wrap items-center gap-3">
+                    {candidate.resumeUrl && (
+                      <a
+                        href={candidate.resumeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline"
+                      >
+                        Download
+                      </a>
+                    )}
+                    <ResumeUploadButton
+                      candidateId={candidate.id}
+                      hasExistingResume={Boolean(candidate.resumeUrl)}
+                    />
+                  </div>
                 }
               />
               <Detail
@@ -618,9 +644,23 @@ export default async function CandidateDetailPage({
                   candidate.sourcedBy ? candidate.sourcedBy.name ?? candidate.sourcedBy.email : null
                 }
               />
-              <Detail
-                label="Referred by"
-                value={
+              <ReferredByField
+                candidateId={candidate.id}
+                current={
+                  candidate.referredByUserId
+                    ? { kind: "user", id: candidate.referredByUserId }
+                    : candidate.referredByContactId
+                      ? { kind: "contact", id: candidate.referredByContactId }
+                      : candidate.referredByName
+                        ? { kind: "name", name: candidate.referredByName }
+                        : { kind: "none" }
+                }
+                users={orgUsers.map((u) => ({ id: u.id, label: u.name ?? u.email }))}
+                contacts={orgContacts.map((c) => ({
+                  id: c.id,
+                  label: `${c.firstName} ${c.lastName} (${c.client.name})`,
+                }))}
+                display={
                   candidate.referredByUser
                     ? candidate.referredByUser.name ?? candidate.referredByUser.email
                     : candidate.referredByContact ? (
