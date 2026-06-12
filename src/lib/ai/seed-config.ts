@@ -5,8 +5,12 @@ import type { Prisma } from "@/generated/prisma";
 /**
  * Seed a new workspace's AIConfig from the "standard" template workspace
  * (T3X by default). This makes every new tenant inherit the same provider,
- * model, credential, and auth mode instead of silently falling back to env
- * vars until an OWNER configures it.
+ * model, base URL, and timeout instead of silently falling back to env vars
+ * until an OWNER configures it.
+ *
+ * Credentials are NOT copied — each workspace brings its own key. We seed the
+ * non-secret settings only and leave apiKeyEncrypted null + authMode at its
+ * "apiKey" default, so the OWNER just pastes their key in Settings → AI.
  *
  * The template workspace is resolved by slug via AI_TEMPLATE_ORG_SLUG
  * (default "t3x"). No-op if the template org or its AIConfig is absent, or if
@@ -14,11 +18,6 @@ import type { Prisma } from "@/generated/prisma";
  *
  * Runs inside the caller's transaction (pass the `tx` client) so the seeded
  * config commits atomically with the org/user creation.
- *
- * Note: this copies the template's encrypted key verbatim, so seeded
- * workspaces share the template's provider account. That's intentional —
- * "make the template's settings standard". Encryption is keyed off a single
- * AUTH_SECRET, so the copied ciphertext decrypts everywhere.
  */
 export async function seedAIConfigFromTemplate(
   tx: Prisma.TransactionClient,
@@ -29,7 +28,7 @@ export async function seedAIConfigFromTemplate(
 
   const template = await tx.organization.findUnique({
     where: { slug: templateSlug },
-    select: { id: true, aiConfig: { select: { provider: true, model: true, baseUrl: true, apiKeyEncrypted: true, authMode: true, timeoutMs: true } } },
+    select: { id: true, aiConfig: { select: { provider: true, model: true, baseUrl: true, timeoutMs: true } } },
   });
 
   const cfg = template?.aiConfig;
@@ -48,9 +47,8 @@ export async function seedAIConfigFromTemplate(
       provider: cfg.provider,
       model: cfg.model,
       baseUrl: cfg.baseUrl,
-      apiKeyEncrypted: cfg.apiKeyEncrypted,
-      authMode: cfg.authMode ?? "apiKey",
       timeoutMs: cfg.timeoutMs,
+      // No key copied — apiKeyEncrypted defaults null, authMode defaults "apiKey".
     },
   });
 }
