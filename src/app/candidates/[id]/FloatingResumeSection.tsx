@@ -79,16 +79,22 @@ export function FloatingResumeSection({
     const update = () => {
       const r = el.getBoundingClientRect();
       const bh = banner ? banner.getBoundingClientRect().height : 0;
-      // Align the spacer's bottom with the panel's rendered bottom so the
-      // Profile card sits flush under the panel with no leftover gap.
-      //   panelBottom (viewport, constant — panel is fixed) = pRect.bottom
-      //   spacerDocTop                                       = r.top + scrollY
-      // spacerHeight = panelBottom − spacerDocTop is scroll-independent:
-      // the +scrollY in the doc-top term cancels the viewport-fixed panel.
+      // Align the spacer's bottom with where the panel's bottom sits when the
+      // page is scrolled to the TOP (that's when overlap matters — once the
+      // user scrolls, content sliding under the pinned panel is intended).
+      // All terms in document coordinates, so the result is scroll-independent:
+      //   panelTopAtRest  = max(banner + 16, headerDocBottom + 12)
+      //   panelBottomDoc  = panelTopAtRest + panelHeight
+      //   spacerDocTop    = r.top + scrollY
+      const headerEl = document.querySelector<HTMLElement>("[data-candidate-header]");
+      const headerDocBottom = headerEl
+        ? headerEl.getBoundingClientRect().bottom + window.scrollY
+        : 0;
+      const panelTopAtRest = Math.max(bh + 16, headerDocBottom + 12);
       const pRect = panelRef.current?.getBoundingClientRect();
       const nextSpacerH =
         pRect && r.width > 0
-          ? Math.max(0, pRect.bottom - (r.top + window.scrollY))
+          ? Math.max(0, panelTopAtRest + pRect.height - (r.top + window.scrollY))
           : null;
       // window.scrollY shouldn't affect left/width but Safari sometimes
       // reports stale rects when called before layout flush — measure on
