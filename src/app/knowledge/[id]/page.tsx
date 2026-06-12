@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { KnowledgeStatus, Role } from "@/generated/prisma";
 import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
+import { KNOWLEDGE_SECTION_CATEGORIES } from "../constants";
 import { AttachmentsSection, type AttachmentRow } from "./AttachmentsSection";
 import { ContentSection } from "./ContentSection";
 
@@ -37,6 +38,17 @@ export default async function KnowledgeItemPage({
   if (!item) notFound();
 
   const isAdmin = isAdminOrAbove((session.user.role as Role) ?? Role.RECRUITER);
+
+  // SOP / Sales Content / Marketing Content items are admin-only. Hide them
+  // from recruiters even on a direct link (404, same as a missing item).
+  if (
+    !isAdmin &&
+    item.category != null &&
+    (KNOWLEDGE_SECTION_CATEGORIES as readonly string[]).includes(item.category)
+  ) {
+    notFound();
+  }
+
   const isCreator = item.createdById === session.user.id;
   const canModify = isAdmin || isCreator;
 

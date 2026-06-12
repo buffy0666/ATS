@@ -5,9 +5,10 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { TaskPriority, TaskStatus } from "@/generated/prisma";
 import { auditCreate, auditDelete, auditUpdate } from "@/lib/audit/write";
-import { requireAdminWithOrg } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { removeAttachmentFile, saveAttachment } from "@/lib/uploads";
+import { taskVisibilityWhere } from "./access";
 
 const optionalEnum = <T extends Record<string, string>>(e: T) =>
   z.preprocess(
@@ -75,7 +76,7 @@ async function saveTaskAttachments(taskId: string, files: File[], userId: string
 }
 
 export async function createTask(formData: FormData) {
-  const { session, orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
   const data = parseTaskInput(formData);
 
   const task = await prisma.task.create({
@@ -91,11 +92,17 @@ export async function createTask(formData: FormData) {
 }
 
 export async function updateTask(taskId: string, formData: FormData) {
-  const { orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
   const data = parseTaskInput(formData);
 
+  // Scoping the lookup by visibility means a recruiter can only update a task
+  // they own — a foreign id just falls through to "not found".
   const before = await prisma.task.findFirst({
-    where: { id: taskId, organizationId: orgId },
+    where: {
+      id: taskId,
+      organizationId: orgId,
+      ...taskVisibilityWhere(session.user.role, session.user.id ?? ""),
+    },
   });
   if (!before) throw new Error("Task not found.");
 
@@ -111,10 +118,14 @@ export async function updateTask(taskId: string, formData: FormData) {
 }
 
 export async function deleteTask(taskId: string) {
-  const { orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
 
   const task = await prisma.task.findFirst({
-    where: { id: taskId, organizationId: orgId },
+    where: {
+      id: taskId,
+      organizationId: orgId,
+      ...taskVisibilityWhere(session.user.role, session.user.id ?? ""),
+    },
   });
   if (!task) throw new Error("Task not found.");
 
@@ -131,9 +142,13 @@ export async function deleteTask(taskId: string) {
 }
 
 export async function addTaskAttachments(taskId: string, formData: FormData) {
-  const { session, orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
   const task = await prisma.task.findFirst({
-    where: { id: taskId, organizationId: orgId },
+    where: {
+      id: taskId,
+      organizationId: orgId,
+      ...taskVisibilityWhere(session.user.role, session.user.id ?? ""),
+    },
     select: { id: true },
   });
   if (!task) throw new Error("Task not found.");
@@ -144,10 +159,17 @@ export async function addTaskAttachments(taskId: string, formData: FormData) {
 }
 
 export async function deleteTaskAttachment(attachmentId: string) {
-  const { orgId } = await requireAdminWithOrg();
-  // Join through task to verify the attachment belongs to a task in this org.
+  const { session, orgId } = await requireSessionWithOrg();
+  // Join through task to verify the attachment belongs to a task in this org
+  // that the caller is allowed to see (their own, or any task for an admin).
   const attachment = await prisma.taskAttachment.findFirst({
-    where: { id: attachmentId, task: { organizationId: orgId } },
+    where: {
+      id: attachmentId,
+      task: {
+        organizationId: orgId,
+        ...taskVisibilityWhere(session.user.role, session.user.id ?? ""),
+      },
+    },
     select: { taskId: true, url: true },
   });
   if (!attachment) return;
@@ -193,7 +215,7 @@ export type BulkPatchInput = {
  * nullable field back to null.
  */
 export async function bulkUpdateTasks(taskIds: string[], patch: BulkPatchInput) {
-  const { orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
   if (taskIds.length === 0) return { count: 0 };
 
   const parsed = bulkPatchSchema.parse(patch);
@@ -228,7 +250,11 @@ export async function bulkUpdateTasks(taskIds: string[], patch: BulkPatchInput) 
   if (Object.keys(data).length === 0) return { count: 0 };
 
   const result = await prisma.task.updateMany({
-    where: { id: { in: taskIds }, organizationId: orgId },
+    where: {
+      id: { in: taskIds },
+      organizationId: orgId,
+      ...taskVisibilityWhere(session.user.role, session.user.id ?? ""),
+    },
     data,
   });
 
@@ -237,16 +263,18 @@ export async function bulkUpdateTasks(taskIds: string[], patch: BulkPatchInput) 
 }
 
 export async function bulkDeleteTasks(taskIds: string[]) {
-  const { orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
   if (taskIds.length === 0) return { count: 0 };
 
+  const visibility = taskVisibilityWhere(session.user.role, session.user.id ?? "");
+
   const attachments = await prisma.taskAttachment.findMany({
-    where: { taskId: { in: taskIds }, task: { organizationId: orgId } },
+    where: { taskId: { in: taskIds }, task: { organizationId: orgId, ...visibility } },
     select: { url: true },
   });
 
   const result = await prisma.task.deleteMany({
-    where: { id: { in: taskIds }, organizationId: orgId },
+    where: { id: { in: taskIds }, organizationId: orgId, ...visibility },
   });
   await Promise.all(attachments.map((a) => removeAttachmentFile(a.url)));
 

@@ -6,7 +6,11 @@ import { KnowledgeStatus } from "@/generated/prisma";
 import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { removeAttachmentFile, saveAttachment } from "@/lib/uploads";
-import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_TYPES } from "./constants";
+import {
+  KNOWLEDGE_CATEGORIES,
+  KNOWLEDGE_SECTION_CATEGORIES,
+  KNOWLEDGE_TYPES,
+} from "./constants";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const ALLOWED_FILE_TYPES = new Set([
@@ -105,6 +109,17 @@ export async function addKnowledgeItem(formData: FormData): Promise<AddKnowledge
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
   }
   const data = parsed.data;
+
+  // SOP / Sales Content / Marketing Content are admin-only sections — block a
+  // recruiter from filing an item under one even if they craft the request by
+  // hand (the form already hides these options).
+  const canUseSectionCategory = isAdminOrAbove(session.user.role);
+  if (
+    !canUseSectionCategory &&
+    (KNOWLEDGE_SECTION_CATEGORIES as readonly string[]).includes(data.category)
+  ) {
+    return { ok: false, error: "You can't file items under that category." };
+  }
 
   // Cross-tenant guard: a chosen client must belong to the caller's org.
   let clientId = data.clientId;

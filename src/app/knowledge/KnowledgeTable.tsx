@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { KnowledgeStatus, Role } from "@/generated/prisma";
 import { deleteKnowledgeItem, setKnowledgeStatus } from "./actions";
-import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_TYPES } from "./constants";
+import {
+  KNOWLEDGE_CATEGORIES,
+  KNOWLEDGE_SECTION_CATEGORIES,
+  KNOWLEDGE_TYPES,
+} from "./constants";
 
 export type KnowledgeRow = {
   id: string;
@@ -51,6 +55,14 @@ export function KnowledgeTable({
   // ADMIN or OWNER can approve / delete any item; recruiters can only
   // delete their own and never approve.
   const isAdmin = currentUserRole === Role.ADMIN || currentUserRole === Role.OWNER;
+
+  // Recruiters never see the admin-only sections, so don't offer them as
+  // category filters either.
+  const categoryOptions = isAdmin
+    ? KNOWLEDGE_CATEGORIES
+    : KNOWLEDGE_CATEGORIES.filter(
+        (c) => !(KNOWLEDGE_SECTION_CATEGORIES as readonly string[]).includes(c),
+      );
 
   // Distinct clients present in the current item set, for the client filter.
   const clientOptions = useMemo(() => {
@@ -152,7 +164,7 @@ export function KnowledgeTable({
           className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
         >
           <option value="all">All categories</option>
-          {KNOWLEDGE_CATEGORIES.map((c) => (
+          {categoryOptions.map((c) => (
             <option key={c} value={c}>
               {c}
             </option>

@@ -4,7 +4,7 @@ import { auth } from "@/auth";
 import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { KnowledgeForm } from "../KnowledgeForm";
-import { KNOWLEDGE_CATEGORIES } from "../constants";
+import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_SECTION_CATEGORIES } from "../constants";
 
 export default async function NewKnowledgeItemPage({
   searchParams,
@@ -30,10 +30,18 @@ export default async function NewKnowledgeItemPage({
     ? clients.find((c) => c.id === sp.clientId) ?? null
     : null;
 
-  const defaultCategory =
+  const requestedCategory =
     sp.category && (KNOWLEDGE_CATEGORIES as readonly string[]).includes(sp.category)
       ? sp.category
       : undefined;
+  // Recruiters can't author admin-only section categories, so never preset one
+  // for them (the form also omits these options below).
+  const defaultCategory =
+    requestedCategory &&
+    !isAdmin &&
+    (KNOWLEDGE_SECTION_CATEGORIES as readonly string[]).includes(requestedCategory)
+      ? undefined
+      : requestedCategory;
 
   return (
     <main className="flex-1 max-w-3xl mx-auto w-full px-6 py-10">

@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
+import { KNOWLEDGE_SECTION_CATEGORIES } from "../../knowledge/constants";
 import { ClientHeader } from "./ClientHeader";
 import { ContactsSection } from "./ContactsSection";
 
@@ -11,7 +12,11 @@ export default async function ClientDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { orgId } = await requireSessionWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
+
+  // SOP / Sales Content / Marketing Content are admin-only — recruiters don't
+  // see those items in this client's knowledge list, nor the quick-add buttons.
+  const isAdmin = isAdminOrAbove(session.user.role);
 
   const [client, owners, allTags] = await Promise.all([
     prisma.client.findFirst({
@@ -33,6 +38,14 @@ export default async function ClientDetailPage({
           },
         },
         knowledgeItems: {
+          where: isAdmin
+            ? undefined
+            : {
+                OR: [
+                  { category: null },
+                  { category: { notIn: [...KNOWLEDGE_SECTION_CATEGORIES] } },
+                ],
+              },
           orderBy: { createdAt: "desc" },
           select: {
             id: true,
@@ -114,24 +127,28 @@ export default async function ClientDetailPage({
             >
               + Add item
             </Link>
-            <Link
-              href={`/knowledge/new?clientId=${client.id}&category=SOP`}
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800"
-            >
-              + SOP
-            </Link>
-            <Link
-              href={`/knowledge/new?clientId=${client.id}&category=${encodeURIComponent("Sales Content")}`}
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800"
-            >
-              + Sales Content
-            </Link>
-            <Link
-              href={`/knowledge/new?clientId=${client.id}&category=${encodeURIComponent("Marketing Content")}`}
-              className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800"
-            >
-              + Marketing Content
-            </Link>
+            {isAdmin && (
+              <>
+                <Link
+                  href={`/knowledge/new?clientId=${client.id}&category=SOP`}
+                  className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                >
+                  + SOP
+                </Link>
+                <Link
+                  href={`/knowledge/new?clientId=${client.id}&category=${encodeURIComponent("Sales Content")}`}
+                  className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                >
+                  + Sales Content
+                </Link>
+                <Link
+                  href={`/knowledge/new?clientId=${client.id}&category=${encodeURIComponent("Marketing Content")}`}
+                  className="rounded-md border border-zinc-300 dark:border-zinc-700 px-2.5 py-1 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                >
+                  + Marketing Content
+                </Link>
+              </>
+            )}
           </div>
         </div>
         {client.knowledgeItems.length === 0 ? (

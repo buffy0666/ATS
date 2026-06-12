@@ -1,9 +1,10 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Role } from "@/generated/prisma";
-import { requireSessionWithOrg } from "@/lib/auth-utils";
+import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { KnowledgeTable, type KnowledgeRow } from "./KnowledgeTable";
-import { KNOWLEDGE_CATEGORIES } from "./constants";
+import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_SECTION_CATEGORIES } from "./constants";
 
 export default async function KnowledgeBase({
   searchParams,
@@ -13,6 +14,8 @@ export default async function KnowledgeBase({
   const { session, orgId } = await requireSessionWithOrg();
   const sp = await searchParams;
 
+  const isAdmin = isAdminOrAbove(session.user.role);
+
   // Optional category filter — backs the SOP / Sales Content / Marketing
   // Content sidebar "section" views. Only honored if it's a known category.
   const sectionCategory =
@@ -20,10 +23,30 @@ export default async function KnowledgeBase({
       ? sp.category
       : null;
 
+  // SOP / Sales Content / Marketing Content are admin-only sections. A
+  // recruiter who reaches one by URL is bounced to the general KB.
+  const isAdminSection =
+    sectionCategory != null &&
+    (KNOWLEDGE_SECTION_CATEGORIES as readonly string[]).includes(sectionCategory);
+  if (isAdminSection && !isAdmin) {
+    redirect("/knowledge");
+  }
+
   const items = await prisma.knowledgeItem.findMany({
     where: {
       organizationId: orgId,
       ...(sectionCategory ? { category: sectionCategory } : {}),
+      // Outside the section views, recruiters must not see admin-only section
+      // categories mixed into the general list. (category null = uncategorized,
+      // which stays visible.)
+      ...(!isAdmin && !sectionCategory
+        ? {
+            OR: [
+              { category: null },
+              { category: { notIn: [...KNOWLEDGE_SECTION_CATEGORIES] } },
+            ],
+          }
+        : {}),
     },
     orderBy: { createdAt: "desc" },
     include: {

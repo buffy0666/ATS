@@ -15,15 +15,21 @@ const PRIMARY_ITEMS: NavItem[] = [
   { href: "/interviews", label: "Interviews" },
   { href: "/lists", label: "Lists" },
   { href: "/sequences", label: "Sequences" },
+  // Tasks live in the user area: every recruiter sees their own tasks here.
+  // The page itself scopes the list (admins see all, recruiters see only
+  // tasks assigned to or created by them).
+  { href: "/tasks", label: "Tasks" },
   { href: "/knowledge", label: "Knowledge Base" },
-  { href: "/knowledge?category=SOP", label: "SOPs" },
-  { href: "/knowledge?category=Sales+Content", label: "Sales Content" },
-  { href: "/knowledge?category=Marketing+Content", label: "Marketing Content" },
   { href: "/templates", label: "Templates" },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [
-  { href: "/tasks", label: "Tasks" },
+  // SOP / Sales Content / Marketing Content are admin-only knowledge sections —
+  // recruiters must not see them, so they live here (the page + queries also
+  // enforce this server-side, the nav just hides the entry points).
+  { href: "/knowledge?category=SOP", label: "SOPs" },
+  { href: "/knowledge?category=Sales+Content", label: "Sales Content" },
+  { href: "/knowledge?category=Marketing+Content", label: "Marketing Content" },
   { href: "/users", label: "Users" },
   { href: "/admin/impersonate", label: "Login as user" },
   { href: "/audit", label: "Audit history" },

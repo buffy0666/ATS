@@ -4,7 +4,11 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { KnowledgeStatus } from "@/generated/prisma";
 import { addKnowledgeItem, uploadKnowledgeImageDraft } from "./actions";
-import { KNOWLEDGE_CATEGORIES, KNOWLEDGE_TYPES } from "./constants";
+import {
+  KNOWLEDGE_CATEGORIES,
+  KNOWLEDGE_SECTION_CATEGORIES,
+  KNOWLEDGE_TYPES,
+} from "./constants";
 import { RichEditor } from "@/components/rich-editor/RichEditor";
 
 export function KnowledgeForm({
@@ -30,6 +34,14 @@ export function KnowledgeForm({
   // its selection on each click). Each pick appends; users can remove any.
   const [files, setFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // SOP / Sales Content / Marketing Content are admin-only sections, so
+  // recruiters can't file new items under them.
+  const categoryOptions = isAdmin
+    ? KNOWLEDGE_CATEGORIES
+    : KNOWLEDGE_CATEGORIES.filter(
+        (c) => !(KNOWLEDGE_SECTION_CATEGORIES as readonly string[]).includes(c),
+      );
 
   function addFiles(picked: FileList | null) {
     if (!picked || picked.length === 0) return;
@@ -132,10 +144,10 @@ export function KnowledgeForm({
             id="category"
             name="category"
             required
-            defaultValue={defaultCategory ?? KNOWLEDGE_CATEGORIES[0]}
+            defaultValue={defaultCategory ?? categoryOptions[0]}
             className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-sm"
           >
-            {KNOWLEDGE_CATEGORIES.map((c) => (
+            {categoryOptions.map((c) => (
               <option key={c} value={c}>
                 {c}
               </option>

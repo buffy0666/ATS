@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireAdminWithOrg } from "@/lib/auth-utils";
+import { RichViewer } from "@/components/rich-editor/RichViewer";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import {
   addTaskAttachments,
   deleteTaskAttachment,
   updateTask,
 } from "../actions";
+import { taskVisibilityWhere } from "../access";
 import { TaskFormFields } from "../TaskFormFields";
 import { DeleteTaskButton } from "./DeleteTaskButton";
 
@@ -21,12 +23,18 @@ export default async function TaskDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
   const { id } = await params;
 
   const [task, assignableUsers] = await Promise.all([
     prisma.task.findFirst({
-      where: { id, organizationId: orgId },
+      where: {
+        id,
+        organizationId: orgId,
+        // Recruiters can only open their own tasks; admins see any. A
+        // non-matching task simply 404s rather than leaking its existence.
+        ...taskVisibilityWhere(session.user.role, session.user.id ?? ""),
+      },
       include: {
         createdBy: { select: { name: true, email: true } },
         assignedTo: { select: { id: true, name: true, email: true } },
@@ -67,11 +75,9 @@ export default async function TaskDetailPage({
           <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 mb-2">
             Description
           </h2>
-          {/* Admin-only writers + readers — rendering stored HTML is the requested behavior. */}
-          <div
-            className="prose prose-sm max-w-none dark:prose-invert text-sm"
-            dangerouslySetInnerHTML={{ __html: task.description }}
-          />
+          {/* Recruiters can now author tasks, so the stored HTML is untrusted —
+              RichViewer sanitizes it before rendering (defense against stored XSS). */}
+          <RichViewer html={task.description} />
         </section>
       )}
 

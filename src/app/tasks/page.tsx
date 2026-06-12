@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { Prisma, TaskStatus } from "@/generated/prisma";
-import { requireAdminWithOrg } from "@/lib/auth-utils";
+import { isAdminOrAbove, requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
+import { taskVisibilityWhere } from "./access";
 import { SORT_COLUMNS, type SortColumn } from "./sort";
 import { type TaskRow, TasksTable } from "./TasksTable";
 
@@ -26,16 +27,19 @@ export default async function TasksPage({
 }: {
   searchParams: Promise<{ status?: string; sort?: string; dir?: string }>;
 }) {
-  const { orgId } = await requireAdminWithOrg();
+  const { session, orgId } = await requireSessionWithOrg();
   const { status: statusRaw, sort: sortRaw, dir: dirRaw } = await searchParams;
 
   const status = parseStatus(statusRaw);
   const sort = parseSort(sortRaw);
   const dir = parseDir(dirRaw);
 
+  const isAdmin = isAdminOrAbove(session.user.role);
+
   const where: Prisma.TaskWhereInput = {
     organizationId: orgId,
     ...(status ? { status } : {}),
+    ...taskVisibilityWhere(session.user.role, session.user.id ?? ""),
   };
 
   const [tasks, assignableUsers] = await Promise.all([
@@ -80,7 +84,11 @@ export default async function TasksPage({
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold">Tasks</h1>
-          <p className="text-sm text-zinc-500 mt-1">Shared admin task list.</p>
+          <p className="text-sm text-zinc-500 mt-1">
+            {isAdmin
+              ? "All tasks across the workspace."
+              : "Tasks assigned to or created by you."}
+          </p>
         </div>
         <Link
           href="/tasks/new"

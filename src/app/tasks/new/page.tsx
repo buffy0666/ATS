@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { requireAdminWithOrg } from "@/lib/auth-utils";
+import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { createTask } from "../actions";
 import { TaskFormFields } from "../TaskFormFields";
 
 export default async function NewTaskPage() {
-  const { orgId } = await requireAdminWithOrg();
+  const { orgId } = await requireSessionWithOrg();
 
   const assignableUsers = await prisma.user.findMany({
     where: { active: true, organizationId: orgId },
