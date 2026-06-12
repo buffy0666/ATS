@@ -371,6 +371,7 @@ model Organization {
   tasks                  Task[]
   candidateLists         CandidateList[]
   savedSearches          SavedSearch[]
+  profileLayouts         ProfileLayout[]
   interviews             Interview[]
   choiceOptions          ChoiceOption[]
   sequences              Sequence[]
@@ -468,6 +469,7 @@ model User {
   listAssignments        CandidateListAssignee[] @relation("ListAssignee")
   listAssignmentsMade    CandidateListAssignee[] @relation("ListAssigner")
   savedSearches          SavedSearch[]
+  profileLayouts         ProfileLayout[]
   sequencesCreated       Sequence[]              @relation("SequenceCreator")
   enrollmentsCreated     SequenceEnrollment[]    @relation("SequenceEnroller")
   stepRunsCompleted      StepRun[]               @relation("StepRunCompleter")
@@ -1426,6 +1428,26 @@ model SavedSearch {
 
   @@index([ownerId])
   @@index([scope])
+  @@index([organizationId])
+}
+
+// A saved layout for the candidate-detail Profile section: which editable
+// fields are shown and in what order/section. Personal (owner-only) or shared
+// (whole org). The "working" layout lives in localStorage; these are the
+// named, cross-device ones. config is JSON: { sections: [{ title, fields }] }.
+model ProfileLayout {
+  id             String           @id @default(cuid())
+  name           String
+  scope          SavedSearchScope @default(PERSONAL)
+  config         String
+  ownerId        String
+  owner          User             @relation(fields: [ownerId], references: [id])
+  organizationId String?
+  organization   Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([ownerId])
   @@index([organizationId])
 }
 
