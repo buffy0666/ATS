@@ -591,7 +591,6 @@ export default async function CandidateDetailPage({
               </DetailGrid>
 
               <DetailGrid title="Source & ownership">
-                <EditableField candidateId={candidate.id} field="status" label="Status" type="select" value={candidate.status} options={statusOptions} required />
                 <EditableField candidateId={candidate.id} field="source" label="Source" type="select" value={candidate.source} options={sourceSelectOptions} />
                 <EditableField candidateId={candidate.id} field="sourceDetail" label="Source detail" type="text" value={candidate.sourceDetail} />
                 <Detail
@@ -741,7 +740,7 @@ export default async function CandidateDetailPage({
           className="flex flex-col gap-4 sticky top-4 self-start"
           style={{ maxHeight: "calc(100vh - 2rem)" }}
         >
-          <div className="shrink-0">
+          <div className="shrink-0 grid grid-cols-2 gap-3">
             <EditableField
               candidateId={candidate.id}
               field="rating"
@@ -749,6 +748,15 @@ export default async function CandidateDetailPage({
               type="select"
               value={intStr(candidate.rating)}
               options={ratingOptions}
+            />
+            <EditableField
+              candidateId={candidate.id}
+              field="status"
+              label="Status"
+              type="select"
+              value={candidate.status}
+              options={statusOptions}
+              required
             />
           </div>
 
