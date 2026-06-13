@@ -12,6 +12,7 @@ import {
 } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@/generated/prisma";
+import { resolveWorkspaceRole } from "@/lib/workspace-roles";
 import { sendEmail } from "@/lib/email";
 import { createInvitation, sendInvitationEmail } from "@/lib/invitations";
 import { sanitizePhoneSystems } from "./user-fields";
@@ -65,15 +66,25 @@ export async function createUser(
   if (existing) return { ok: false, error: "A user with that email already exists." };
 
   const passwordHash = await bcrypt.hash(parsed.data.password, 10);
+  // First non-recruiter member of a workspace becomes its OWNER, so a
+  // workspace can never end up ownerless (see resolveWorkspaceRole).
+  const role = await resolveWorkspaceRole(prisma, orgId, parsed.data.role);
   const created = await prisma.user.create({
     data: {
       email: parsed.data.email,
       name: parsed.data.name,
       passwordHash,
-      role: parsed.data.role,
+      role,
       organizationId: orgId,
     },
   });
+  // If that just minted the workspace's first owner, point the org at them.
+  if (role === Role.OWNER) {
+    await prisma.organization.updateMany({
+      where: { id: orgId, ownerUserId: null },
+      data: { ownerUserId: created.id },
+    });
+  }
 
   if (parsed.data.sendWelcomeEmail) {
     await sendWelcomeEmail({

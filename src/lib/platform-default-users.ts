@@ -3,6 +3,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { Role } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
+import { resolveWorkspaceRole } from "@/lib/workspace-roles";
 
 /**
  * "Platform default" users — synthetic Default Admin / Default User
@@ -92,15 +93,25 @@ export async function findOrCreateDefaultUser(
   // in directly. The random suffix is just to make the value unique per
   // row (defensive — there's no functional reason it needs to be).
   const sentinelHash = `${PASSWORD_HASH_SENTINEL_PREFIX}${randomBytes(16).toString("hex")}`;
+  // If this org has no OWNER yet, the default admin becomes its OWNER — an
+  // ownerless workspace shouldn't exist even when first entered via the
+  // platform impersonation shortcut (see resolveWorkspaceRole).
+  const effectiveRole = await resolveWorkspaceRole(prisma, organizationId, role);
   const created = await prisma.user.create({
     data: {
       email,
       name: defaultNameFor(role),
       passwordHash: sentinelHash,
-      role,
+      role: effectiveRole,
       organizationId,
     },
     select: { id: true, email: true, name: true, role: true },
   });
+  if (effectiveRole === Role.OWNER) {
+    await prisma.organization.updateMany({
+      where: { id: organizationId, ownerUserId: null },
+      data: { ownerUserId: created.id },
+    });
+  }
   return created;
 }

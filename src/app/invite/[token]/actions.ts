@@ -6,6 +6,7 @@ import { z } from "zod";
 import { Role } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { lookupInvitation } from "@/lib/invitations";
+import { resolveWorkspaceRole } from "@/lib/workspace-roles";
 
 const schema = z.object({
   token: z.string().min(1).max(200),
@@ -73,12 +74,20 @@ export async function acceptInvitationAction(
 
   try {
     await prisma.$transaction(async (tx) => {
+      // First non-recruiter member of a workspace becomes its OWNER, so a
+      // workspace can never end up ownerless (see resolveWorkspaceRole).
+      // This also covers the founding-owner invite (role=OWNER) naturally.
+      let role = await resolveWorkspaceRole(tx, invitation.organizationId, invitation.role);
+      // Defense in depth: an asOwner invite should always land as OWNER even
+      // if its stored role was tampered with.
+      if (invitation.asOwner) role = Role.OWNER;
+
       const user = await tx.user.create({
         data: {
           email: invitation.email,
           name,
           passwordHash,
-          role: invitation.role,
+          role,
           organizationId: invitation.organizationId,
         },
         select: { id: true },
@@ -89,22 +98,14 @@ export async function acceptInvitationAction(
         data: { acceptedAt: new Date(), acceptedUserId: user.id },
       });
 
-      // If this was the founding-owner invite, set the org's
-      // ownerUserId — but only if the slot is still empty (a race with
-      // a manual DB edit shouldn't clobber an existing owner).
-      if (invitation.asOwner) {
+      // Whenever this user is (or becomes) an OWNER, point the org's
+      // ownerUserId at them — but only if the slot is still empty (a race
+      // with a manual DB edit shouldn't clobber an existing owner).
+      if (role === Role.OWNER) {
         await tx.organization.updateMany({
           where: { id: invitation.organizationId, ownerUserId: null },
           data: { ownerUserId: user.id },
         });
-        // Defense in depth: invitations with asOwner should always have
-        // role=OWNER. Promote just in case the row was tampered with.
-        if (invitation.role !== Role.OWNER) {
-          await tx.user.update({
-            where: { id: user.id },
-            data: { role: Role.OWNER },
-          });
-        }
       }
     });
   } catch (err) {
