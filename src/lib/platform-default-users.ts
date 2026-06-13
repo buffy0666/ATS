@@ -34,13 +34,20 @@ const PASSWORD_HASH_SENTINEL_PREFIX = "__platform-default__";
  * Stable email format for a default user. Encodes both org slug and role
  * so the email is human-readable.
  */
+function roleLabelFor(role: Role): string {
+  if (role === Role.OWNER) return "owner";
+  if (role === Role.ADMIN) return "admin";
+  return "user";
+}
+
 function defaultEmailFor(orgSlug: string, role: Role): string {
-  const roleLabel = role === Role.ADMIN ? "admin" : "user";
-  return `default-${roleLabel}@${orgSlug}.${DEFAULT_EMAIL_DOMAIN}`;
+  return `default-${roleLabelFor(role)}@${orgSlug}.${DEFAULT_EMAIL_DOMAIN}`;
 }
 
 function defaultNameFor(role: Role): string {
-  return role === Role.ADMIN ? "Default Admin" : "Default User";
+  if (role === Role.OWNER) return "Default Owner";
+  if (role === Role.ADMIN) return "Default Admin";
+  return "Default User";
 }
 
 /**

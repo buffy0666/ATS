@@ -85,7 +85,7 @@ export default async function PlatformOrgsPage({
               <th className="text-right px-4 py-2">Jobs</th>
               <th className="text-right px-4 py-2">Clients</th>
               <th className="text-left px-4 py-2">Created</th>
-              <th className="text-right px-4 py-2 w-44">Login as</th>
+              <th className="text-right px-4 py-2 w-56">Login as</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -160,11 +160,22 @@ export default async function PlatformOrgsPage({
  *
  * Each button is an <a target="_blank"> pointing at /platform/impersonate-as
  * — the route handler picks the first active non-platform-admin user of
- * the given role, starts impersonation, and redirects to / in the new tab.
+ * the given role (or provisions a Default Owner/Admin/User if none exists),
+ * starts impersonation, and redirects to / in the new tab. To sign in as a
+ * specific named user, drill into the org and use "Sign in as" on its row.
  */
 function LoginButtons({ orgId }: { orgId: string }) {
   return (
     <div className="flex justify-end gap-1">
+      <a
+        href={`/platform/impersonate-as?orgId=${orgId}&role=OWNER`}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Sign in as this tenant's first active OWNER (or a provisioned Default Owner). Opens in a new tab."
+        className="text-xs rounded-md bg-purple-600 hover:bg-purple-700 text-white px-2 py-1 font-medium"
+      >
+        Owner
+      </a>
       <a
         href={`/platform/impersonate-as?orgId=${orgId}&role=ADMIN`}
         target="_blank"
