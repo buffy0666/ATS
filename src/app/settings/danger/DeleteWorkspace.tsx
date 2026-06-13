@@ -1,9 +1,70 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { deleteWorkspace } from "./actions";
 
 type ImpactRow = { label: string; count: number };
+
+/**
+ * Synthesized evil laugh — six descending sawtooth "HA" bursts through a
+ * lowpass filter, each with a downward pitch bend and a fast attack/decay
+ * envelope. Pure Web Audio API, no asset to ship. Modest volume on purpose.
+ */
+function evilLaugh(ctx: AudioContext) {
+  const now = ctx.currentTime;
+  const master = ctx.createGain();
+  master.gain.value = 0.2;
+  const filter = ctx.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 1100;
+  filter.connect(master);
+  master.connect(ctx.destination);
+
+  const syllables = [
+    { t: 0.0, f: 165, d: 0.3 },
+    { t: 0.3, f: 150, d: 0.28 },
+    { t: 0.58, f: 138, d: 0.26 },
+    { t: 0.88, f: 124, d: 0.3 },
+    { t: 1.22, f: 110, d: 0.42 },
+    { t: 1.7, f: 96, d: 0.6 },
+  ];
+  for (const s of syllables) {
+    const start = now + s.t;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(1, start + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + s.d);
+    gain.connect(filter);
+
+    // Two detuned voices an octave apart — sounds throatier than one.
+    for (const [type, mult] of [["sawtooth", 1], ["square", 0.5]] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(s.f * mult * 1.12, start);
+      osc.frequency.exponentialRampToValueAtTime(s.f * mult * 0.82, start + s.d);
+      osc.connect(gain);
+      osc.start(start);
+      osc.stop(start + s.d + 0.05);
+    }
+  }
+}
+
+/**
+ * "Warning, Will Robinson! Warning, Will Robinson!" — spoken via the
+ * Speech Synthesis API with the pitch dropped for maximum 1965-robot
+ * effect. No-op on browsers without speechSynthesis.
+ */
+function warningWillRobinson() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  const utterance = new SpeechSynthesisUtterance(
+    "Warning, Will Robinson! Warning, Will Robinson!",
+  );
+  utterance.rate = 0.95;
+  utterance.pitch = 0.35;
+  utterance.volume = 0.9;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+}
 
 /**
  * Hand-drawn skull & crossbones that appears to be laughing: the head rocks
@@ -118,9 +179,65 @@ export function DeleteWorkspace({
   // Layer 3
   const [skullOpen, setSkullOpen] = useState(false);
   const [countdown, setCountdown] = useState(5);
+  const [muted, setMuted] = useState(false);
+
+  // Soundtrack plumbing. The AudioContext is created on the button click
+  // (a user gesture), which is what satisfies browser autoplay policy.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const laughTimerRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const matches = typed.trim() === orgName.trim();
   const total = impact.reduce((sum, r) => sum + r.count, 0);
+
+  function playSoundtrack() {
+    try {
+      const ctx = audioCtxRef.current ?? new AudioContext();
+      audioCtxRef.current = ctx;
+      if (ctx.state === "suspended") void ctx.resume();
+      // The robot warns first; the skull laughs at you right after.
+      warningWillRobinson();
+      laughTimerRef.current.push(setTimeout(() => evilLaugh(ctx), 2800));
+      // Encore every ~8s while the modal stays open.
+      const loop = setInterval(() => {
+        warningWillRobinson();
+        laughTimerRef.current.push(setTimeout(() => evilLaugh(ctx), 2800));
+      }, 8000);
+      laughTimerRef.current.push(loop as unknown as ReturnType<typeof setTimeout>);
+    } catch {
+      // No audio support — the skull laughs silently.
+    }
+  }
+
+  function stopSoundtrack() {
+    for (const t of laughTimerRef.current) {
+      clearTimeout(t);
+      clearInterval(t as unknown as ReturnType<typeof setInterval>);
+    }
+    laughTimerRef.current = [];
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  }
+
+  function openSkull() {
+    setMuted(false);
+    setSkullOpen(true);
+    playSoundtrack();
+  }
+
+  function closeSkull() {
+    stopSoundtrack();
+    setSkullOpen(false);
+  }
+
+  function muteSoundtrack() {
+    stopSoundtrack();
+    setMuted(true);
+  }
+
+  // Belt-and-suspenders: kill the noise if the component unmounts while
+  // the modal is open (e.g. the delete succeeds and we navigate away).
+  useEffect(() => stopSoundtrack, []);
 
   // The final button unlocks only after the countdown finishes.
   useEffect(() => {
@@ -208,7 +325,7 @@ export function DeleteWorkspace({
 
               <button
                 type="button"
-                onClick={() => setSkullOpen(true)}
+                onClick={openSkull}
                 disabled={!matches || pending}
                 className="mt-4 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -223,11 +340,23 @@ export function DeleteWorkspace({
                   aria-modal="true"
                   aria-label="Final deletion warning"
                 >
-                  <div className="w-full max-w-md rounded-xl border-2 border-red-600 bg-zinc-950 p-8 text-center shadow-[0_0_60px_rgba(220,38,38,0.45)]">
+                  <div className="relative w-full max-w-md rounded-xl border-2 border-red-600 bg-zinc-950 p-8 text-center shadow-[0_0_60px_rgba(220,38,38,0.45)]">
+                    <button
+                      type="button"
+                      onClick={muted ? openSkull : muteSoundtrack}
+                      title={muted ? "Unmute" : "Silence it"}
+                      aria-label={muted ? "Unmute the warning sounds" : "Mute the warning sounds"}
+                      className="absolute right-3 top-3 rounded-md border border-zinc-700 px-2 py-1 text-sm text-zinc-300 hover:bg-zinc-800"
+                    >
+                      {muted ? "🔇" : "🔊"}
+                    </button>
                     <LaughingSkull className="mx-auto h-32 w-32" />
                     <h4 className="mt-4 text-lg font-bold uppercase tracking-widest text-red-500">
                       Warning 3 of 3 — point of no return
                     </h4>
+                    <p className="mt-1 text-[11px] uppercase tracking-[0.2em] text-red-400/80">
+                      Warning, Will Robinson! Warning, Will Robinson!
+                    </p>
                     <p className="mt-3 text-sm leading-relaxed text-zinc-300">
                       You are about to erase{" "}
                       <span className="font-semibold text-white">{orgName}</span>
@@ -255,7 +384,7 @@ export function DeleteWorkspace({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setSkullOpen(false)}
+                        onClick={closeSkull}
                         disabled={pending}
                         className="rounded-md border border-zinc-700 px-4 py-2.5 text-sm font-medium text-zinc-200 hover:bg-zinc-800"
                       >
