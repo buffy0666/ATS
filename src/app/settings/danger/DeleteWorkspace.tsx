@@ -6,6 +6,90 @@ import { deleteWorkspace } from "./actions";
 type ImpactRow = { label: string; count: number };
 
 /**
+ * Hand-drawn skull & crossbones that appears to be laughing: the head rocks
+ * side to side, the jaw chatters open/shut, the eye sockets glow, and little
+ * "HA"s float up and fade. Pure CSS keyframes — no JS timers.
+ */
+function LaughingSkull({ className }: { className?: string }) {
+  return (
+    <div className={className} aria-hidden="true">
+      <style>{`
+        @keyframes skull-rock {
+          0%, 100% { transform: rotate(-6deg); }
+          50% { transform: rotate(6deg); }
+        }
+        @keyframes skull-jaw {
+          0%, 100% { transform: translateY(0); }
+          20% { transform: translateY(6px); }
+          40% { transform: translateY(1px); }
+          60% { transform: translateY(5px); }
+          80% { transform: translateY(2px); }
+        }
+        @keyframes skull-eye-glow {
+          0%, 100% { opacity: 0.35; }
+          50% { opacity: 1; }
+        }
+        @keyframes skull-ha {
+          0% { opacity: 0; transform: translateY(6px) scale(0.8); }
+          30% { opacity: 1; }
+          100% { opacity: 0; transform: translateY(-14px) scale(1.15); }
+        }
+      `}</style>
+      <svg viewBox="0 0 120 120" className="h-full w-full">
+        {/* Crossbones */}
+        <g stroke="#d6d3d1" strokeWidth="9" strokeLinecap="round">
+          <line x1="18" y1="104" x2="102" y2="20" />
+          <line x1="18" y1="20" x2="102" y2="104" />
+        </g>
+        <g fill="#d6d3d1">
+          <circle cx="14" cy="100" r="6" /><circle cx="22" cy="108" r="6" />
+          <circle cx="98" cy="16" r="6" /><circle cx="106" cy="24" r="6" />
+          <circle cx="14" cy="24" r="6" /><circle cx="22" cy="16" r="6" />
+          <circle cx="98" cy="108" r="6" /><circle cx="106" cy="100" r="6" />
+        </g>
+
+        {/* Rocking head (cranium + face + chattering jaw) */}
+        <g style={{ animation: "skull-rock 1.3s ease-in-out infinite", transformOrigin: "60px 58px" }}>
+          {/* Cranium */}
+          <ellipse cx="60" cy="50" rx="31" ry="29" fill="#f5f3ec" />
+          {/* Upper jaw / teeth */}
+          <rect x="45" y="66" width="30" height="14" rx="4" fill="#f5f3ec" />
+          <g stroke="#a8a29e" strokeWidth="1.5">
+            <line x1="52.5" y1="68" x2="52.5" y2="80" />
+            <line x1="60" y1="68" x2="60" y2="80" />
+            <line x1="67.5" y1="68" x2="67.5" y2="80" />
+          </g>
+          {/* Eye sockets */}
+          <ellipse cx="48" cy="50" rx="7.5" ry="9.5" fill="#18181b" />
+          <ellipse cx="72" cy="50" rx="7.5" ry="9.5" fill="#18181b" />
+          {/* Glowing pupils */}
+          <circle cx="48" cy="51" r="3" fill="#ef4444" style={{ animation: "skull-eye-glow 1.3s ease-in-out infinite" }} />
+          <circle cx="72" cy="51" r="3" fill="#ef4444" style={{ animation: "skull-eye-glow 1.3s ease-in-out infinite", animationDelay: "0.65s" }} />
+          {/* Nasal cavity */}
+          <path d="M60 56 l-4.5 8.5 h9 z" fill="#18181b" />
+          {/* Chattering jaw */}
+          <g style={{ animation: "skull-jaw 0.55s ease-in-out infinite" }}>
+            <rect x="47" y="84" width="26" height="12" rx="5" fill="#f5f3ec" />
+            <g stroke="#a8a29e" strokeWidth="1.5">
+              <line x1="54" y1="85" x2="54" y2="95" />
+              <line x1="60" y1="85" x2="60" y2="95" />
+              <line x1="66" y1="85" x2="66" y2="95" />
+            </g>
+          </g>
+        </g>
+
+        {/* Floating laughter */}
+        <g fill="#f87171" fontFamily="inherit" fontWeight="bold">
+          <text x="94" y="40" fontSize="11" transform="rotate(12 94 40)" style={{ animation: "skull-ha 1.1s ease-out infinite" }}>HA</text>
+          <text x="10" y="48" fontSize="9" transform="rotate(-10 10 48)" style={{ animation: "skull-ha 1.1s ease-out infinite", animationDelay: "0.4s" }}>HA</text>
+          <text x="88" y="78" fontSize="8" transform="rotate(8 88 78)" style={{ animation: "skull-ha 1.1s ease-out infinite", animationDelay: "0.75s" }}>ha</text>
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+/**
  * Three-layer workspace deletion:
  *
  *   Layer 1 — arm: reveal the impact table and acknowledge the consequences
@@ -140,9 +224,7 @@ export function DeleteWorkspace({
                   aria-label="Final deletion warning"
                 >
                   <div className="w-full max-w-md rounded-xl border-2 border-red-600 bg-zinc-950 p-8 text-center shadow-[0_0_60px_rgba(220,38,38,0.45)]">
-                    <div className="animate-pulse text-7xl leading-none" aria-hidden="true">
-                      ☠️
-                    </div>
+                    <LaughingSkull className="mx-auto h-32 w-32" />
                     <h4 className="mt-4 text-lg font-bold uppercase tracking-widest text-red-500">
                       Warning 3 of 3 — point of no return
                     </h4>
