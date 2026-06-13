@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { ToolCall } from "./types";
 
-export function ToolCallCard({ call }: { call: ToolCall }) {
+export function ToolCallCard({ call, devMode = false }: { call: ToolCall; devMode?: boolean }) {
   const [showArgs, setShowArgs] = useState(false);
 
   return (
@@ -16,16 +16,20 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
           </span>
           <StateBadge state={call.state} />
         </div>
-        <button
-          type="button"
-          onClick={() => setShowArgs((s) => !s)}
-          className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline"
-        >
-          {showArgs ? "Hide args" : "Args"}
-        </button>
+        {/* Raw args are a developer aid — only platform owners (dev mode) get
+            the toggle. Regular users just see the rendered result below. */}
+        {devMode && (
+          <button
+            type="button"
+            onClick={() => setShowArgs((s) => !s)}
+            className="text-[11px] text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 underline"
+          >
+            {showArgs ? "Hide args" : "Args"}
+          </button>
+        )}
       </div>
 
-      {showArgs && (
+      {devMode && showArgs && (
         <pre className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2 text-[11px] font-mono whitespace-pre-wrap break-words text-zinc-600 dark:text-zinc-400">
           {JSON.stringify(call.arguments, null, 2)}
         </pre>
@@ -43,12 +47,29 @@ export function ToolCallCard({ call }: { call: ToolCall }) {
         </div>
       )}
 
-      {call.state === "ok" && (
-        <div className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2">
-          <ToolResultRenderer name={call.name} result={call.result} />
-        </div>
-      )}
+      {call.state === "ok" && <ResultBlock name={call.name} result={call.result} devMode={devMode} />}
     </div>
+  );
+}
+
+/**
+ * Wraps the rendered result in its bordered section — but renders nothing at
+ * all when there's nothing meaningful to show (e.g. an unrecognised result
+ * shape for a non-dev user), so we never leave an empty grey strip behind.
+ */
+function ResultBlock({
+  name,
+  result,
+  devMode,
+}: {
+  name: string;
+  result: unknown;
+  devMode: boolean;
+}) {
+  const content = renderToolResult({ name, result, devMode });
+  if (content == null) return null;
+  return (
+    <div className="border-t border-zinc-200 dark:border-zinc-800 px-3 py-2">{content}</div>
   );
 }
 
@@ -82,17 +103,38 @@ type Candidate = {
   currentCompany?: string | null;
 };
 
+type Job = {
+  id: string;
+  title?: string;
+  department?: string | null;
+  location?: string | null;
+  status?: string;
+  client?: { id?: string; name?: string } | null;
+  applicantCount?: number;
+};
+
 type ListResult = { ok: boolean; listId?: string; listName?: string };
 type EmailResult = { ok: boolean; messageId?: string };
 type CountResult = { count?: number };
 
 /**
- * Tries to render structured results nicely. Falls back to JSON when we don't
- * recognise the shape — better than nothing, the user can still inspect.
+ * Tries to render structured results nicely, returning the node to display.
+ *
+ * For shapes we don't recognise we return the raw JSON ONLY in dev mode
+ * (platform owners); for everyone else we return null so the card shows just
+ * its "Done" badge instead of a wall of JSON. See ResultBlock.
  */
-function ToolResultRenderer({ name, result }: { name: string; result: unknown }) {
+function renderToolResult({
+  name,
+  result,
+  devMode,
+}: {
+  name: string;
+  result: unknown;
+  devMode: boolean;
+}): ReactNode {
   if (result == null) {
-    return <span className="text-xs text-zinc-500">No result.</span>;
+    return devMode ? <span className="text-xs text-zinc-500">No result.</span> : null;
   }
 
   // Candidate search / list — array of candidate-ish records.
@@ -103,6 +145,16 @@ function ToolResultRenderer({ name, result }: { name: string; result: unknown })
   // Single candidate fetch.
   if (typeof result === "object" && result !== null && isCandidate(result)) {
     return <CandidateTable candidates={[result as Candidate]} />;
+  }
+
+  // list_jobs and similar — bare job array or { total, results: [job…] }.
+  const jobs = extractJobArray(result);
+  if (jobs) {
+    return jobs.length > 0 ? (
+      <JobsTable jobs={jobs} />
+    ) : (
+      <span className="text-xs text-zinc-500">No jobs found.</span>
+    );
   }
 
   // create_list / similar { ok, listId, listName }.
@@ -165,7 +217,9 @@ function ToolResultRenderer({ name, result }: { name: string; result: unknown })
     );
   }
 
-  // Fallback — raw JSON.
+  // Fallback — raw JSON, but only for platform owners. Regular users get
+  // nothing extra (the "Done" badge already says it worked).
+  if (!devMode) return null;
   return (
     <pre className="text-[11px] font-mono whitespace-pre-wrap break-words text-zinc-600 dark:text-zinc-400">
       {JSON.stringify(result, null, 2)}
@@ -179,6 +233,66 @@ function isCandidate(v: unknown): boolean {
     v !== null &&
     "id" in v &&
     ("email" in v || "firstName" in v || "lastName" in v)
+  );
+}
+
+function isJob(v: unknown): boolean {
+  return typeof v === "object" && v !== null && "id" in v && "title" in v;
+}
+
+/**
+ * Pulls a job array out of a list_jobs-style result. Accepts either a bare
+ * array of jobs or the `{ total, results: [...] }` envelope the list tools
+ * return. Returns an empty array (not null) for an empty list envelope so the
+ * caller can show "No jobs found"; returns null when this isn't a job result.
+ */
+function extractJobArray(result: unknown): Job[] | null {
+  if (Array.isArray(result)) {
+    if (result.length === 0) return null;
+    return isJob(result[0]) ? (result as Job[]) : null;
+  }
+  if (typeof result === "object" && result !== null) {
+    const r = result as { results?: unknown; total?: unknown };
+    if (Array.isArray(r.results)) {
+      if (r.results.length === 0) return typeof r.total === "number" ? [] : null;
+      if (isJob(r.results[0])) return r.results as Job[];
+    }
+  }
+  return null;
+}
+
+function JobsTable({ jobs }: { jobs: Job[] }) {
+  return (
+    <div className="overflow-x-auto -mx-3 -mb-2">
+      <table className="w-full text-xs">
+        <thead className="text-left text-zinc-500">
+          <tr>
+            <th className="px-3 py-1.5 font-medium">Job</th>
+            <th className="px-3 py-1.5 font-medium">Client</th>
+            <th className="px-3 py-1.5 font-medium">Applicants</th>
+            <th className="px-3 py-1.5 font-medium">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {jobs.map((j) => (
+            <tr key={j.id} className="border-t border-zinc-200 dark:border-zinc-800">
+              <td className="px-3 py-1.5">
+                <Link href={`/jobs/${j.id}`} className="font-medium hover:underline">
+                  {j.title || "Untitled"}
+                </Link>
+              </td>
+              <td className="px-3 py-1.5 text-zinc-600 dark:text-zinc-400">
+                {j.client?.name ?? "—"}
+              </td>
+              <td className="px-3 py-1.5 text-zinc-600 dark:text-zinc-400">
+                {typeof j.applicantCount === "number" ? j.applicantCount : "—"}
+              </td>
+              <td className="px-3 py-1.5 text-zinc-600 dark:text-zinc-400">{j.status ?? "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

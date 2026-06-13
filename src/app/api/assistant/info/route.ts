@@ -22,5 +22,8 @@ export async function GET() {
     provider: cfg.provider,
     providerLabel: PROVIDERS[cfg.provider].label,
     model: cfg.model || null,
+    // Drives the assistant's "dev mode": only platform owners (operator tier)
+    // see raw tool args / JSON. Regular users get the clean rendered results.
+    isPlatformAdmin: session.user.isPlatformAdmin ?? false,
   });
 }

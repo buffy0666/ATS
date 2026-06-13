@@ -37,6 +37,9 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
   const [aiInfo, setAiInfo] = useState<{ providerLabel: string; model: string | null } | null>(
     null,
   );
+  // "Dev mode" — only platform owners see raw tool args / JSON in tool cards.
+  // Loaded alongside the model info from /api/assistant/info.
+  const [devMode, setDevMode] = useState(false);
   const streamingMessageIdRef = useRef<string | null>(null);
 
   const { send, abort, pending } = useChatStream({
@@ -183,6 +186,7 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
         const data = (await r.json()) as {
           providerLabel?: unknown;
           model?: unknown;
+          isPlatformAdmin?: unknown;
         };
         if (cancelled) return;
         const providerLabel = typeof data.providerLabel === "string" ? data.providerLabel : null;
@@ -190,6 +194,7 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
         if (providerLabel || model) {
           setAiInfo({ providerLabel: providerLabel ?? "AI", model });
         }
+        setDevMode(data.isPlatformAdmin === true);
       } catch {
         // non-fatal — the label just won't render
       }
@@ -341,7 +346,7 @@ export function AssistantChat({ mode }: { mode: "panel" | "full" }) {
           Loading conversation…
         </div>
       ) : (
-        <MessageList messages={messages} />
+        <MessageList messages={messages} devMode={devMode} />
       )}
 
       <Composer pending={pending} onSubmit={handleSend} onStop={abort} />

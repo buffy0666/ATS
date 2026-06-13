@@ -4,7 +4,13 @@ import { useEffect, useRef } from "react";
 import type { Message } from "./types";
 import { MessageItem } from "./MessageItem";
 
-export function MessageList({ messages }: { messages: Message[] }) {
+export function MessageList({
+  messages,
+  devMode = false,
+}: {
+  messages: Message[];
+  devMode?: boolean;
+}) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -27,7 +33,7 @@ export function MessageList({ messages }: { messages: Message[] }) {
   return (
     <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
       {messages.map((m) => (
-        <MessageItem key={m.id} message={m} />
+        <MessageItem key={m.id} message={m} devMode={devMode} />
       ))}
       <div ref={bottomRef} />
     </div>
