@@ -44,6 +44,7 @@ import {
 import { loadCustomFields, loadCustomFieldValues } from "@/lib/custom-fields";
 import { RATING_DEFINITION, REJECTION_REASON_DEFINITION } from "@/lib/candidate-field-defs";
 import { CHOICE_FIELDS, ensureChoiceDefaults, loadChoiceOptions } from "@/lib/choices";
+import { isEmailOutDisabled } from "@/lib/email/policy";
 
 const WORK_AUTH_LABEL: Record<WorkAuth, string> = {
   US_CITIZEN: "U.S. citizen",
@@ -146,6 +147,7 @@ export default async function CandidateDetailPage({
     allTags,
     orgUsers,
     orgContacts,
+    emailOutDisabled,
   ] = await Promise.all([
     // findFirst (not findUnique) so we can compose id + organizationId in
     // the where clause — prevents cross-tenant reads if someone guesses
@@ -295,6 +297,7 @@ export default async function CandidateDetailPage({
       },
       take: 500,
     }),
+    isEmailOutDisabled(orgId),
   ]);
 
   if (!candidate) notFound();
@@ -533,6 +536,7 @@ export default async function CandidateDetailPage({
                       Communication ({candidate.emails.length})
                     </span>
                     <EmailComposer
+                      emailOutDisabled={emailOutDisabled}
                       candidateId={candidate.id}
                       candidateEmail={candidate.email}
                       candidateFirstName={candidate.firstName}

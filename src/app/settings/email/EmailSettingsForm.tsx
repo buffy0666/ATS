@@ -75,8 +75,8 @@ export function EmailSettingsForm({ initialDisabled }: { initialDisabled: boolea
         </p>
         <p>
           <span className="font-medium text-zinc-600 dark:text-zinc-400">Not affected:</span>{" "}
-          saving candidates/emails from the Outlook add-in &amp; Chrome extension, and internal
-          teammate invitations.
+          saving candidates/emails from the Chrome extension, Gmail add-in &amp; Outlook add-in,
+          and internal teammate invitations.
         </p>
       </div>
 

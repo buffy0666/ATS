@@ -8,6 +8,7 @@ type Application = { id: string; jobTitle: string };
 type Template = { id: string; name: string; subject: string; body: string };
 
 export function EmailComposer({
+  emailOutDisabled,
   candidateId,
   candidateEmail,
   candidateFirstName,
@@ -18,6 +19,7 @@ export function EmailComposer({
   applications,
   templates,
 }: {
+  emailOutDisabled: boolean;
   candidateId: string;
   candidateEmail: string;
   candidateFirstName: string;
@@ -70,6 +72,25 @@ export function EmailComposer({
     };
     setSubjectValue(renderTemplate(template.subject, ctx));
     setBodyValue(renderTemplate(template.body, ctx));
+  }
+
+  if (emailOutDisabled) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          title="Outbound email is not configured for this workspace"
+          className="rounded-md bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 px-2.5 py-1 text-xs font-medium opacity-50 cursor-not-allowed"
+        >
+          Compose email
+        </button>
+        <span className="rounded-md border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 px-2.5 py-1 text-xs">
+          Outbound email is not configured for this workspace. Email can be saved via the Chrome extension or Gmail add-in.
+        </span>
+      </div>
+    );
   }
 
   if (!open) {
