@@ -16,6 +16,7 @@ export type StepRow = {
   order: number;
   type: SequenceStepType;
   delayDays: number;
+  autoSend: boolean;
   emailTemplateId: string | null;
   subject: string | null;
   body: string | null;
@@ -31,7 +32,7 @@ export type TemplateOption = {
 };
 
 const STEP_TYPE_LABEL: Record<SequenceStepType, string> = {
-  EMAIL: "Email (auto-sent)",
+  EMAIL: "Email",
   CALL: "Call (manual task)",
   TEXT: "Text (manual task)",
   LINKEDIN: "LinkedIn (manual task)",
@@ -113,6 +114,11 @@ export function StepBuilder({
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium">
                     {STEP_TYPE_LABEL[step.type]}
+                    {step.type === SequenceStepType.EMAIL && (
+                      <span className="ml-2 text-[10px] uppercase tracking-wide text-zinc-400">
+                        {step.autoSend ? "auto-sent" : "send yourself"}
+                      </span>
+                    )}
                     <span className="ml-2 text-xs text-zinc-500">
                       {step.delayDays === 0
                         ? "immediately"
@@ -223,6 +229,7 @@ function summaryFor(step: StepRow): string {
 type StepFormData = {
   type: SequenceStepType;
   delayDays: number;
+  autoSend: boolean;
   emailTemplateId: string;
   subject: string;
   body: string;
@@ -245,6 +252,7 @@ function StepForm({
 }) {
   const [type, setType] = useState<SequenceStepType>(initial?.type ?? SequenceStepType.EMAIL);
   const [delayDays, setDelayDays] = useState<number>(initial?.delayDays ?? 0);
+  const [autoSend, setAutoSend] = useState<boolean>(initial?.autoSend ?? true);
   const [emailTemplateId, setEmailTemplateId] = useState<string>(initial?.emailTemplateId ?? "");
   const [subject, setSubject] = useState<string>(initial?.subject ?? "");
   const [body, setBody] = useState<string>(initial?.body ?? "");
@@ -273,6 +281,7 @@ function StepForm({
       const r = await onSubmit({
         type,
         delayDays,
+        autoSend,
         emailTemplateId,
         subject,
         body,
@@ -370,6 +379,21 @@ function StepForm({
             <code>{"{{candidate.email}}"}</code>, <code>{"{{sender.name}}"}</code>,{" "}
             <code>{"{{job.title}}"}</code>
           </p>
+          <label className="flex items-start gap-2 rounded-md border border-zinc-200 dark:border-zinc-800 px-3 py-2">
+            <input
+              type="checkbox"
+              checked={autoSend}
+              onChange={(e) => setAutoSend(e.target.checked)}
+              className="mt-0.5 rounded border-zinc-300 dark:border-zinc-700"
+            />
+            <span className="text-xs text-zinc-600 dark:text-zinc-400">
+              <span className="font-medium text-zinc-800 dark:text-zinc-200">Send automatically</span>
+              {" — "}
+              {autoSend
+                ? "the system emails the candidate at the scheduled time."
+                : "creates a “send it yourself” task with this draft instead of auto-sending."}
+            </span>
+          </label>
         </>
       ) : (
         <>
@@ -428,6 +452,8 @@ function toFormData(data: StepFormData): FormData {
   const fd = new FormData();
   fd.set("type", data.type);
   fd.set("delayDays", String(data.delayDays));
+  // Checkbox semantics: present ("on") = auto-send; omitted = send yourself.
+  if (data.autoSend) fd.set("autoSend", "on");
   fd.set("emailTemplateId", data.emailTemplateId);
   fd.set("subject", data.subject);
   fd.set("body", data.body);

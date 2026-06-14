@@ -23,6 +23,7 @@ import {
   CandidateSequencesSection,
   type CandidateEnrollment,
 } from "./CandidateSequencesSection";
+import { CandidateTasksSection, type CandidateTaskRow } from "./CandidateTasksSection";
 import {
   CustomFieldEntity,
   EmploymentType,
@@ -411,6 +412,33 @@ export default async function CandidateDetailPage({
     { key: "nextFollowUpAt", label: "Next follow-up", node: <EditableField candidateId={candidate.id} field="nextFollowUpAt" label="Next follow-up" type="date" value={toISODate(candidate.nextFollowUpAt)} display={candidate.nextFollowUpAt ? candidate.nextFollowUpAt.toLocaleDateString() : null} /> },
   ];
 
+  const candidateTasks = await prisma.task.findMany({
+    where: { candidateId: id, organizationId: orgId },
+    orderBy: [
+      { status: "asc" }, // open (NOT_STARTED/IN_PROGRESS) before COMPLETE
+      { dueDate: { sort: "asc", nulls: "last" } },
+      { createdAt: "desc" },
+    ],
+    select: {
+      id: true,
+      name: true,
+      kind: true,
+      status: true,
+      priority: true,
+      dueDate: true,
+      assignedTo: { select: { name: true, email: true } },
+    },
+  });
+  const candidateTaskRows: CandidateTaskRow[] = candidateTasks.map((t) => ({
+    id: t.id,
+    name: t.name,
+    kind: t.kind,
+    status: t.status,
+    priority: t.priority,
+    dueDate: t.dueDate,
+    assignee: t.assignedTo ? t.assignedTo.name ?? t.assignedTo.email : null,
+  }));
+
   const enrollmentsForUI: CandidateEnrollment[] = candidateEnrollments.map((e) => {
     const total = e.stepRuns.length;
     const completed = e.stepRuns.filter((r) => r.status === StepRunStatus.COMPLETED).length;
@@ -774,6 +802,11 @@ export default async function CandidateDetailPage({
                 jobTitle: a.job.title,
               }))}
             />
+          </section>
+
+          {/* Tasks — calls, follow-ups, and sequence steps for this candidate */}
+          <section className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+            <CandidateTasksSection candidateId={candidate.id} tasks={candidateTaskRows} />
           </section>
 
           {/* Email composer + history now live in the "Email" tab of the

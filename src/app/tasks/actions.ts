@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { TaskPriority, TaskStatus } from "@/generated/prisma";
+import {
+  EnrollmentStatus,
+  StepRunStatus,
+  TaskKind,
+  TaskPriority,
+  TaskStatus,
+} from "@/generated/prisma";
 import { auditCreate, auditDelete, auditUpdate } from "@/lib/audit/write";
 import { requireSessionWithOrg } from "@/lib/auth-utils";
 import { prisma } from "@/lib/prisma";
@@ -37,6 +43,8 @@ const optionalDate = () =>
     },
     z.date().nullable(),
   );
+
+type ActionResult = { ok: true } | { ok: false; error: string };
 
 const taskSchema = z.object({
   name: z.string().min(1).max(200),
@@ -106,15 +114,148 @@ export async function updateTask(taskId: string, formData: FormData) {
   });
   if (!before) throw new Error("Task not found.");
 
-  const after = await prisma.task.update({ where: { id: taskId }, data });
+  // Stamp/clear completion metadata when the form flips status to/from COMPLETE.
+  const now = new Date();
+  const completionPatch =
+    data.status === TaskStatus.COMPLETE && before.status !== TaskStatus.COMPLETE
+      ? { completedAt: now, completedById: session.user.id }
+      : data.status !== TaskStatus.COMPLETE && before.status === TaskStatus.COMPLETE
+        ? { completedAt: null, completedById: null }
+        : {};
+
+  const after = await prisma.task.update({
+    where: { id: taskId },
+    data: { ...data, ...completionPatch },
+  });
   await auditUpdate(
     "Task",
     before as unknown as Record<string, unknown>,
     after as unknown as Record<string, unknown>,
   );
 
+  // If this is a sequence task just marked complete, advance the sequence.
+  if (
+    data.status === TaskStatus.COMPLETE &&
+    before.status !== TaskStatus.COMPLETE &&
+    before.stepRunId
+  ) {
+    await closeLinkedStepRun(before.stepRunId, session.user.id ?? "", before.outcomeNote ?? null, now);
+  }
+
   revalidatePath("/tasks");
   revalidatePath(`/tasks/${taskId}`);
+}
+
+/**
+ * Close the sequence StepRun behind a task (two-way completion) and advance
+ * the enrollment if it was the last pending step. No-op if the run is already
+ * closed. Mirrors completeStepRun in src/app/sequences/actions.ts.
+ */
+async function closeLinkedStepRun(
+  stepRunId: string,
+  userId: string,
+  note: string | null,
+  now: Date,
+): Promise<void> {
+  const run = await prisma.stepRun.findUnique({
+    where: { id: stepRunId },
+    select: {
+      id: true,
+      status: true,
+      enrollmentId: true,
+      enrollment: { select: { sequenceId: true } },
+    },
+  });
+  if (!run || run.status !== StepRunStatus.PENDING) return;
+
+  await prisma.stepRun.update({
+    where: { id: run.id },
+    data: {
+      status: StepRunStatus.COMPLETED,
+      completedAt: now,
+      completedById: userId || null,
+      outcomeNote: note,
+    },
+  });
+
+  const remaining = await prisma.stepRun.count({
+    where: { enrollmentId: run.enrollmentId, status: StepRunStatus.PENDING },
+  });
+  if (remaining === 0) {
+    await prisma.sequenceEnrollment.update({
+      where: { id: run.enrollmentId },
+      data: { status: EnrollmentStatus.COMPLETED, completedAt: now },
+    });
+  }
+
+  revalidatePath(`/sequences/${run.enrollment.sequenceId}/enrollments`);
+  revalidatePath("/sequences/tasks");
+}
+
+/**
+ * Mark a task complete (the inline action from the task views), capturing an
+ * optional outcome note. If the task is a sequence step, closes the linked
+ * StepRun and advances the enrollment.
+ */
+export async function completeTask(
+  taskId: string,
+  outcomeNote?: string | null,
+): Promise<ActionResult> {
+  const { session, orgId } = await requireSessionWithOrg();
+  const note = optionalString(2000).parse(outcomeNote ?? null);
+
+  const task = await prisma.task.findFirst({
+    where: {
+      id: taskId,
+      organizationId: orgId,
+      ...taskVisibilityWhere(session.user.role, session.user.id ?? ""),
+    },
+    select: { id: true, status: true, stepRunId: true },
+  });
+  if (!task) return { ok: false, error: "Task not found." };
+  if (task.status === TaskStatus.COMPLETE) return { ok: true };
+
+  const now = new Date();
+  await prisma.task.update({
+    where: { id: task.id },
+    data: {
+      status: TaskStatus.COMPLETE,
+      completedAt: now,
+      completedById: session.user.id,
+      outcomeNote: note,
+    },
+  });
+
+  if (task.stepRunId) {
+    await closeLinkedStepRun(task.stepRunId, session.user.id ?? "", note, now);
+  }
+
+  revalidatePath("/tasks");
+  return { ok: true };
+}
+
+/** Reopen a completed task (and its linked step run stays closed — reopening a
+ * sequence step would require re-scheduling, which we don't support here). */
+export async function reopenTask(taskId: string): Promise<ActionResult> {
+  const { session, orgId } = await requireSessionWithOrg();
+  const task = await prisma.task.findFirst({
+    where: {
+      id: taskId,
+      organizationId: orgId,
+      ...taskVisibilityWhere(session.user.role, session.user.id ?? ""),
+    },
+    select: { id: true, stepRunId: true },
+  });
+  if (!task) return { ok: false, error: "Task not found." };
+  if (task.stepRunId) {
+    return { ok: false, error: "Sequence tasks can't be reopened — they track a completed step." };
+  }
+  await prisma.task.update({
+    where: { id: task.id },
+    data: { status: TaskStatus.NOT_STARTED, completedAt: null, completedById: null },
+  });
+  revalidatePath("/tasks");
+  return { ok: true };
 }
 
 export async function deleteTask(taskId: string) {
@@ -176,6 +317,43 @@ export async function deleteTaskAttachment(attachmentId: string) {
   await prisma.taskAttachment.delete({ where: { id: attachmentId } });
   await removeAttachmentFile(attachment.url);
   revalidatePath(`/tasks/${attachment.taskId}`);
+}
+
+/**
+ * Quick-add a task against a candidate (from the candidate detail page).
+ * Defaults to a GENERAL task assigned to the creator.
+ */
+export async function createCandidateTask(
+  candidateId: string,
+  input: { name: string; dueDate?: string | null },
+): Promise<ActionResult> {
+  const { session, orgId } = await requireSessionWithOrg();
+  const name = z.string().trim().min(1, "Give the task a name.").max(200).safeParse(input.name);
+  if (!name.success) return { ok: false, error: name.error.issues[0]?.message ?? "Invalid name." };
+  const due = optionalDate().parse(input.dueDate ?? null);
+
+  const candidate = await prisma.candidate.findFirst({
+    where: { id: candidateId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!candidate) return { ok: false, error: "Candidate not found." };
+
+  await prisma.task.create({
+    data: {
+      name: name.data,
+      kind: TaskKind.GENERAL,
+      status: TaskStatus.NOT_STARTED,
+      dueDate: due,
+      candidateId,
+      organizationId: orgId,
+      createdById: session.user.id,
+      assignedToId: session.user.id,
+    },
+  });
+
+  revalidatePath(`/candidates/${candidateId}`);
+  revalidatePath("/tasks");
+  return { ok: true };
 }
 
 // ---------- Bulk operations ----------

@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { signOutAction } from "@/lib/sign-out-action";
 
-type NavItem = { href: string; label: string };
+type NavItem = { href: string; label: string; badge?: number };
 
 const PRIMARY_ITEMS: NavItem[] = [
   { href: "/", label: "Dashboard" },
@@ -61,6 +61,7 @@ export function SidebarClient({
   isPlatformAdmin,
   organizationName,
   organizationLogoUrl,
+  taskDueCount = 0,
 }: {
   email: string;
   role: string;
@@ -82,6 +83,8 @@ export function SidebarClient({
   // Workspace logo. When set, replaces the "ATS" wordmark in the sidebar.
   // Null = fall back to wordmark + org name.
   organizationLogoUrl: string | null;
+  // Count of the viewer's own tasks due today/overdue — shown on the Tasks item.
+  taskDueCount?: number;
 }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -193,7 +196,7 @@ export function SidebarClient({
         {PRIMARY_ITEMS.map((item) => (
           <SidebarLink
             key={item.href}
-            item={item}
+            item={item.href === "/tasks" && taskDueCount > 0 ? { ...item, badge: taskDueCount } : item}
             active={isActive(item.href)}
             collapsed={collapsed}
           />
@@ -305,28 +308,36 @@ function SidebarLink({
     return (
       <Link
         href={item.href}
-        title={item.label}
-        aria-label={item.label}
-        className={`flex items-center justify-center h-10 rounded-md text-xs font-medium ${
+        title={item.badge ? `${item.label} (${item.badge} due)` : item.label}
+        aria-label={item.badge ? `${item.label}, ${item.badge} due` : item.label}
+        className={`relative flex items-center justify-center h-10 rounded-md text-xs font-medium ${
           active
             ? "bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900"
             : "text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-white"
         }`}
       >
         {initialsFor(item.label)}
+        {item.badge ? (
+          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-amber-500" />
+        ) : null}
       </Link>
     );
   }
   return (
     <Link
       href={item.href}
-      className={`block rounded-md px-3 py-2 text-sm ${
+      className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm ${
         active
           ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white font-medium"
           : "text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-white"
       }`}
     >
-      {item.label}
+      <span className="truncate">{item.label}</span>
+      {item.badge ? (
+        <span className="shrink-0 rounded-full bg-amber-500 text-white text-[10px] font-semibold leading-none px-1.5 py-0.5 min-w-[1.25rem] text-center">
+          {item.badge}
+        </span>
+      ) : null}
     </Link>
   );
 }

@@ -46,6 +46,7 @@ export default async function SequenceDetailPage({
     order: s.order,
     type: s.type,
     delayDays: s.delayDays,
+    autoSend: s.autoSend,
     emailTemplateId: s.emailTemplateId,
     subject: s.subject,
     body: s.body,

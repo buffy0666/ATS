@@ -238,6 +238,14 @@ enum TaskPriority {
   URGENT
 }
 
+enum TaskKind {
+  GENERAL
+  CALL
+  EMAIL
+  TEXT
+  LINKEDIN
+}
+
 enum ListScope {
   PERSONAL
   SHARED
@@ -466,6 +474,7 @@ model User {
   activities             CandidateActivity[]
   tasksCreated           Task[]                   @relation("TaskCreator")
   tasksAssigned          Task[]                   @relation("TaskAssignee")
+  tasksCompleted         Task[]                   @relation("TaskCompleter")
   knowledgeItemsCreated  KnowledgeItem[]          @relation("KnowledgeItemCreator")
   knowledgeAttachments   KnowledgeAttachment[]    @relation("KnowledgeAttachmentUploader")
   jobContracts           JobContract[]            @relation("JobContractUploader")
@@ -952,6 +961,7 @@ model Candidate {
   listMemberships  CandidateListMember[]
   interviews       Interview[]
   enrollments      SequenceEnrollment[]
+  tasks            Task[]
   // Threaded notes (per-application or candidate-level). Named differently
   // from the legacy `notes String?` free-form field above.
   noteThreads      Note[]                   @relation("CandidateNoteThreads")
@@ -998,6 +1008,7 @@ model Application {
   emails      EmailLog[]
   interviews  Interview[]
   enrollments SequenceEnrollment[]
+  tasks       Task[]
 
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1391,6 +1402,7 @@ model Task {
   description  String?
   status       TaskStatus    @default(NOT_STARTED)
   priority     TaskPriority?
+  kind         TaskKind      @default(GENERAL)
   dueDate      DateTime?
   createdById  String?
   createdBy    User?         @relation("TaskCreator", fields: [createdById], references: [id])
@@ -1401,6 +1413,25 @@ model Task {
 
   attachments TaskAttachment[]
 
+  // Completion disposition. Also written when a linked sequence step is done.
+  completedAt   DateTime?
+  completedById String?
+  completedBy   User?     @relation("TaskCompleter", fields: [completedById], references: [id])
+  outcomeNote   String?
+
+  // Candidate / job context — lets tasks surface on the candidate page and in
+  // the unified task view. Null for plain workspace to-dos.
+  candidateId   String?
+  candidate     Candidate?   @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  applicationId String?
+  application   Application? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+
+  // 1:1 link to the sequence step run this task represents (manual step, or a
+  // "send it yourself" email). Completing the task closes the step run and
+  // vice versa. Null for non-sequence tasks.
+  stepRunId String?  @unique
+  stepRun   StepRun? @relation(fields: [stepRunId], references: [id], onDelete: Cascade)
+
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -1410,6 +1441,8 @@ model Task {
   @@index([updatedAt])
   @@index([createdAt])
   @@index([organizationId])
+  @@index([candidateId])
+  @@index([kind])
 }
 
 model TaskAttachment {
@@ -1642,6 +1675,9 @@ model SequenceStep {
   order      Int
   type       SequenceStepType
   delayDays  Int              @default(0)
+  // EMAIL steps only: true = auto-sent via the provider (default); false =
+  // creates a "send it yourself" task for the recruiter to send manually.
+  autoSend   Boolean          @default(true)
 
   // EMAIL-only
   emailTemplateId String?
@@ -1708,6 +1744,7 @@ model StepRun {
   step        SequenceStep       @relation(fields: [stepId], references: [id], onDelete: Cascade)
   emailLog    EmailLog?          @relation(fields: [emailLogId], references: [id], onDelete: SetNull)
   completedBy User?              @relation("StepRunCompleter", fields: [completedById], references: [id])
+  task        Task?
 
   @@index([scheduledFor, status])
   @@index([enrollmentId])

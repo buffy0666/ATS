@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { Role } from "@/generated/prisma";
+import { EnrollmentStatus, Role, TaskStatus } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { SidebarClient } from "./SidebarClient";
 
@@ -11,12 +11,32 @@ export async function Nav() {
   // it's a URL string and Nav is a server component, so this is cheap.
   // Null when the user has no org yet (pre-Phase-4 sessions) or no logo set.
   const orgId = session.user.organizationId;
-  const org = orgId
-    ? await prisma.organization.findUnique({
-        where: { id: orgId },
-        select: { logoUrl: true },
-      })
-    : null;
+
+  // Glanceable badge: the viewer's own tasks due today or overdue (calls,
+  // emails, sequence steps included). Excludes paused/canceled sequence tasks.
+  const tomorrow = new Date();
+  tomorrow.setHours(0, 0, 0, 0);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  const [org, taskDueCount] = await Promise.all([
+    orgId
+      ? prisma.organization.findUnique({ where: { id: orgId }, select: { logoUrl: true } })
+      : Promise.resolve(null),
+    orgId
+      ? prisma.task.count({
+          where: {
+            organizationId: orgId,
+            assignedToId: session.user.id,
+            status: { not: TaskStatus.COMPLETE },
+            dueDate: { lt: tomorrow },
+            OR: [
+              { stepRunId: null },
+              { stepRun: { enrollment: { status: EnrollmentStatus.ACTIVE } } },
+            ],
+          },
+        })
+      : Promise.resolve(0),
+  ]);
 
   // Two tiers above recruiter:
   //   isAdmin  = "admin scope" (Branding, Announcements, Tags, Users,
@@ -37,6 +57,7 @@ export async function Nav() {
       isPlatformAdmin={session.user.isPlatformAdmin}
       organizationName={session.user.organizationName ?? null}
       organizationLogoUrl={org?.logoUrl ?? null}
+      taskDueCount={taskDueCount}
     />
   );
 }

@@ -14,6 +14,8 @@ import {
   SequenceStatus,
   SequenceStepType,
   StepRunStatus,
+  TaskKind,
+  TaskStatus,
 } from "@/generated/prisma";
 
 const MAX_STEPS = 30;
@@ -63,6 +65,11 @@ const stepSchema = z.object({
     .optional()
     .or(z.literal(""))
     .transform((v) => v || null),
+  // EMAIL steps: checked = auto-send via provider; unchecked = "send it
+  // yourself" task. Ignored for manual step types (always a task).
+  autoSend: z
+    .preprocess((v) => v === "on" || v === "true" || v === true, z.boolean())
+    .default(true),
 });
 
 export type ActionResult =
@@ -143,6 +150,8 @@ export async function addStep(
     body: formData.get("body"),
     taskTitle: formData.get("taskTitle"),
     taskInstructions: formData.get("taskInstructions"),
+    autoSend:
+      formData.get("type") === SequenceStepType.EMAIL ? formData.get("autoSend") : "on",
   });
 
   const count = await prisma.sequenceStep.count({ where: { sequenceId } });
@@ -181,6 +190,8 @@ export async function updateStep(
     body: formData.get("body"),
     taskTitle: formData.get("taskTitle"),
     taskInstructions: formData.get("taskInstructions"),
+    autoSend:
+      formData.get("type") === SequenceStepType.EMAIL ? formData.get("autoSend") : "on",
   });
   const validation = validateStepContent(data);
   if (!validation.ok) return validation;
@@ -441,7 +452,16 @@ type EnrollOneArgs = {
   applicationId: string | null;
   enrolledById: string;
   organizationId: string;
-  steps: { id: string; type: SequenceStepType; delayDays: number; subject: string | null; body: string | null; taskTitle: string | null }[];
+  steps: {
+    id: string;
+    type: SequenceStepType;
+    delayDays: number;
+    autoSend: boolean;
+    subject: string | null;
+    body: string | null;
+    taskTitle: string | null;
+    taskInstructions: string | null;
+  }[];
   senderName: string | null;
   senderEmail: string | null;
 };
@@ -528,8 +548,11 @@ type ScheduleArgs = {
   step: {
     id: string;
     type: SequenceStepType;
+    autoSend: boolean;
     subject: string | null;
     body: string | null;
+    taskTitle: string | null;
+    taskInstructions: string | null;
   };
   scheduledFor: Date;
   candidateEmail: string | null;
@@ -544,15 +567,52 @@ type ScheduleArgs = {
 async function scheduleStepRun(args: ScheduleArgs): Promise<void> {
   const { step, enrollmentId, scheduledFor, ctx } = args;
 
-  // Non-EMAIL steps are just a PENDING row — recruiters pick them up from the
-  // Tasks Due page and mark them done with an outcome note.
-  if (step.type !== SequenceStepType.EMAIL) {
-    await prisma.stepRun.create({
+  const subject = renderTemplate(step.subject ?? "", ctx);
+  const body = renderTemplate(step.body ?? "", ctx);
+
+  // Manual steps (call/text/linkedin/task) and "send it yourself" email steps
+  // become a PENDING step run PLUS a Task the recruiter actions from the unified
+  // task view. Completing the task closes the step run (completeTask), and
+  // completing the step run closes the task (completeStepRun).
+  const isManualTask = step.type !== SequenceStepType.EMAIL || step.autoSend === false;
+  if (isManualTask) {
+    // A manual email to a candidate with no address is a dead end — record it
+    // as failed rather than handing the recruiter an unsendable task.
+    if (step.type === SequenceStepType.EMAIL && !args.candidateEmail) {
+      await prisma.stepRun.create({
+        data: {
+          enrollmentId,
+          stepId: step.id,
+          scheduledFor,
+          status: StepRunStatus.FAILED,
+          errorMessage: "Candidate has no email address.",
+        },
+      });
+      return;
+    }
+    const run = await prisma.stepRun.create({
       data: { enrollmentId, stepId: step.id, scheduledFor, status: StepRunStatus.PENDING },
+      select: { id: true },
+    });
+    await prisma.task.create({
+      data: {
+        name: defaultTaskName(step, subject),
+        description: taskDescriptionFor(step, subject, body),
+        kind: taskKindFor(step.type),
+        status: TaskStatus.NOT_STARTED,
+        dueDate: scheduledFor,
+        assignedToId: args.fromUserId,
+        createdById: args.fromUserId,
+        organizationId: args.organizationId,
+        candidateId: args.candidateId,
+        applicationId: args.applicationId,
+        stepRunId: run.id,
+      },
     });
     return;
   }
 
+  // Auto-sent EMAIL step.
   if (!args.candidateEmail) {
     await prisma.stepRun.create({
       data: {
@@ -566,15 +626,13 @@ async function scheduleStepRun(args: ScheduleArgs): Promise<void> {
     return;
   }
 
-  const subject = renderTemplate(step.subject ?? "", ctx);
-  const text = renderTemplate(step.body ?? "", ctx);
-  const html = text.replace(/\n/g, "<br>");
+  const html = body.replace(/\n/g, "<br>");
 
   try {
     const result = await sendEmail({
       to: args.candidateEmail,
       subject,
-      text,
+      text: body,
       html,
       // Route replies into the ATS (captured + forwarded) when inbound capture
       // is configured; otherwise fall back to the enroller's email.
@@ -592,7 +650,7 @@ async function scheduleStepRun(args: ScheduleArgs): Promise<void> {
         organizationId: args.organizationId,
         to: args.candidateEmail,
         subject,
-        bodyText: text,
+        bodyText: body,
         bodyHtml: html,
         provider: result.provider,
         providerMessageId: result.id,
@@ -624,6 +682,58 @@ async function scheduleStepRun(args: ScheduleArgs): Promise<void> {
       },
     });
   }
+}
+
+function taskKindFor(type: SequenceStepType): TaskKind {
+  switch (type) {
+    case SequenceStepType.CALL:
+      return TaskKind.CALL;
+    case SequenceStepType.TEXT:
+      return TaskKind.TEXT;
+    case SequenceStepType.LINKEDIN:
+      return TaskKind.LINKEDIN;
+    case SequenceStepType.EMAIL:
+      return TaskKind.EMAIL;
+    default:
+      return TaskKind.GENERAL;
+  }
+}
+
+function defaultTaskName(
+  step: { type: SequenceStepType; taskTitle: string | null },
+  subject: string,
+): string {
+  if (step.taskTitle) return step.taskTitle;
+  switch (step.type) {
+    case SequenceStepType.CALL:
+      return "Call candidate";
+    case SequenceStepType.TEXT:
+      return "Send a text";
+    case SequenceStepType.LINKEDIN:
+      return "LinkedIn touch";
+    case SequenceStepType.EMAIL:
+      return subject ? `Send email: ${subject}` : "Send email";
+    default:
+      return "Sequence task";
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function taskDescriptionFor(
+  step: { type: SequenceStepType; taskInstructions: string | null },
+  subject: string,
+  body: string,
+): string | null {
+  // Manual email: give the recruiter the rendered draft to send themselves.
+  if (step.type === SequenceStepType.EMAIL) {
+    const subjectLine = `<p><strong>Subject:</strong> ${escapeHtml(subject)}</p>`;
+    const bodyHtml = escapeHtml(body).replace(/\n/g, "<br>");
+    return `${subjectLine}<hr>${bodyHtml}`;
+  }
+  return step.taskInstructions ?? null;
 }
 
 function buildTemplateContext(input: {
@@ -695,7 +805,9 @@ export async function resumeEnrollment(enrollmentId: string): Promise<ActionResu
   });
 
   for (const run of enrollment.stepRuns) {
-    if (run.step.type !== SequenceStepType.EMAIL) continue; // Manual steps just stay PENDING.
+    // Only auto-sent emails get re-scheduled on resume. Manual steps and
+    // "send it yourself" emails stay PENDING — they're tasks, not auto-sends.
+    if (run.step.type !== SequenceStepType.EMAIL || run.step.autoSend === false) continue;
     if (!enrollment.candidate.email) continue;
 
     const subject = renderTemplate(run.step.subject ?? "", ctx);
@@ -847,7 +959,7 @@ export async function completeStepRun(
   const run = await prisma.stepRun.findFirst({
     where: { id: stepRunId, enrollment: { sequence: { organizationId: orgId } } },
     include: {
-      step: { select: { type: true, sequenceId: true } },
+      step: { select: { type: true, autoSend: true, sequenceId: true } },
       enrollment: { select: { id: true, sequenceId: true } },
     },
   });
@@ -855,15 +967,29 @@ export async function completeStepRun(
   if (run.status !== StepRunStatus.PENDING) {
     return { ok: false, message: "This step is already closed out." };
   }
-  if (run.step.type === SequenceStepType.EMAIL) {
-    return { ok: false, message: "Email steps can't be manually completed." };
+  // Auto-sent emails are closed by the provider, not by hand. Manual "send it
+  // yourself" emails (autoSend=false) CAN be completed here.
+  if (run.step.type === SequenceStepType.EMAIL && run.step.autoSend) {
+    return { ok: false, message: "Auto-sent email steps can't be manually completed." };
   }
 
+  const now = new Date();
   await prisma.stepRun.update({
     where: { id: stepRunId },
     data: {
       status: StepRunStatus.COMPLETED,
-      completedAt: new Date(),
+      completedAt: now,
+      completedById: session.user.id,
+      outcomeNote: outcome,
+    },
+  });
+
+  // Keep the linked Task in lockstep (two-way completion).
+  await prisma.task.updateMany({
+    where: { stepRunId },
+    data: {
+      status: TaskStatus.COMPLETE,
+      completedAt: now,
       completedById: session.user.id,
       outcomeNote: outcome,
     },
@@ -876,10 +1002,11 @@ export async function completeStepRun(
   if (remaining === 0) {
     await prisma.sequenceEnrollment.update({
       where: { id: run.enrollmentId },
-      data: { status: EnrollmentStatus.COMPLETED, completedAt: new Date() },
+      data: { status: EnrollmentStatus.COMPLETED, completedAt: now },
     });
   }
 
   invalidateEnrollmentViews(run.step.sequenceId);
+  revalidatePath("/tasks");
   return { ok: true, message: "Marked done." };
 }
